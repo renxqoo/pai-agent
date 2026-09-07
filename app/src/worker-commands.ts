@@ -115,6 +115,8 @@ const handleResume: Handler = async (ctx, cmd, id) => {
 };
 
 const handleStop: Handler = async (ctx, _cmd, id) => {
+  // U2 (background plan): stopping the conversation kills every subagent.
+  ctx.killSubagents();
   await ctx.sessions.stop();
   ctx.success(id, "thread/stop");
 };
@@ -189,6 +191,9 @@ const handleAbort: Handler = async (ctx, cmd, id) => {
   const abort = cmd as GetStateCmd & { id?: string };
   const thread = ctx.requireThread(abort.threadId, "abort", id);
   if (!thread) return;
+  // U2 (background plan): an abort means the user does not want this work —
+  // foreground tool signals and every background task die together.
+  ctx.killSubagents();
   await thread.session.abort();
   ctx.success(id, "abort");
 };

@@ -44,6 +44,8 @@ interface RegistryEntry {
 
 export interface LaunchHandle {
   result: Promise<GrandchildResult>;
+  /** Whether this task got a concurrency slot immediately. */
+  status: "started" | "queued";
 }
 
 export interface RegistryDeps {
@@ -118,9 +120,12 @@ export class SubagentRegistry {
           { once: true },
         );
     }
-    if (this.liveCount() < MAX_CONCURRENT_SUBAGENTS) this.startNow(entry);
-    else this.queue.push(spec.subagentId);
-    return { result: settled };
+    if (this.liveCount() < MAX_CONCURRENT_SUBAGENTS) {
+      this.startNow(entry);
+      return { result: settled, status: "started" };
+    }
+    this.queue.push(spec.subagentId);
+    return { result: settled, status: "queued" };
   }
 
   /** Stop one task: queued -> dequeue without spawning; running -> abort chain. */

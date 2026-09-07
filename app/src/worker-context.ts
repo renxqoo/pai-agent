@@ -21,4 +21,6 @@ export interface WorkerContext {
   requireThread: (threadId: string, command: string, id: string | undefined) => Thread | undefined;
   /** Route a ui_response into a live grandchild (false = not a subagent request). */
   routeSubagentUi: (requestId: string, payload: Record<string, unknown>) => boolean;
+  /** U2: client abort / thread stop kills every subagent (foreground + background). */
+  killSubagents: () => void;
 }

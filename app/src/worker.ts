@@ -97,6 +97,7 @@ function buildContext(deps: {
     registerInflight: deps.registry.register,
     triggerShutdown: deps.triggerShutdown,
     routeSubagentUi: (requestId, payload) => deps.subagents.route(requestId, payload),
+    killSubagents: () => deps.subagents.killAll(),
     success: (id, command, data) => {
       deps.emit(responseSuccess(id, command, data));
     },

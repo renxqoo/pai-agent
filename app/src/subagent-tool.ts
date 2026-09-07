@@ -17,6 +17,7 @@ import { effectiveRules } from "./permission-gate.ts";
 import type { HubFrame, SessionModel } from "./protocol.ts";
 import { toWireEvent } from "./session-host.ts";
 import {
+  type GrandchildHooks,
   type GrandchildResult,
   type GrandchildTaskSpec,
   type GrandchildUsage,
@@ -44,6 +45,7 @@ interface TaskItemInput {
 }
 
 interface TaskParamsInput {
+  background?: boolean;
   agent?: string;
   task?: string;
   tasks?: TaskItemInput[];
@@ -55,6 +57,7 @@ interface PreparedBatch {
   mode: "single" | "parallel" | "chain";
   items: TaskItemInput[];
   defaultCwd?: string;
+  background: boolean;
 }
 
 const TaskItem = Type.Object({
@@ -66,6 +69,12 @@ const TaskItem = Type.Object({
 });
 
 const TaskParams = Type.Object({
+  background: Type.Optional(
+    Type.Boolean({
+      description:
+        "Run in background: returns a receipt immediately and the turn continues; a notification message wakes you when each task finishes (opt-in; default false blocks until done). Background tasks cannot be recovered after a stop.",
+    }),
+  ),
   agent: Type.Optional(Type.String({ description: "Agent name (single mode)" })),
   task: Type.Optional(Type.String({ description: "Task text (single mode)" })),
   tasks: Type.Optional(Type.Array(TaskItem, { description: "Parallel {agent, task} items" })),
@@ -122,6 +131,12 @@ async function runTaskTool(deps: {
   const { deps: tool, trusted } = deps;
   const batch = prepareBatch(deps.params);
   if (typeof batch === "string") return textResult(batch, true);
+  if (batch.background && batch.mode === "chain") {
+    return textResult(
+      "Invalid parameters: chain mode cannot run in background (each step needs the previous output); split it into sequential single calls.",
+      true,
+    );
+  }
 
   // Sync reservation before the first await (plan stage 1): the in-flight
   // budget is checked against the registry (queued+running, single truth).
@@ -136,6 +151,7 @@ async function runTaskTool(deps: {
     const specsResult = await buildSpecs({ tool, trusted, batch, ctx: deps.ctx });
     if (specsResult instanceof Error) return textResult(specsResult.message, true);
     const { specs, notes } = specsResult;
+    if (batch.background) return launchBackground({ tool, specs, batch, signal: deps.signal });
     const runOne = (spec: GrandchildTaskSpec): Promise<GrandchildResult> =>
       runGrandchild(tool, spec, deps.signal);
     // await inside the try (batch-B lesson); budget release lives on the
@@ -150,6 +166,46 @@ async function runTaskTool(deps: {
     // Defensive: the registry/driver never reject, but a hook could throw.
     return textResult(error instanceof Error ? error.message : String(error), true);
   }
+}
+
+/** Launch a background batch: receipts now, results later as notification
+ * messages (plan stage 2). Nothing is awaited — the turn continues. */
+function launchBackground(deps: {
+  tool: TaskToolDeps;
+  specs: GrandchildTaskSpec[];
+  batch: PreparedBatch;
+  signal: AbortSignal | undefined;
+}): ToolResult {
+  const { tool, specs, batch, signal } = deps;
+  const lines: string[] = [];
+  const results: Array<{ subagentId: string; agent: string; task: string; status: string }> = [];
+  for (const spec of specs) {
+    const handle = tool.registry.launch({
+      spec,
+      ...(signal !== undefined ? { outerSignal: signal } : {}),
+      hooks: hooksFor(tool, spec),
+    });
+    results.push({
+      subagentId: spec.subagentId,
+      agent: spec.agent,
+      task: spec.task,
+      status: handle.status,
+    });
+    lines.push(`${spec.agent} -> ${spec.subagentId} (${handle.status})`);
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: [
+          `Started ${specs.length} background task${specs.length > 1 ? "s" : ""}:`,
+          ...lines,
+          "You will receive a [task-notification] message as each finishes. Do not invent results before that notification; check live status with task_out, wait with task_wait, stop one with task_stop.",
+        ].join("\n"),
+      },
+    ],
+    details: { mode: batch.mode, results },
+  };
 }
 
 /** Append model-fallback notes to the result text (U6: visible to the model). */
@@ -205,6 +261,34 @@ async function buildSpecs(deps: {
   return { specs, notes };
 }
 
+/** Relay hooks shared by the foreground and background launch paths. */
+function hooksFor(tool: TaskToolDeps, spec: GrandchildTaskSpec): GrandchildHooks {
+  return {
+    onEvent: (event) => {
+      tool.emit({
+        type: "subagent_event",
+        threadId: tool.getThreadId(),
+        subagentId: spec.subagentId,
+        agent: spec.agent,
+        task: envelopeTask(spec.task),
+        event: toWireEvent(event),
+      });
+    },
+    onUiRequest: (frame) => {
+      const { type: _type, threadId: _threadId, ...rest } = frame;
+      tool.emit({
+        type: "ui_request",
+        requestId: String(frame["requestId"] ?? ""),
+        threadId: tool.getThreadId(),
+        ...rest,
+        subagentId: spec.subagentId,
+        agent: spec.agent,
+      });
+    },
+    writeStderr: tool.writeStderr,
+  };
+}
+
 /** Launch one grandchild through the registry (global gate + queueing) and
  * await its result. The turn signal is chained onto the entry's controller
  * by the registry; killAll/task_stop reach it the same way. */
@@ -216,30 +300,7 @@ async function runGrandchild(
   const handle = tool.registry.launch({
     spec,
     ...(signal !== undefined ? { outerSignal: signal } : {}),
-    hooks: {
-      onEvent: (event) => {
-        tool.emit({
-          type: "subagent_event",
-          threadId: tool.getThreadId(),
-          subagentId: spec.subagentId,
-          agent: spec.agent,
-          task: envelopeTask(spec.task),
-          event: toWireEvent(event),
-        });
-      },
-      onUiRequest: (frame) => {
-        const { type: _type, threadId: _threadId, ...rest } = frame;
-        tool.emit({
-          type: "ui_request",
-          requestId: String(frame["requestId"] ?? ""),
-          threadId: tool.getThreadId(),
-          ...rest,
-          subagentId: spec.subagentId,
-          agent: spec.agent,
-        });
-      },
-      writeStderr: tool.writeStderr,
-    },
+    hooks: hooksFor(tool, spec),
   });
   return handle.result;
 }
@@ -270,6 +331,7 @@ function prepareBatch(params: TaskParamsInput): PreparedBatch | string {
       mode: "single",
       items: [{ agent: params.agent, task: params.task }],
       defaultCwd: params.cwd,
+      background: params.background === true,
     };
   }
   const items = hasTasks ? params.tasks : params.chain;
@@ -277,7 +339,11 @@ function prepareBatch(params: TaskParamsInput): PreparedBatch | string {
   if (items.length > MAX_TASKS_PER_CALL) {
     return `Too many tasks (${items.length}). Max is ${MAX_TASKS_PER_CALL} per call.`;
   }
-  return { mode: hasTasks ? "parallel" : "chain", items };
+  return {
+    mode: hasTasks ? "parallel" : "chain",
+    items,
+    background: params.background === true,
+  };
 }
 
 /** Task cwd must resolve inside the conversation cwd (plan §3.6). */
@@ -329,19 +395,23 @@ export async function resolveTaskModel(deps: {
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
-  /** Per-agent outcomes (plan §3.3): usage and relay stats for the UI. */
+  /** Per-agent outcomes (plan §3.3): usage and relay stats for the UI;
+   * background receipts carry {subagentId, status} instead of outputs. */
   details: {
     mode: "single" | "parallel" | "chain";
-    results: Array<{
-      agent: string;
-      task: string;
-      output: string;
-      isError: boolean;
-      aborted: boolean;
-      truncated: boolean;
-      eventsRelayed: number;
-      usage: GrandchildUsage;
-    }>;
+    results: Array<
+      | {
+          agent: string;
+          task: string;
+          output: string;
+          isError: boolean;
+          aborted: boolean;
+          truncated: boolean;
+          eventsRelayed: number;
+          usage: GrandchildUsage;
+        }
+      | { subagentId: string; agent: string; task: string; status: string }
+    >;
   };
 }
 

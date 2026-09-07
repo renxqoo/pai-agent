@@ -282,6 +282,41 @@ describe("task tool execution semantics", () => {
     expect(h.maxConcurrent()).toBe(1);
   });
 
+  test("background:true returns a receipt immediately and registers the task", async () => {
+    const h = makeHarness({ hold: true });
+    const r = await runTool(h, { agent: "echoer", task: "long job", background: true });
+    expect(r.text).toContain("Started 1 background task");
+    expect(r.text).toMatch(/echoer -> sub_[0-9a-f]{8} \(started\)/);
+    expect(r.text).toContain("task-notification");
+    expect(r.details?.results[0]).toMatchObject({ agent: "echoer", status: "started" });
+    expect(h.registry.inFlight()).toBe(1);
+    expect(h.registry.liveCount()).toBe(1);
+  });
+
+  test("background receipt marks queued when the global gate is full", async () => {
+    const h = makeHarness({ hold: true });
+    for (let i = 0; i < MAX_CONCURRENT_SUBAGENTS; i++) {
+      h.registry.launch({
+        spec: { ...specTemplate(), subagentId: `sub_bgfill${i}${i}` },
+        hooks: { onEvent: () => {}, onUiRequest: () => {}, writeStderr: () => {} },
+      });
+    }
+    const r = await runTool(h, { agent: "echoer", task: "overflow", background: true });
+    expect(r.text).toMatch(/\(queued\)/);
+    expect(h.registry.inFlight()).toBe(MAX_CONCURRENT_SUBAGENTS + 1);
+    expect(h.registry.liveCount()).toBe(MAX_CONCURRENT_SUBAGENTS);
+  });
+
+  test("chain + background is rejected", async () => {
+    const h = makeHarness();
+    const r = await runTool(h, {
+      background: true,
+      chain: [{ agent: "echoer", task: "a" }],
+    });
+    expect(r.text).toContain("chain mode cannot run in background");
+    expect(h.launches.length).toBe(0);
+  });
+
   test("model fallback note is appended to the result text (U6)", async () => {
     const h = makeHarness();
     const fallbackModel = { provider: "p", id: "m" };
