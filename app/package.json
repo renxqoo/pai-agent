@@ -1,0 +1,29 @@
+{
+  "name": "pai-cli",
+  "version": "0.1.0",
+  "description": "Multi-session host for the pi coding agent: one process, many conversations, JSONL over stdio",
+  "bin": {
+    "pai": "./src/cli.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "bun src/cli.ts",
+    "check": "oxlint && oxfmt --check . && tsc --noEmit",
+    "fmt": "oxfmt .",
+    "build": "bun build src/cli.ts --outdir dist --target=bun",
+    "test": "bun test && bun test/smoke.mjs",
+    "e2e": "bun test/e2e.mjs",
+    "e2e:multi": "bun test/e2e-multi.mjs",
+    "ci": "npm run check && npm run build && npm run test"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "file:../packages/ai",
+    "@earendil-works/pi-coding-agent": "file:../packages/coding-agent"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.81.0",
+    "typescript": "7.0.2"
+  }
+}

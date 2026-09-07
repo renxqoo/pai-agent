@@ -1,0 +1,305 @@
+/**
+ * pai-cli protocol types.
+ *
+ * Wire format: JSONL over stdio, LF is the only record delimiter.
+ * - Electron -> hub (stdin): commands with optional `id` for correlation
+ * - hub -> Electron (stdout): responses (`id` echoes the command), events
+ *   (tagged with `threadId`), dialog requests, heartbeat
+ */
+
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+
+export interface ImagePayload {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+// ============================================================================
+// Commands (stdin)
+// ============================================================================
+
+export interface ThreadStartCmd {
+  type: "thread/start";
+  /** Working directory for the conversation. Defaults to the pai-cli process cwd. */
+  cwd?: string;
+  /** Initial model. Requires both provider and modelId. */
+  provider?: string;
+  modelId?: string;
+  /** Trust project-local `.pi` extensions for this thread. Extensions are
+   * arbitrary code; untrusted threads load only the built-in permission
+   * gate. Defaults to false. */
+  trusted?: boolean;
+}
+
+export interface ThreadResumeCmd {
+  type: "thread/resume";
+  /** Session file to resume. */
+  sessionPath: string;
+  cwd?: string;
+  trusted?: boolean;
+}
+
+export interface ThreadStopCmd {
+  type: "thread/stop";
+  threadId: string;
+}
+
+export interface ThreadListCmd {
+  type: "thread/list";
+}
+
+export interface ThreadListSavedCmd {
+  type: "thread/list_saved";
+  cwd?: string;
+}
+
+export interface PromptCmd {
+  type: "prompt";
+  threadId: string;
+  message: string;
+  /** Required when the thread is already streaming: "steer" or "followUp". */
+  streamingBehavior?: "steer" | "followUp";
+  images?: ImagePayload[];
+}
+
+export interface SteerCmd {
+  type: "steer";
+  threadId: string;
+  message: string;
+  images?: ImagePayload[];
+}
+
+export interface FollowUpCmd {
+  type: "follow_up";
+  threadId: string;
+  message: string;
+  images?: ImagePayload[];
+}
+
+export interface AbortCmd {
+  type: "abort";
+  threadId: string;
+}
+
+export interface CompactCmd {
+  type: "compact";
+  threadId: string;
+  customInstructions?: string;
+}
+
+export interface GetStateCmd {
+  type: "get_state";
+  threadId: string;
+}
+
+export interface GetMessagesCmd {
+  type: "get_messages";
+  threadId: string;
+}
+
+export interface SetModelCmd {
+  type: "set_model";
+  threadId: string;
+  provider: string;
+  modelId: string;
+}
+
+export interface GetModelsCmd {
+  type: "get_models";
+}
+
+export interface SetThinkingLevelCmd {
+  type: "set_thinking_level";
+  threadId: string;
+  level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+}
+
+export interface GetThinkingLevelsCmd {
+  type: "get_thinking_levels";
+  threadId: string;
+}
+
+/** List configured provider credentials (never includes the key itself). */
+export interface AuthListCmd {
+  type: "auth/list";
+}
+
+/** Set (and persist) an API key for a provider. Key never appears in frames. */
+export interface AuthSetApiKeyCmd {
+  type: "auth/set_api_key";
+  provider: string;
+  apiKey: string;
+}
+
+/** Remove a provider's API key credential (runtime + persisted storage). */
+export interface AuthRemoveKeyCmd {
+  type: "auth/remove_key";
+  provider: string;
+}
+
+/** Session entries in append order; `since` is a durable cursor. */
+export interface GetEntriesCmd {
+  type: "get_entries";
+  threadId: string;
+  since?: string;
+}
+
+/** Session as a tree of entries with the current leaf. */
+export interface GetTreeCmd {
+  type: "get_tree";
+  threadId: string;
+}
+
+/** Set the session's display name. */
+export interface SetSessionNameCmd {
+  type: "set_session_name";
+  threadId: string;
+  name: string;
+}
+
+/** Token usage, cost, and context window usage. */
+export interface GetSessionStatsCmd {
+  type: "get_session_stats";
+  threadId: string;
+}
+
+/** Drop queued steering/follow-up messages; returns their text. */
+export interface ClearQueueCmd {
+  type: "clear_queue";
+  threadId: string;
+}
+
+/** Fork the thread from a historical entry; thread gets a NEW threadId. */
+export interface ForkCmd {
+  type: "fork";
+  threadId: string;
+  entryId: string;
+  position?: "before" | "at";
+}
+
+/** Clone: fork at the current leaf; thread gets a NEW threadId. */
+export interface CloneCmd {
+  type: "clone";
+  threadId: string;
+}
+
+/** Move the active leaf within the current session file. */
+export interface NavigateTreeCmd {
+  type: "navigate_tree";
+  threadId: string;
+  targetId: string;
+  summarize?: boolean;
+  customInstructions?: string;
+  replaceInstructions?: boolean;
+  label?: string;
+}
+
+/** User messages available as fork points. */
+export interface GetForkMessagesCmd {
+  type: "get_fork_messages";
+  threadId: string;
+}
+
+/** Slash commands / skills enumeration for input autocomplete. */
+export interface GetCommandsCmd {
+  type: "get_commands";
+  threadId: string;
+}
+
+/** Execute a shell command directly; output streams via event frames. */
+export interface BashCmd {
+  type: "bash";
+  threadId: string;
+  command: string;
+  excludeFromContext?: boolean;
+}
+
+/** Abort a running direct bash command. */
+export interface AbortBashCmd {
+  type: "abort_bash";
+  threadId: string;
+}
+
+/** Reply to a dialog request emitted on stdout. */
+export interface UiResponseCmd {
+  type: "ui_response";
+  /** Must match the requestId of the dialog request. */
+  requestId: string;
+  /** e.g. { confirmed: true }, { value: "Allow" }, { cancelled: true } */
+  payload: Record<string, unknown>;
+}
+
+export type HubCommand =
+  | (ThreadStartCmd & { id?: string })
+  | (ThreadResumeCmd & { id?: string })
+  | (ThreadStopCmd & { id?: string })
+  | (ThreadListCmd & { id?: string })
+  | (ThreadListSavedCmd & { id?: string })
+  | (PromptCmd & { id?: string })
+  | (SteerCmd & { id?: string })
+  | (FollowUpCmd & { id?: string })
+  | (AbortCmd & { id?: string })
+  | (CompactCmd & { id?: string })
+  | (GetStateCmd & { id?: string })
+  | (GetMessagesCmd & { id?: string })
+  | (SetModelCmd & { id?: string })
+  | (GetModelsCmd & { id?: string })
+  | (SetThinkingLevelCmd & { id?: string })
+  | (GetThinkingLevelsCmd & { id?: string })
+  | (AuthListCmd & { id?: string })
+  | (AuthSetApiKeyCmd & { id?: string })
+  | (AuthRemoveKeyCmd & { id?: string })
+  | (GetEntriesCmd & { id?: string })
+  | (GetTreeCmd & { id?: string })
+  | (SetSessionNameCmd & { id?: string })
+  | (GetSessionStatsCmd & { id?: string })
+  | (ClearQueueCmd & { id?: string })
+  | (ForkCmd & { id?: string })
+  | (CloneCmd & { id?: string })
+  | (NavigateTreeCmd & { id?: string })
+  | (GetForkMessagesCmd & { id?: string })
+  | (GetCommandsCmd & { id?: string })
+  | (BashCmd & { id?: string })
+  | (AbortBashCmd & { id?: string })
+  | (UiResponseCmd & { id?: string });
+
+// ============================================================================
+// Frames (stdout)
+// ============================================================================
+
+export interface ResponseFrame {
+  type: "response";
+  id?: string;
+  command: string;
+  success: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+export interface EventFrame {
+  type: "event";
+  threadId: string;
+  event: AgentSessionEvent;
+}
+
+export interface UiRequestFrame {
+  type: "ui_request";
+  requestId: string;
+  threadId: string;
+  /** Dialog method: "confirm" | "select" | "input" | "editor" | "notify" | "setStatus" */
+  method?: string;
+  [key: string]: unknown;
+}
+
+export interface HeartbeatFrame {
+  type: "heartbeat";
+}
+
+export interface HubErrorFrame {
+  type: "hub_error";
+  scope: string;
+  error: string;
+}
+
+export type HubFrame = ResponseFrame | EventFrame | UiRequestFrame | HeartbeatFrame | HubErrorFrame;
