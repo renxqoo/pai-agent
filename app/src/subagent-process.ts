@@ -80,6 +80,9 @@ export interface GrandchildDriver {
   /** Route a ui_response back into the grandchild (reconstructed line: the
    * host's internal id never crosses this boundary). False = unknown/late. */
   resolveUi: (requestId: string, payload: Record<string, unknown>) => boolean;
+  /** Live progress for task_out snapshots: last assistant text tail and
+   * running usage totals; undefined once settled (use the result). */
+  progress: () => { text: string; usage: GrandchildUsage } | undefined;
 }
 
 interface AssistantMessage {
@@ -178,7 +181,11 @@ class GrandchildRunner {
 
   start(): GrandchildDriver {
     const result = this.run().finally(() => this.teardown());
-    return { result, resolveUi: (requestId, payload) => this.resolveUi(requestId, payload) };
+    return {
+      result,
+      resolveUi: (requestId, payload) => this.resolveUi(requestId, payload),
+      progress: () => this.progress(),
+    };
   }
 
   private async run(): Promise<GrandchildResult> {
@@ -367,6 +374,11 @@ class GrandchildRunner {
         .catch(() => {});
     }
     child.stdin.end();
+  }
+
+  private progress(): { text: string; usage: GrandchildUsage } | undefined {
+    if (this.state.settled || this.state.fatal !== undefined) return undefined;
+    return { text: this.state.lastText, usage: { ...this.state.usage } };
   }
 
   private resolveUi(requestId: string, payload: Record<string, unknown>): boolean {

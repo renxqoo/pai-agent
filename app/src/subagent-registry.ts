@@ -17,6 +17,7 @@ import {
   type GrandchildHooks,
   type GrandchildResult,
   type GrandchildTaskSpec,
+  type GrandchildUsage,
   startGrandchildTask,
 } from "./subagent-process.ts";
 
@@ -51,6 +52,7 @@ interface RegistryEntry {
   resolveSettle: (result: GrandchildResult) => void;
   status: SubagentStatus;
   startedAt: number | null;
+  settledAt: number | null;
   controller: AbortController;
   driver: GrandchildDriver | undefined;
   stopRequested: boolean;
@@ -72,6 +74,70 @@ export interface RegistryDeps {
   getSession?: () => NotifySession | undefined;
   isShuttingDown?: () => boolean;
   writeStderr?: (text: string) => void;
+}
+
+export interface SnapshotEntry {
+  subagentId: string;
+  agent: string;
+  task: string;
+  status: SubagentStatus;
+  elapsedMs: number;
+  output: string;
+  usage: GrandchildUsage;
+  eventsRelayed: number;
+  truncated: boolean;
+}
+
+/** running tail cap for task_out previews (plan contract section). */
+export const TASK_OUT_RUNNING_TAIL_BYTES = 2 * 1024;
+
+function elapsedOf(entry: RegistryEntry, now: number): number {
+  if (entry.settledAt !== null && entry.startedAt !== null)
+    return entry.settledAt - entry.startedAt;
+  if (entry.startedAt !== null) return now - entry.startedAt;
+  return 0;
+}
+
+function snapshotOf(entry: RegistryEntry): SnapshotEntry {
+  const now = Date.now();
+  const base = {
+    subagentId: entry.spec.subagentId,
+    agent: entry.spec.agent,
+    task: entry.spec.task,
+    status: entry.status,
+    elapsedMs: elapsedOf(entry, now),
+  };
+  if (entry.result !== undefined) {
+    return {
+      ...base,
+      output: entry.result.output,
+      usage: entry.result.usage,
+      eventsRelayed: entry.result.eventsRelayed,
+      truncated: entry.result.truncated,
+    };
+  }
+  const live = entry.driver?.progress();
+  const text = live === undefined ? "" : tailBytes(live.text, TASK_OUT_RUNNING_TAIL_BYTES);
+  return {
+    ...base,
+    output: text,
+    usage: live?.usage ?? zeroUsage(),
+    eventsRelayed: 0,
+    truncated: false,
+  };
+}
+
+function tailBytes(text: string, cap: number): string {
+  if (Buffer.byteLength(text, "utf8") <= cap) return text;
+  let sliced = text.slice(-cap);
+  while (Buffer.byteLength(sliced, "utf8") > cap) {
+    sliced = sliced.slice(1);
+  }
+  return sliced;
+}
+
+function zeroUsage(): GrandchildUsage {
+  return { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0 };
 }
 
 function noSession(): NotifySession | undefined {
@@ -170,6 +236,7 @@ export class SubagentRegistry {
       hooks: deps.hooks,
       status: "queued",
       startedAt: null,
+      settledAt: null,
       controller: new AbortController(),
       driver: undefined,
       stopRequested: false,
@@ -229,6 +296,25 @@ export class SubagentRegistry {
     }
   }
 
+  statusOf(subagentId: string): SubagentStatus | "unknown" {
+    const entry = this.entries.get(subagentId);
+    return entry === undefined ? "unknown" : entry.status;
+  }
+
+  /** The settle promise of a known task (resolved already when retained). */
+  awaitOf(subagentId: string): Promise<GrandchildResult> | undefined {
+    return this.entries.get(subagentId)?.settled;
+  }
+
+  /** task_out snapshot: one entry or all (undefined id = everything). */
+  snapshot(subagentId?: string): SnapshotEntry[] | SnapshotEntry | undefined {
+    if (subagentId !== undefined) {
+      const entry = this.entries.get(subagentId);
+      return entry === undefined ? undefined : snapshotOf(entry);
+    }
+    return [...this.entries.values()].map(snapshotOf);
+  }
+
   /** Route a ui_response broadcast into a live grandchild (false = unknown). */
   route(requestId: string, payload: Record<string, unknown>): boolean {
     for (const entry of this.entries.values()) {
@@ -242,6 +328,7 @@ export class SubagentRegistry {
   private startNow(entry: RegistryEntry): void {
     entry.status = "running";
     entry.startedAt = Date.now();
+    entry.settledAt = null;
     const driver = this.startTask({
       spec: entry.spec,
       hooks: entry.hooks,
@@ -272,6 +359,7 @@ export class SubagentRegistry {
   private settleEntry(entry: RegistryEntry, result: GrandchildResult): void {
     entry.result = result;
     entry.driver = undefined;
+    entry.settledAt = Date.now();
     entry.status = terminalStatus(entry, result);
     entry.resolveSettle(result);
     this.evictOverflow();

@@ -73,7 +73,12 @@ function makeFakeLauncher(): { start: StartTaskFn; launches: FakeLaunch[] } {
       spec: deps.spec,
       signal: deps.signal,
       settle: resolveResult,
-      driver: { result, resolveUi: () => false },
+      driver: {
+        result,
+        resolveUi: () => false,
+        // eslint-disable-next-line unicorn/no-useless-undefined -- interface requires undefined before settle
+        progress: () => undefined,
+      },
     };
     launches.push(launch);
     return launch.driver;

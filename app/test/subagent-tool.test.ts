@@ -70,6 +70,7 @@ interface RegisteredTool {
 
 interface ToolHarness {
   tool: RegisteredTool;
+  tools: Map<string, RegisteredTool>;
   registry: SubagentRegistry;
   launches: GrandchildTaskSpec[];
   maxConcurrent: () => number;
@@ -110,6 +111,7 @@ function specTemplate(): GrandchildTaskSpec {
 
 function makeHarness(options?: { hold?: boolean }): ToolHarness {
   const launches: GrandchildTaskSpec[] = [];
+  const held: Array<{ spec: GrandchildTaskSpec; settle: (result: GrandchildResult) => void }> = [];
   let inFlightNow = 0;
   let maxSeen = 0;
   const okResult = makeOkResult();
@@ -117,13 +119,28 @@ function makeHarness(options?: { hold?: boolean }): ToolHarness {
     launches.push(deps.spec);
     inFlightNow += 1;
     maxSeen = Math.max(maxSeen, inFlightNow);
-    const result =
-      options?.hold === true
-        ? new Promise<GrandchildResult>(() => {}) // never settles (budget test)
-        : Promise.resolve(okResult(deps.spec)).finally(() => {
-            inFlightNow -= 1;
-          });
-    return { result, resolveUi: () => false };
+    if (options?.hold === true) {
+      let resolveHeld!: (result: GrandchildResult) => void;
+      const result = new Promise<GrandchildResult>((resolve) => {
+        resolveHeld = resolve;
+      });
+      held.push({ spec: deps.spec, settle: resolveHeld });
+      return {
+        result,
+        resolveUi: () => false,
+        // eslint-disable-next-line unicorn/no-useless-undefined -- interface requires undefined before settle
+        progress: () => undefined,
+      };
+    }
+    const result = Promise.resolve(okResult(deps.spec)).finally(() => {
+      inFlightNow -= 1;
+    });
+    return {
+      result,
+      resolveUi: () => false,
+      // eslint-disable-next-line unicorn/no-useless-undefined -- interface requires undefined before settle
+      progress: () => undefined,
+    };
   };
   const modelRuntime = {
     getAvailableSnapshot: () => [],
@@ -137,15 +154,25 @@ function makeHarness(options?: { hold?: boolean }): ToolHarness {
     writeStderr: () => {},
     getThreadId: () => "tid-1",
   };
-  let registered: RegisteredTool | undefined;
+  const tools = new Map<string, RegisteredTool>();
   const pi = {
-    registerTool: (def: RegisteredTool) => {
-      registered = def;
+    registerTool: (def: RegisteredTool & { name: string }) => {
+      tools.set(def.name, def);
     },
   } as unknown as ExtensionAPI;
   createTaskTool(deps, false)(pi);
-  if (registered === undefined) throw new Error("task tool was not registered");
-  return { tool: registered, registry, launches, maxConcurrent: () => maxSeen };
+  const task = tools.get("task");
+  if (task === undefined) throw new Error("task tool was not registered");
+  return {
+    tool: task,
+    tools,
+    registry,
+    launches,
+    maxConcurrent: () => maxSeen,
+    settleHeld(): void {
+      for (const item of held.splice(0)) item.settle(okResult(item.spec));
+    },
+  };
 }
 
 async function runTool(
@@ -165,6 +192,114 @@ async function runTool(
     details: result.details,
   };
 }
+
+async function runNamed(deps: {
+  harness: ToolHarness;
+  name: string;
+  params: Record<string, unknown>;
+  signal?: AbortSignal;
+}): Promise<{ text: string; isError: boolean | undefined; details: unknown }> {
+  const { harness, name, params, signal } = deps;
+  const def = harness.tools.get(name);
+  if (def === undefined) {
+    throw new Error(`tool ${name} not registered`);
+  }
+  const result = await def.execute("q-1", params, signal, undefined, {
+    cwd: tmpdir(),
+    model: undefined,
+    thinkingLevel: undefined,
+  });
+  const [first] = result.content;
+  return {
+    text: first !== undefined && first.type === "text" ? (first.text ?? "") : "",
+    isError: result.isError,
+    details: result.details,
+  };
+}
+
+describe("query tools (background plan stage 4)", () => {
+  test("task_out snapshots running output tail and settled results", async () => {
+    const h = makeHarness({ hold: true });
+    await runTool(h, { agent: "echoer", task: "snap", background: true });
+    const running = await runNamed({ harness: h, name: "task_out", params: {} });
+    expect(running.text).toContain('"status": "running"');
+    expect(running.text).toContain("snap");
+  });
+
+  test("task_out unknown id is an error", async () => {
+    const h = makeHarness();
+    const r = await runNamed({
+      harness: h,
+      name: "task_out",
+      params: { subagentId: "sub_ghost00" },
+    });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Unknown subagentId");
+  });
+
+  test("task_wait aggregates results and suppresses their notifications", async () => {
+    const h = makeHarness({ hold: true });
+    await runTool(h, { agent: "echoer", task: "wait-a", background: true });
+    await runTool(h, { agent: "echoer", task: "wait-b", background: true });
+    const waiting = runNamed({ harness: h, name: "task_wait", params: {} });
+    h.settleHeld(); // settle while the wait holds the suppression
+    const r = await waiting;
+    expect(r.text).toContain("done:wait-a");
+    expect(r.text).toContain("done:wait-b");
+    expect(h.registry.pendingCount()).toBe(0); // suppressed, not queued
+  });
+
+  test("task_wait empty set returns immediately", async () => {
+    const h = makeHarness();
+    const r = await runNamed({ harness: h, name: "task_wait", params: {} });
+    expect(r.text).toContain("nothing in flight");
+  });
+
+  test("task_wait all-unknown ids is an error; mixed annotates unknown", async () => {
+    const h = makeHarness();
+    const allUnknown = await runNamed({
+      harness: h,
+      name: "task_wait",
+      params: { subagentIds: ["sub_nope11"] },
+    });
+    expect(allUnknown.isError).toBe(true);
+    await runTool(h, { agent: "echoer", task: "mix", background: true });
+    const ids = (h.registry.snapshot() as Array<{ subagentId: string }>).map((e) => e.subagentId);
+    const mixed = await runNamed({
+      harness: h,
+      name: "task_wait",
+      params: { subagentIds: ["sub_nope11", ...ids] },
+    });
+    expect(mixed.isError).toBeUndefined();
+    expect(mixed.text).toContain("unknown");
+    expect(mixed.text).toContain("done:mix");
+  });
+
+  test("task_wait timeout returns an error and targets keep running", async () => {
+    const h = makeHarness({ hold: true });
+    await runTool(h, { agent: "echoer", task: "slow", background: true });
+    const r = await runNamed({ harness: h, name: "task_wait", params: { timeoutMs: 50 } });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("timed out");
+    expect(h.registry.inFlight()).toBe(1); // still running
+  });
+
+  test("task_stop stops a running task idempotently; unknown is an error", async () => {
+    const h = makeHarness({ hold: true });
+    await runTool(h, { agent: "echoer", task: "stoppable", background: true });
+    const [entry] = h.registry.snapshot() as Array<{ subagentId: string }>;
+    if (entry === undefined) throw new Error("no snapshot entry");
+    const id = entry.subagentId;
+    const first = await runNamed({ harness: h, name: "task_stop", params: { subagentId: id } });
+    expect(first.text).toContain("running");
+    const unknown = await runNamed({
+      harness: h,
+      name: "task_stop",
+      params: { subagentId: "sub_nope22" },
+    });
+    expect(unknown.isError).toBe(true);
+  });
+});
 
 describe("task tool parameter validation (plan §6)", () => {
   test("exactly one mode required", async () => {

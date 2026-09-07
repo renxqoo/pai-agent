@@ -29,6 +29,7 @@ import {
   MAX_TASKS_PER_CALL,
   type SubagentRegistry,
 } from "./subagent-registry.ts";
+import { registerQueryTools } from "./subagent-query-tools.ts";
 
 export interface TaskToolDeps {
   emit: (frame: HubFrame) => void;
@@ -88,6 +89,7 @@ const TaskParams = Type.Object({
 
 export function createTaskTool(deps: TaskToolDeps, trusted: boolean): InlineExtension {
   return (pi: ExtensionAPI): void => {
+    registerQueryTools(pi, deps);
     pi.registerTool({
       name: "task",
       label: "Task",
@@ -392,7 +394,7 @@ export async function resolveTaskModel(deps: {
 
 // --- execution -------------------------------------------------------------------
 
-interface ToolResult {
+export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
   /** Per-agent outcomes (plan §3.3): usage and relay stats for the UI;
