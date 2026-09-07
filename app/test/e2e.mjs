@@ -173,6 +173,85 @@ const assistantTexts = (msgs) =>
     .map((m) =>
       Array.isArray(m.content) ? m.content.map((c) => c.text ?? "").join("") : String(m.content),
     );
+// UserMessage.content is `string | (TextContent | ImageContent)[]` (pi ai
+// types); flatten both forms before matching on notification markers.
+const userTexts = (msgs) =>
+  msgs
+    .filter((m) => m.role === "user")
+    .map((m) =>
+      Array.isArray(m.content) ? m.content.map((c) => c.text ?? "").join("") : String(m.content),
+    );
+const nap = (ms) =>
+  new Promise((r) => {
+    setTimeout(r, ms);
+  });
+/** LLM first-hop robustness (journeys A/B/C): if the model confirms in words
+ * without calling the task tool — or the accepted turn goes silent on a
+ * provider stall (observed: prompt accepted, then zero output for 240s and
+ * follow_ups queued forever) — recover by aborting the stuck turn (registry
+ * is empty until the first hop succeeds, so abort's killAll is a no-op) and
+ * re-prompting with a self-contained restatement of the exact tool call. */
+const ensureSubagentStarted = async (task) => {
+  const { threadId, label, since, nudgeMessage } = task;
+  const t0 = Date.now();
+  for (let nudge = 1; ; nudge++) {
+    if (allFrames.slice(since).some((f) => f.type === "subagent_event")) return;
+    if (Date.now() - t0 > 240_000) {
+      const s = await send({
+        id: `${label}-diagst-${Date.now()}`,
+        type: "get_state",
+        threadId,
+      }).catch(() => {});
+      console.log(`${label} diag state:`, JSON.stringify(s?.data));
+      console.log(
+        `${label} diag events:`,
+        allFrames
+          .slice(since)
+          .filter((f) => f.type === "event")
+          .map((f) => f.event.type)
+          .slice(-25)
+          .join(","),
+      );
+      const r = await send({
+        id: `${label}-diag-${Date.now()}`,
+        type: "get_messages",
+        threadId,
+      }).catch(() => {});
+      for (const m of (r?.data?.messages ?? []).slice(-6)) {
+        console.log(
+          `${label} diag`,
+          m.role,
+          userTexts([m])[0]?.slice(0, 200) ??
+            (Array.isArray(m.content)
+              ? m.content
+                  .map((c) => c.text ?? c.name ?? "")
+                  .join(" ")
+                  .slice(0, 200)
+              : ""),
+        );
+      }
+      throw new Error(`${label}: subagent never started`);
+    }
+    await nap(45_000);
+    const s = await send({
+      id: `${label}-st-${nudge}-${Date.now()}`,
+      type: "get_state",
+      threadId,
+    }).catch(() => {});
+    if (s?.data?.isStreaming === true) {
+      await send({ id: `${label}-ab-${nudge}-${Date.now()}`, type: "abort", threadId }).catch(
+        () => {},
+      );
+      await nap(2000);
+    }
+    await send({
+      id: `${label}-nudge-${nudge}-${Date.now()}`,
+      type: "prompt",
+      threadId,
+      message: nudgeMessage,
+    }).catch(() => {});
+  }
+};
 const waitIdle = (threadId, ms = 120_000) =>
   new Promise((resolve, reject) => {
     const t0 = Date.now();
@@ -912,6 +991,7 @@ writeFileSync(
   await assertNoGrandchildren(hub.pid, "grandchild processes gone after dialog relay");
 
   // Parallel delegation: two tasks in one call, two distinct subagent ids.
+  await waitIdle(tid3, 240_000);
   await send({
     id: "sa9b",
     type: "set_permission_rules",
@@ -945,6 +1025,7 @@ writeFileSync(
   await assertNoGrandchildren(hub.pid, "grandchild processes gone after parallel");
 
   // Abort cascade: delegate a long task, abort the father turn mid-flight.
+  await waitIdle(tid3, 300_000);
   await send({
     id: "sa10",
     type: "set_permission_rules",
@@ -1017,6 +1098,171 @@ async function assertNoGrandchildren(hostPid, label) {
     clean = grandchildren.length === 0;
   }
   assert(clean, `${label}: no grandchild processes remain (two-level sweep)`);
+}
+
+// --- 12g. background subagents: non-blocking + notification wake + wait + abort ---
+{
+  const t4 = await send({
+    id: "bg0",
+    type: "thread/start",
+    cwd: projectDir,
+    trusted: true,
+    provider: "glm",
+    modelId,
+  });
+  assert(t4.success, `background thread started (${t4.error ?? "ok"})`);
+  const tid4 = t4.data.threadId;
+  await send({
+    id: "bg1",
+    type: "set_permission_rules",
+    threadId: tid4,
+    rules: { bash: { allowPatterns: ["echo *", "sleep *"] } },
+  });
+
+  // Journey A: background spawn -> same-turn answer -> notification wake.
+  const cursorA = allFrames.length;
+  const prA = await send({
+    id: "bg2",
+    type: "prompt",
+    threadId: tid4,
+    message:
+      'Use the task tool NOW with background:true, agent "echoer", task "echo bg-wake-A1 && sleep 12 && echo bg-wake-A2". After starting it (do NOT wait for it, do NOT call task_wait), immediately answer in this same reply: what is 17+25? Just the arithmetic answer.',
+  });
+  assert(prA.success, "journey A prompt accepted");
+  await ensureSubagentStarted({
+    threadId: tid4,
+    label: "A",
+    since: cursorA,
+    nudgeMessage:
+      'Call the task tool now with exactly: background=true, agent="echoer", task="echo bg-wake-A1 && sleep 12 && echo bg-wake-A2". The tool call itself is required; words alone are not enough.',
+  });
+  // The turn must finish while the 12s task is still running: the father's
+  // settled event arrives and no grandchild is done yet.
+  const settledFast = await waitEvent(
+    (e) => e.type === "agent_settled",
+    "A: father settled fast",
+    240_000,
+    cursorA,
+  );
+  assert(settledFast !== undefined, "A: father turn completed without waiting");
+  await waitAssistantContains(tid4, "42", 240_000);
+  // Deterministic carrier: the notification user message contains the marker.
+  const notif = await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(async () => {
+      // Unique id per tick: send() resolves by matching the id against the
+      // accumulated frame log, so a fixed id would re-match the first
+      // (pre-notification) response forever.
+      const r = await send({
+        id: `bgnotif-${t0}-${Math.random()}`,
+        type: "get_messages",
+        threadId: tid4,
+      }).catch(() => {});
+      const hit =
+        r?.data?.messages &&
+        userTexts(r.data.messages).some(
+          (text) => text.includes("[task-notification]") && text.includes("bg-wake-A2"),
+        );
+      if (hit) {
+        clearInterval(t);
+        resolve(hit);
+      } else if (Date.now() - t0 > 300_000) {
+        clearInterval(t);
+        reject(new Error("A: notification message never arrived"));
+      }
+    }, 1000);
+  });
+  assert(notif, "A: notification user message carries the marker (bg-wake-A2)");
+  // A consumption turn followed the notification: an assistant message after
+  // the notification user message in the session log (order-aware — the
+  // consumption reply can itself mention "42", so event-timing asserts race).
+  await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(async () => {
+      const r = await send({
+        id: `bgcons-${t0}-${Math.random()}`,
+        type: "get_messages",
+        threadId: tid4,
+      }).catch(() => {});
+      const msgs = r?.data?.messages ?? [];
+      const texts = userTexts(msgs);
+      const notifIdx = texts.findIndex((text) => text.includes("[task-notification]"));
+      const hasAssistantAfter =
+        notifIdx !== -1 && msgs.slice(notifIdx + 1).some((m) => m.role === "assistant");
+      if (hasAssistantAfter) {
+        clearInterval(t);
+        resolve();
+      } else if (Date.now() - t0 > 300_000) {
+        clearInterval(t);
+        reject(new Error("A: no consumption turn after the notification"));
+      }
+    }, 1000);
+  });
+  await assertNoGrandchildren(hub.pid, "A: grandchild gone after notification");
+  assert(
+    allFrames.some((f) => f.type === "heartbeat" && (f.subagents ?? 0) > 0),
+    "A: heartbeat exposed in-flight subagents",
+  );
+
+  // Journey B: two background tasks + task_wait aggregation in one turn.
+  await waitIdle(tid4, 300_000);
+  const cursorB = allFrames.length;
+  const prB = await send({
+    id: "bg3",
+    type: "prompt",
+    threadId: tid4,
+    message:
+      'Start two background tasks in ONE task call (background:true, tasks: [{agent "echoer", task "echo bg-wait-B1"}, {agent "echoer", task "echo bg-wait-B2"}]), then call task_wait to wait for both, and report both outputs.',
+  });
+  assert(prB.success, "journey B prompt accepted");
+  await ensureSubagentStarted({
+    threadId: tid4,
+    label: "B",
+    since: cursorB,
+    nudgeMessage:
+      'Call the task tool now with exactly: background=true, tasks=[{agent:"echoer", task:"echo bg-wait-B1"}, {agent:"echoer", task:"echo bg-wait-B2"}] — one call, two items. The tool call itself is required; words alone are not enough.',
+  });
+  await waitEvent((e) => e.type === "agent_settled", "B: wait turn settled", 300_000);
+  await waitAssistantContains(tid4, "bg-wait-B1", 300_000);
+  await waitAssistantContains(tid4, "bg-wait-B2", 300_000);
+  await assertNoGrandchildren(hub.pid, "B: grandchildren gone after wait");
+
+  // Journey C: background + client abort kills everything, no notification.
+  await waitIdle(tid4, 300_000);
+  const beforeC = allFrames.length;
+  const prC = await send({
+    id: "bg4",
+    type: "prompt",
+    threadId: tid4,
+    message:
+      'Use the task tool with background:true, agent "echoer", task "echo before-kill && sleep 30 && echo after-kill". Start it and briefly confirm you started it.',
+  });
+  assert(prC.success, "C: prompt accepted");
+  await ensureSubagentStarted({
+    threadId: tid4,
+    label: "C",
+    since: beforeC,
+    nudgeMessage:
+      'Call the task tool now with exactly: background=true, agent="echoer", task="echo before-kill && sleep 30 && echo after-kill". The tool call itself is required; words alone are not enough.',
+  });
+  const cursorC = allFrames.length;
+  const abC = await send({ id: "bg5", type: "abort", threadId: tid4 });
+  assert(abC.success, "C: abort accepted");
+  await waitEvent(
+    (e) => e.type === "agent_settled",
+    "C: father settled after abort",
+    240_000,
+    cursorC,
+  );
+  await assertNoGrandchildren(hub.pid, "C: abort killed the background grandchild");
+  {
+    const r = await send({ id: "bg6", type: "get_messages", threadId: tid4 });
+    const killed = userTexts(r.data?.messages ?? []).filter(
+      (text) => text.includes("before-kill") && text.includes("[task-notification]"),
+    );
+    assert(killed.length === 0, "C: killed task produced no notification");
+  }
+  await send({ id: "bg7", type: "thread/stop", threadId: tid4 });
 }
 
 // --- 13. leak scan + lifecycle ------------------------------------------------------

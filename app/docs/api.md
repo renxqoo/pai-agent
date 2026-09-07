@@ -1,6 +1,6 @@
 # pai-cli 对接文档（外部接口说明）
 
-面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、32 个命令、6 类输出帧、对话框子协议、权限规则。规格细节与裁决见 `docs/design.md`；v0.4 进程架构（host + 每对话一个 worker 进程）见 `docs/migration/design.md`。
+面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、35 个命令、7 类输出帧、对话框子协议、权限规则、子 agent 可观察面。规格细节与裁决见 `docs/design.md`；v0.4 进程架构见 `docs/migration/design.md`；v0.5 子 agent/后台任务见 `docs/plans/2026-09-07-ui-completeness.md` 与 `docs/plans/2026-09-07-background-subagents.md`。
 
 ## 1. 启动与进程约定
 
@@ -28,18 +28,20 @@ spawn("pai-cli", [], {
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
 
-## 3. 命令总览（31 个）
+## 3. 命令总览（35 个）
 
-| 组           | 命令                                                                                                                 |
-| ------------ | -------------------------------------------------------------------------------------------------------------------- |
-| 线程生命周期 | thread/start、thread/resume、thread/stop、thread/list、thread/list_saved                                             |
-| 对话驱动     | prompt、steer、follow_up、abort、clear_queue、compact                                                                |
-| 状态与历史   | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages |
-| 会话树/分叉  | fork、clone、navigate_tree                                                                                           |
-| 模型         | get_models、set_model、set_thinking_level、get_thinking_levels                                                       |
-| 凭据         | auth/list、auth/set_api_key、auth/remove_key                                                                         |
-| 直执行       | bash、abort_bash                                                                                                     |
-| 对话框       | ui_response                                                                                                          |
+| 组            | 命令                                                                                                                 |
+| ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 线程生命周期  | thread/start、thread/resume、thread/stop、thread/list、thread/list_saved                                             |
+| 对话驱动      | prompt、steer、follow_up、abort、clear_queue、compact                                                                |
+| 状态与历史    | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages |
+| 会话树/分叉   | fork、clone、navigate_tree                                                                                           |
+| 模型          | get_models、set_model、set_thinking_level、get_thinking_levels                                                       |
+| 凭据          | auth/list、auth/set_api_key、auth/remove_key                                                                         |
+| 直执行        | bash、abort_bash                                                                                                     |
+| 对话框        | ui_response                                                                                                          |
+| 权限（v0.5）  | get_permission_rules、set_permission_rules                                                                           |
+| agent（v0.5） | agents/list                                                                                                          |
 
 ## 4. 命令明细
 
@@ -118,16 +120,27 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 **`ui_response`** — 应答 `ui_request`（§6）。字段：`requestId`、`payload`（按 method 而定）。任何情况下都会收到 ack（晚到/未知 id 静默忽略并 ack）。
 
+### 权限规则（v0.5，每对话独立）
+
+**`get_permission_rules`** — 字段 `threadId`。响应 `{rules, source}`：`source:"thread"`（该对话有独立 sidecar）或 `"global"`。host 本地命令：对 parked/dead 线程同样可用，纯文件读、不唤醒 worker。
+
+**`set_permission_rules`** — 字段 `threadId`、`rules`（形状同 §7 的 rules 对象）或 `null`。`null` = 删除该对话的 sidecar、回退全局规则（幂等）。**严格校验**：形状非法（未知字段/坏类型/坏 mode）回 failure，不静默降级。生效即时：worker 下一次工具/直执行调用即按新规则判定（文件即真相，无内存缓存）。fork/clone/任何会话替换会把 sidecar 复制到新 threadId。
+
+### agent 定义枚举（v0.5）
+
+**`agents/list`** — 字段 `threadId?`。host 本地命令：返回 `[{name, description, source:"user"|"project", tools?, model?}]`。带 threadId 时按该线程的信任级与 cwd 决定是否含项目级 `.pi/agents`（仅 `trusted:true` 线程可见，同名项目级覆盖 user 级）；不带则仅 user 级。设置界面用它枚举可管理的 agent；模型侧的 task 工具按同一作用域热发现。
+
 ## 5. 输出帧（stdout → 客户端）
 
-| 帧            | 说明                                                                                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------ |
-| `response`    | 命令应答（§2 契约）                                                                                    |
-| `event`       | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序 |
-| `ui_request`  | 确认/输入请求（§6）                                                                                    |
-| `heartbeat`   | 1Hz 心跳（host 发出）                                                                                  |
-| `hub_error`   | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段            |
-| `thread_died` | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，下条命令自动恢复            |
+| 帧                      | 说明                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `response`              | 命令应答（§2 契约）                                                                                                         |
+| `event`                 | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序                      |
+| `ui_request`            | 确认/输入请求（§6）                                                                                                         |
+| `heartbeat`             | 1Hz 心跳（host 发出；有后台子 agent 在途时带 `subagents` 计数 = queued+running）                                            |
+| `hub_error`             | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段                                 |
+| `thread_died`           | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，下条命令自动恢复                                 |
+| `subagent_event` (v0.5) | `{"threadId","subagentId","agent","task","event"}`：子 agent（grandchild 进程）的会话事件原样转发，按 `subagentId` 分组渲染 |
 
 **渲染聊天界面需要的核心事件**（`event.type`）：
 
@@ -168,7 +181,18 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 
 判定顺序：`allow-all` 全放行（含 block）→ `block-all` 全拦 → 命中 blockPatterns 拦 → 命中 allowPatterns 放 → 其余 `ask` 弹 confirm。`*` 跨任意字符（含 `/`）；bash 匹配命令串，write/edit 匹配原始 path 入参。坏文件/坏形状自动降级 `{mode:"ask"}`，永不抛错。
 
-## 8. 端到端时序示例
+## 7.5 子 agent 与后台任务可观察面（v0.5）
+
+模型面工具（task/task_out/task_wait/task_stop）不是对客户端的协议命令，但对客户端有三个可见投影：
+
+1. **`subagent_event` 帧**：每个子 agent 的完整事件流（流式文本、工具调用、agent_settled）实时转发，任务面板按 `subagentId` 分组。后台排队（queued）任务在 spawn 前没有任何事件——回执经 tool result 消息事件可读。
+2. **心跳 `subagents` 计数**：在途 = queued + running（留存结果不计入），任务面板的「在途」因此含排队任务。
+3. **完成通知是 user-role 消息**：后台任务 settle 后，pai 以**用户角色**注入一条 `[task-notification] subagent <id> (<agent>) completed|failed|stopped.` + 产出摘要（≤8KB）消息并触发一个新的模型回合。三个可观察含义：
+   - 你会在 `get_messages`/事件流里看到一条**自己没有发送过**的 user 消息及其触发的模型回合（正常行为，非伪造）；
+   - 通知唤起的回合与普通回合**无差别**——它流式期间到达的客户端 `prompt` 仍按 §4 规则失败（须 steer）；
+   - 通知唤起 = 自动消耗一个模型回合（token 成本；模型 opt-in `background:true` 时接受）。
+
+停止语义（U2）：客户端 `abort` / `thread/stop` / 进程关闭会**杀掉该对话全部子 agent**（前台+后台，ephemeral 不可恢复）；被杀任务**不发通知**（`task_stop` 停的单个任务照发）。worker 死亡同样使在途任务随 stdin EOF 自灭，客户端收 `thread_died`。
 
 ```
 → {"id":"1","type":"thread/start","cwd":"/proj","provider":"glm","modelId":"glm-5.3-flash"}
@@ -195,3 +219,5 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 - [ ] `fork/clone` 后用响应里的新 `threadId` 重路由窗口，旧 id 立即失效
 - [ ] 弹窗应答永远回 `ui_response`（哪怕用户已关闭弹窗 → 回 `{"cancelled":true}`）
 - [ ] 每线程记录 `sessionPath`（崩溃/闲置恢复的锚点）
+- [ ] 子 agent 面板：`subagent_event` 按 `subagentId` 分组；心跳 `subagents` 做在途徽标；`[task-notification]` user 消息按系统提示样式渲染（非用户输入）
+- [ ] `abort` 语义确认：会杀后台任务且不可恢复（如需选择性停，引导用户/模型用 task_stop）
