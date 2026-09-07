@@ -63,6 +63,17 @@ describe("worker frame classification (v0.5 subagent_event)", () => {
     expect(raw).toEqual([line]);
   });
 
+  test("subagent_message forwards verbatim by prefix and parse fallback (stage 8)", () => {
+    const { deps, raw } = makeDeps();
+    const byPrefix =
+      '{"type":"subagent_message","threadId":"t1","subagentId":"sub_ab12","agent":"echoer","text":"hi"}';
+    onWorkerLine(deps, makeWorker(), byPrefix);
+    const byFallback =
+      '{"text":"hi","subagentId":"sub_ef56","type":"subagent_message","threadId":"t1","to":"sub_gh78"}';
+    onWorkerLine(deps, makeWorker(), byFallback);
+    expect(raw).toEqual([byPrefix, byFallback]);
+  });
+
   test("event and ui_request still forward by prefix", () => {
     const { deps, raw } = makeDeps();
     onWorkerLine(

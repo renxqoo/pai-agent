@@ -78,7 +78,7 @@ function spec(): GrandchildTaskSpec {
     task: "say hi",
     cwd: tmpdir(),
     systemPrompt: "You echo.",
-    permissionRules: { mode: "ask" },
+    permissionThreadId: "tid-test",
   };
 }
 
@@ -338,6 +338,22 @@ describe("relay mechanics", () => {
     expect(result.eventsRelayed).toBe(2);
   }, 15_000);
 
+  test("abort landing after settle keeps the completed output (P3-9)", async () => {
+    const fake = fakeSpawner();
+    const controller = new AbortController();
+    const driver = await reachRunning(fake, hooks({ events: [], uiRequests: [] }));
+    controller.abort(); // abort races in AFTER the grandchild settled
+    fake.child.feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"final answer"}]}}}',
+    );
+    fake.child.feed('{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}');
+    fake.child.close();
+    const result = await driver.result;
+    expect(result.isError).toBe(false);
+    expect(result.aborted).toBe(false);
+    expect(result.output).toContain("final answer");
+  }, 15_000);
+
   test("close without settling reports a dead grandchild", async () => {
     const fake = fakeSpawner();
     const driver = startGrandchildTask({
@@ -438,5 +454,101 @@ describe("relay mechanics", () => {
     expect(result.truncated).toBe(true);
     expect(log.events.length).toBeLessThan(8);
     expect(result.eventsRelayed).toBe(8); // counted even when not relayed
+  }, 15_000);
+});
+
+/** Bring one fake grandchild to the running state (start + prompt acked). */
+async function reachRunning(
+  fake: ReturnType<typeof fakeSpawner>,
+  hooking: GrandchildHooks,
+): Promise<ReturnType<typeof startGrandchildTask>> {
+  const driver = startGrandchildTask({ spec: spec(), hooks: hooking, spawnWorker: fake.spawn });
+  await step(() => lineStartsWith(fake.child.lines, '{"id":"g-start"'));
+  fake.child.feed(START_OK);
+  await step(() => lineStartsWith(fake.child.lines, '{"id":"g-prompt"'));
+  fake.child.feed(PROMPT_OK);
+  return driver;
+}
+
+describe("steer (stage 7)", () => {
+  test("steer writes a uniquely-id'd line and resolves the ack verbatim", async () => {
+    const fake = fakeSpawner();
+    const driver = await reachRunning(fake, hooks({ events: [], uiRequests: [] }));
+    const first = driver.steer("pivot to plan b");
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-steer-0"'));
+    const line = fake.child.lines.find((l) => l.startsWith('{"id":"g-steer-0"'));
+    expect(line).toContain('"type":"steer"');
+    expect(line).toContain('"threadId":"g-sess-1"');
+    expect(line).toContain("pivot to plan b");
+    fake.child.feed('{"id":"g-steer-0","type":"response","command":"steer","success":true}');
+    expect(await first).toBe(true);
+    // A rejected steer surfaces the grandchild's own error string.
+    const second = driver.steer("again");
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-steer-1"'));
+    fake.child.feed(
+      '{"id":"g-steer-1","type":"response","command":"steer","success":false,"error":"grandchild is not streaming"}',
+    );
+    expect(await second).toBe("grandchild is not streaming");
+    fake.child.feed('{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}');
+    fake.child.close();
+    await driver.result;
+  }, 15_000);
+
+  test("steer before start completes reports not-ready; after settle returns false", async () => {
+    const fake = fakeSpawner();
+    const driver = startGrandchildTask({
+      spec: spec(),
+      hooks: hooks({ events: [], uiRequests: [] }),
+      spawnWorker: fake.spawn,
+    });
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-start"'));
+    // No START_OK yet: the grandchild session id is unknown.
+    expect(await driver.steer("early")).toBe("grandchild not ready");
+    fake.child.feed(START_OK);
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-prompt"'));
+    fake.child.feed(PROMPT_OK);
+    fake.child.feed('{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}');
+    fake.child.close();
+    await driver.result;
+    expect(await driver.steer("late")).toBe(false);
+  }, 15_000);
+});
+
+describe("inter-agent message relay (stage 8)", () => {
+  function messageHooks(log: { messages: Array<{ text: string; to?: string }> }): GrandchildHooks {
+    return {
+      ...hooks({ events: [], uiRequests: [] }),
+      onMessage: (message) => {
+        log.messages.push(message);
+      },
+    };
+  }
+
+  test("subagent_message frames reach onMessage with text (and to); no hook = ignored", async () => {
+    const fake = fakeSpawner();
+    const log = { messages: [] };
+    const driver = await reachRunning(fake, messageHooks(log));
+    fake.child.feed(
+      '{"type":"subagent_message","threadId":"g-sess-1","subagentId":"sub_self","agent":"echoer","text":"found the flaky test"}',
+    );
+    fake.child.feed(
+      '{"type":"subagent_message","threadId":"g-sess-1","subagentId":"sub_self","agent":"echoer","to":"sub_sibling","text":"handoff"}',
+    );
+    await step(() => log.messages.length === 2);
+    expect(log.messages[0]).toEqual({ text: "found the flaky test" });
+    expect(log.messages[1]).toEqual({ text: "handoff", to: "sub_sibling" });
+    fake.child.feed('{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}');
+    fake.child.close();
+    await driver.result;
+  }, 15_000);
+
+  test("malformed subagent_message (no text) is fatal, like malformed events", async () => {
+    const fake = fakeSpawner();
+    const driver = await reachRunning(fake, hooks({ events: [], uiRequests: [] }));
+    fake.child.feed('{"type":"subagent_message","threadId":"g-sess-1","text":""}');
+    fake.child.close();
+    const result = await driver.result;
+    expect(result.isError).toBe(true);
+    expect(result.errorMessage ?? "").toContain("subagent_message");
   }, 15_000);
 });

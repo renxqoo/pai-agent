@@ -13,7 +13,6 @@ import { resolve as resolvePath } from "node:path";
 import type { ExtensionAPI, InlineExtension, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { discoverAgents } from "./agent-definitions.ts";
-import { effectiveRules } from "./permission-gate.ts";
 import type { HubFrame, SessionModel } from "./protocol.ts";
 import { toWireEvent } from "./session-host.ts";
 import {
@@ -24,12 +23,14 @@ import {
   newSubagentId,
 } from "./subagent-process.ts";
 import {
+  ENVELOPE_TASK_CAP,
   MAX_CONCURRENT_SUBAGENTS,
   MAX_INFLIGHT_PER_CONVERSATION,
   MAX_TASKS_PER_CALL,
   type SubagentRegistry,
 } from "./subagent-registry.ts";
 import { registerQueryTools } from "./subagent-query-tools.ts";
+import { truncateBytes } from "./truncate.ts";
 
 export interface TaskToolDeps {
   emit: (frame: HubFrame) => void;
@@ -155,7 +156,7 @@ async function runTaskTool(deps: {
     const { specs, notes } = specsResult;
     if (batch.background) return launchBackground({ tool, specs, batch, signal: deps.signal });
     const runOne = (spec: GrandchildTaskSpec): Promise<GrandchildResult> =>
-      runGrandchild(tool, spec, deps.signal);
+      runGrandchild({ tool, spec, background: batch.background, signal: deps.signal });
     // await inside the try (batch-B lesson); budget release lives on the
     // registry settle hook, not a tool-level finally.
     const outcome =
@@ -181,12 +182,15 @@ function launchBackground(deps: {
   const { tool, specs, batch, signal } = deps;
   const lines: string[] = [];
   const results: Array<{ subagentId: string; agent: string; task: string; status: string }> = [];
+  let rejected = 0;
   for (const spec of specs) {
     const handle = tool.registry.launch({
       spec,
+      background: true,
       ...(signal !== undefined ? { outerSignal: signal } : {}),
       hooks: hooksFor(tool, spec),
     });
+    if (handle.status === "rejected") rejected += 1;
     results.push({
       subagentId: spec.subagentId,
       agent: spec.agent,
@@ -200,12 +204,13 @@ function launchBackground(deps: {
       {
         type: "text",
         text: [
-          `Started ${specs.length} background task${specs.length > 1 ? "s" : ""}:`,
+          `Started ${specs.length - rejected} background task${specs.length - rejected === 1 ? "" : "s"}:`,
           ...lines,
           "You will receive a [task-notification] message as each finishes. Do not invent results before that notification; check live status with task_out, wait with task_wait, stop one with task_stop.",
         ].join("\n"),
       },
     ],
+    ...(rejected > 0 ? { isError: true } : {}),
     details: { mode: batch.mode, results },
   };
 }
@@ -257,7 +262,8 @@ async function buildSpecs(deps: {
         ? { thinkingLevel: ctx.thinkingLevel }
         : {}),
       ...(model.model !== undefined ? { model: model.model } : {}),
-      permissionRules: effectiveRules(tool.getThreadId()),
+      ...(def.source === "project" ? { projectSourced: true } : {}),
+      permissionThreadId: tool.getThreadId(),
     });
   }
   return { specs, notes };
@@ -272,7 +278,10 @@ function hooksFor(tool: TaskToolDeps, spec: GrandchildTaskSpec): GrandchildHooks
         threadId: tool.getThreadId(),
         subagentId: spec.subagentId,
         agent: spec.agent,
-        task: envelopeTask(spec.task),
+        task:
+          Buffer.byteLength(spec.task, "utf8") <= ENVELOPE_TASK_CAP
+            ? spec.task
+            : truncateBytes(spec.task, ENVELOPE_TASK_CAP, "..."),
         event: toWireEvent(event),
       });
     },
@@ -287,6 +296,20 @@ function hooksFor(tool: TaskToolDeps, spec: GrandchildTaskSpec): GrandchildHooks
         agent: spec.agent,
       });
     },
+    // Stage 8/9: re-stamp identity from the spec (the grandchild's own frame
+    // fields are advisory), forward for client observability, and queue the
+    // enveloped message for turn-boundary delivery to the father model.
+    onMessage: (message) => {
+      tool.emit({
+        type: "subagent_message",
+        threadId: tool.getThreadId(),
+        subagentId: spec.subagentId,
+        agent: spec.agent,
+        text: message.text,
+        ...(message.to !== undefined ? { to: message.to } : {}),
+      });
+      tool.registry.queueMessage(spec.subagentId, message);
+    },
     writeStderr: tool.writeStderr,
   };
 }
@@ -294,25 +317,20 @@ function hooksFor(tool: TaskToolDeps, spec: GrandchildTaskSpec): GrandchildHooks
 /** Launch one grandchild through the registry (global gate + queueing) and
  * await its result. The turn signal is chained onto the entry's controller
  * by the registry; killAll/task_stop reach it the same way. */
-async function runGrandchild(
-  tool: TaskToolDeps,
-  spec: GrandchildTaskSpec,
-  signal: AbortSignal | undefined,
-): Promise<GrandchildResult> {
+async function runGrandchild(deps: {
+  tool: TaskToolDeps;
+  spec: GrandchildTaskSpec;
+  background: boolean;
+  signal: AbortSignal | undefined;
+}): Promise<GrandchildResult> {
+  const { tool, spec } = deps;
   const handle = tool.registry.launch({
     spec,
-    ...(signal !== undefined ? { outerSignal: signal } : {}),
+    background: deps.background,
+    ...(deps.signal !== undefined ? { outerSignal: deps.signal } : {}),
     hooks: hooksFor(tool, spec),
   });
   return handle.result;
-}
-
-/** Envelope task cap (review P2-10): chain steps can embed a 50KB {previous}
- * output; every event frame would re-carry it without this cap. */
-const ENVELOPE_TASK_CAP = 512;
-
-function envelopeTask(task: string): string {
-  return task.length <= ENVELOPE_TASK_CAP ? task : `${task.slice(0, ENVELOPE_TASK_CAP)}...`;
 }
 
 // --- dispatch preparation --------------------------------------------------------
@@ -394,6 +412,17 @@ export async function resolveTaskModel(deps: {
 
 // --- execution -------------------------------------------------------------------
 
+/** Full per-task record task_wait returns (review A-P3-8 parity with
+ * runParallel's stats). */
+export interface WaitingResult {
+  output: string;
+  isError: boolean;
+  aborted: boolean;
+  truncated: boolean;
+  eventsRelayed: number;
+  usage: GrandchildUsage;
+}
+
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
@@ -413,6 +442,12 @@ export interface ToolResult {
           usage: GrandchildUsage;
         }
       | { subagentId: string; agent: string; task: string; status: string }
+      | (WaitingResult & {
+          subagentId: string;
+          agent: string;
+          task: string;
+          status: "completed" | "failed" | "stopped" | "unknown";
+        })
     >;
   };
 }

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import type {
   AgentSession,
   AgentSessionRuntime,
@@ -6,6 +6,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { SessionHost, type Thread } from "../src/session-host.ts";
 import { SessionDestroyedError } from "../src/session-destroyed-error.ts";
+import { clearSidecarRules, writeSidecarRules } from "../src/sidecar-rules.ts";
+import type { PermissionRules } from "../src/rules.ts";
 
 /**
  * Unit coverage for the session-replacement fixes (migration.md F-1/F-2 and
@@ -158,5 +160,32 @@ describe("F-2: session-replacing operations serialize", () => {
   test("expectedThreadId mismatch on clone rejects with the stale id", async () => {
     const { host } = makeHost("re-keyed");
     await expect(host.clone("old-id")).rejects.toThrow("Unknown threadId: old-id");
+  });
+});
+
+const PERMISSION_THREAD = "perm-live-read-test";
+
+afterAll(() => {
+  clearSidecarRules(PERMISSION_THREAD);
+});
+
+describe("grandchild gate ruleset is re-read per call (B-P2-5)", () => {
+  test("getInjectedRules reflects sidecar changes, not a spawn snapshot", () => {
+    const { host } = makeHost("s-1");
+    const box = host as unknown as { permissionThreadId: string | undefined };
+    box.permissionThreadId = PERMISSION_THREAD;
+    const first: PermissionRules = { mode: "ask", bash: { allowPatterns: ["echo *"] } };
+    writeSidecarRules(PERMISSION_THREAD, first);
+    expect(host.getInjectedRules()).toEqual(first);
+    const tightened: PermissionRules = { mode: "ask", bash: { blockPatterns: ["rm *"] } };
+    writeSidecarRules(PERMISSION_THREAD, tightened);
+    // The old snapshot semantics returned the stale spawn-time object.
+    expect(host.getInjectedRules()).toEqual(tightened);
+    expect(host.getInjectedRules()).not.toEqual(first);
+  });
+
+  test("undefined anchor means no injected rules (normal conversations)", () => {
+    const { host } = makeHost("s-2");
+    expect(host.getInjectedRules()).toBeUndefined();
   });
 });

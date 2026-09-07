@@ -1,6 +1,6 @@
 # pai-cli 对接文档（外部接口说明）
 
-面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、35 个命令、7 类输出帧、对话框子协议、权限规则、子 agent 可观察面。规格细节与裁决见 `docs/design.md`；v0.4 进程架构见 `docs/migration/design.md`；v0.5 子 agent/后台任务见 `docs/plans/2026-09-07-ui-completeness.md` 与 `docs/plans/2026-09-07-background-subagents.md`。
+面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、36 个命令、8 类输出帧、对话框子协议、权限规则、子 agent 可观察面。规格细节与裁决见 `docs/design.md`；v0.4 进程架构见 `docs/migration/design.md`；v0.5 子 agent/后台任务见 `docs/plans/2026-09-07-ui-completeness.md` 与 `docs/plans/2026-09-07-background-subagents.md`。
 
 ## 1. 启动与进程约定
 
@@ -28,7 +28,7 @@ spawn("pai-cli", [], {
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
 
-## 3. 命令总览（35 个）
+## 3. 命令总览（36 个）
 
 | 组            | 命令                                                                                                                 |
 | ------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -40,6 +40,7 @@ spawn("pai-cli", [], {
 | 凭据          | auth/list、auth/set_api_key、auth/remove_key                                                                         |
 | 直执行        | bash、abort_bash                                                                                                     |
 | 对话框        | ui_response                                                                                                          |
+| 子 agent 通信 | subagent/steer                                                                                                       |
 | 权限（v0.5）  | get_permission_rules、set_permission_rules                                                                           |
 | agent（v0.5） | agents/list                                                                                                          |
 
@@ -130,17 +131,22 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 **`agents/list`** — 字段 `threadId?`。host 本地命令：返回 `[{name, description, source:"user"|"project", tools?, model?}]`。带 threadId 时按该线程的信任级与 cwd 决定是否含项目级 `.pi/agents`（仅 `trusted:true` 线程可见，同名项目级覆盖 user 级）；不带则仅 user 级。设置界面用它枚举可管理的 agent；模型侧的 task 工具按同一作用域热发现。
 
+### 子 agent 通信（v0.5 stage 7）
+
+**`subagent/steer`** — 字段 `threadId`、`subagentId`、`message`。向该对话**运行中**的后台子 agent 注入一条 steer（在孙进程当前工具调用后、下次模型调用前生效）。与模型侧 `task_steer` 工具同一管线。非 running（queued/settled/unknown）→ `success:false`（错误文案含当前状态）。
+
 ## 5. 输出帧（stdout → 客户端）
 
-| 帧                      | 说明                                                                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `response`              | 命令应答（§2 契约）                                                                                                         |
-| `event`                 | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序                      |
-| `ui_request`            | 确认/输入请求（§6）                                                                                                         |
-| `heartbeat`             | 1Hz 心跳（host 发出；有后台子 agent 在途时带 `subagents` 计数 = queued+running）                                            |
-| `hub_error`             | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段                                 |
-| `thread_died`           | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，下条命令自动恢复                                 |
-| `subagent_event` (v0.5) | `{"threadId","subagentId","agent","task","event"}`：子 agent（grandchild 进程）的会话事件原样转发，按 `subagentId` 分组渲染 |
+| 帧                        | 说明                                                                                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `response`                | 命令应答（§2 契约）                                                                                                                                                                          |
+| `event`                   | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序                                                                                       |
+| `ui_request`              | 确认/输入请求（§6）                                                                                                                                                                          |
+| `heartbeat`               | 1Hz 心跳（host 发出；有后台子 agent 在途时带 `subagents` 计数 = queued+running）                                                                                                             |
+| `hub_error`               | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段                                                                                                  |
+| `thread_died`             | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，下条命令自动恢复                                                                                                  |
+| `subagent_event` (v0.5)   | `{"threadId","subagentId","agent","task","event"}`：子 agent（grandchild 进程）的会话事件原样转发，按 `subagentId` 分组渲染                                                                  |
+| `subagent_message` (v0.5) | `{"threadId","subagentId","agent","text","to?"}`：子 agent 的 `report`/`send` 工具产出（阶段 8/9）。worker 用自己注册表重盖身份（孙自报 id 不可信）；`to` 仅兄弟路由时存在（父模型中介转发） |
 
 **渲染聊天界面需要的核心事件**（`event.type`）：
 
@@ -194,6 +200,17 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 
 停止语义（U2）：客户端 `abort` / `thread/stop` / 进程关闭会**杀掉该对话全部子 agent**（前台+后台，ephemeral 不可恢复）；被杀任务**不发通知**（`task_stop` 停的单个任务照发）。worker 死亡同样使在途任务随 stdin EOF 自灭，客户端收 `thread_died`。
 
+### agent 间通信（v0.5 阶段 7-9，同一批 §三扇门）
+
+- **steer（父/客户端 → 运行中的子）**：协议命令 `subagent/steer` 与模型工具 `task_steer {subagentId, message}` 同管线（fire-and-ack，孙进程当前工具调用后注入）。非 running 一律 failure。
+- **子上报（子 → 父）**：孙进程内置 `report {text}` 工具 → `subagent_message` 帧转发（可观察）+ 带信封 `[task-message] from subagent <id> (<agent>):` 入通知队列（回合边界投递，与完成通知同一机制）。
+- **兄弟路由（子 ↔ 子，父中介）**：模型工具 `task_send {to, message}` 仅允许 running 目标（信封 `[from: lead via task_send]`）；孙进程 `send {to, text}` → `subagent_message` 帧（带 `to`）→ **唤醒父模型决定是否 task_send 转发**——路由智能在 lead，无独立路由引擎。
+- **护栏**：每任务 report+send 合计 ≤10 条、每条 ≤8KB（孙侧工具与父侧注册表双重执行）；项目级（不受信）agent 的消息标注 `unverified data`；深度 1 不变（孙进程没有 task 工具，通信工具不派生任务）；父从不信任孙自报的 subagentId（按注册表重盖）。
+
+### 权限规则的子 agent 语义（v0.5）
+
+子 agent 不冻结 spawn 时的权限快照：孙进程的权限门**每次工具调用热读父对话的规则**（sidecar → 全局，与 §7 同一判定链）。父对话中途 `set_permission_rules` 收紧会即时传导到运行中的后台子 agent。
+
 ```
 → {"id":"1","type":"thread/start","cwd":"/proj","provider":"glm","modelId":"glm-5.3-flash"}
 ← {"id":"1","type":"response","command":"thread/start","success":true,"data":{"threadId":"t1",...}}
@@ -221,3 +238,5 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 - [ ] 每线程记录 `sessionPath`（崩溃/闲置恢复的锚点）
 - [ ] 子 agent 面板：`subagent_event` 按 `subagentId` 分组；心跳 `subagents` 做在途徽标；`[task-notification]` user 消息按系统提示样式渲染（非用户输入）
 - [ ] `abort` 语义确认：会杀后台任务且不可恢复（如需选择性停，引导用户/模型用 task_stop）
+- [ ] `subagent_message` 帧：report 按子 agent 分组渲染（与 subagent_event 同面板）；带 `to` 的兄弟路由请求按「待 lead 转发」样式提示
+- [ ] `subagent/steer` / task_steer 失败文案按状态呈现（queued/settled/unknown）

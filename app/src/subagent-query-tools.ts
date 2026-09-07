@@ -1,7 +1,9 @@
 /**
- * Query face for background subagents (plan background-subagents stage 4):
- * task_out (snapshot), task_wait (barrier with notification suppression,
- * timeout, abort), task_stop (single stop). Pure observers except stop;
+ * Query face for background subagents (plan background-subagents stage 4 +
+ * communication stages 7/9): task_out (snapshot), task_wait (barrier with
+ * notification suppression, timeout, abort), task_stop (single stop),
+ * task_steer (inject into a running task), task_send (sibling routing via
+ * the same steer pipeline, father-mediated). Pure observers except stop;
  * task_out never blocks and never kills.
  */
 
@@ -32,10 +34,22 @@ const StopParams = Type.Object({
   subagentId: Type.String({ description: "The subagent to stop (running or queued)" }),
 });
 
+const SteerParams = Type.Object({
+  subagentId: Type.String({ description: "The RUNNING subagent to steer (sub_…)" }),
+  message: Type.String({ description: "Guidance injected after the current tool call" }),
+});
+
+const SendParams = Type.Object({
+  to: Type.String({ description: "Target sibling subagentId; must be RUNNING (sub_…)" }),
+  message: Type.String({ description: "Message for the sibling (enveloped as from the lead)" }),
+});
+
 export function registerQueryTools(pi: ExtensionAPI, tool: TaskToolDeps): void {
   registerOut(pi, tool);
   registerWait(pi, tool);
   registerStop(pi, tool);
+  registerSteer(pi, tool);
+  registerSend(pi, tool);
 }
 
 function registerOut(pi: ExtensionAPI, tool: TaskToolDeps): void {
@@ -107,6 +121,65 @@ function registerStop(pi: ExtensionAPI, tool: TaskToolDeps): void {
   });
 }
 
+/** Stage 7: same pipeline as the client's subagent/steer command — the
+ * registry owns the not-running wording; fire-and-ack (delivery inside the
+ * grandchild is pi's steer queue, after its current tool call). */
+function registerSteer(pi: ExtensionAPI, tool: TaskToolDeps): void {
+  pi.registerTool({
+    name: "task_steer",
+    label: "Steer task",
+    description:
+      "Inject guidance into a RUNNING subagent (delivered after its current tool call, before its next model call). Cannot steer queued or settled tasks — check task_out first.",
+    parameters: SteerParams,
+    async execute(_toolCallId, params) {
+      const { subagentId, message } = params as { subagentId: string; message: string };
+      const outcome = await tool.registry.steer(subagentId, message);
+      if (outcome === true) {
+        return {
+          content: [{ type: "text", text: `steered ${subagentId}` }],
+          details: { mode: "single", results: [] },
+        };
+      }
+      return {
+        content: [
+          { type: "text", text: typeof outcome === "string" ? outcome : "subagent is gone" },
+        ],
+        isError: true,
+        details: { mode: "single", results: [] },
+      };
+    },
+  });
+}
+
+/** Stage 9: sibling routing, father-mediated — the target must be running;
+ * the message is enveloped so the sibling knows it came via the lead. */
+function registerSend(pi: ExtensionAPI, tool: TaskToolDeps): void {
+  pi.registerTool({
+    name: "task_send",
+    label: "Send to sibling",
+    description:
+      "Relay a message to a RUNNING sibling subagent (delivered like a steer, enveloped [from: lead]). Subagents cannot receive while queued or settled — route later requests as a new task instead.",
+    parameters: SendParams,
+    async execute(_toolCallId, params) {
+      const { to, message } = params as { to: string; message: string };
+      const outcome = await tool.registry.steer(to, `[from: lead via task_send] ${message}`);
+      if (outcome === true) {
+        return {
+          content: [{ type: "text", text: `sent to ${to}` }],
+          details: { mode: "single", results: [] },
+        };
+      }
+      return {
+        content: [
+          { type: "text", text: typeof outcome === "string" ? outcome : "subagent is gone" },
+        ],
+        isError: true,
+        details: { mode: "single", results: [] },
+      };
+    },
+  });
+}
+
 /** task_wait barrier (plan stage 4): await settle promises, aggregate like
  * the parallel summary; suppress those ids' notifications while waiting;
  * unknown ids annotate the result (all-unknown -> isError); abort returns
@@ -169,14 +242,16 @@ function abortedWait(text: string): ToolResult {
   };
 }
 
+/** details.results carries the full per-task record (review A-P3-8): UI
+ * panels reading wait results get the same stats runParallel provides. */
 function aggregateWait(
   pairs: Array<{ id: string; result: GrandchildResult }>,
   unknown: string[],
 ): ToolResult {
   const lines: string[] = [];
-  const entries: Array<{ subagentId: string; agent: string; task: string; status: string }> = [];
+  const entries: ToolResult["details"]["results"] = [];
   for (const pair of pairs) {
-    let statusWord = "completed";
+    let statusWord: "completed" | "stopped" | "failed" = "completed";
     if (pair.result.aborted) statusWord = "stopped";
     else if (pair.result.isError) statusWord = "failed";
     lines.push(
@@ -187,6 +262,12 @@ function aggregateWait(
       agent: pair.result.agent,
       task: pair.result.task,
       status: statusWord,
+      output: pair.result.output,
+      isError: pair.result.isError,
+      aborted: pair.result.aborted,
+      truncated: pair.result.truncated,
+      eventsRelayed: pair.result.eventsRelayed,
+      usage: pair.result.usage,
     });
   }
   for (const id of unknown) {
@@ -212,17 +293,28 @@ interface SettledPair {
   result: GrandchildResult;
 }
 
+/** Racer cleanup (review A-P3-7): the losing timeout timer and abort
+ * listener must not linger — a long timeoutMs would pin the loop's
+ * references after the settles won. */
 function raceSettles(
   pairs: Array<{ id: string; settled: Promise<SettledPair> }>,
   timeoutMs: number | undefined,
   signal: AbortSignal | undefined,
 ): Promise<SettledPair[] | "aborted" | "timed-out"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const cleanup = (): void => {
+    if (timer !== undefined) clearTimeout(timer);
+    if (onAbort !== undefined && signal !== undefined) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
   const all = Promise.all(pairs.map((pair) => pair.settled));
   const racers: Array<Promise<SettledPair[] | "aborted" | "timed-out">> = [all];
   if (timeoutMs !== undefined) {
     racers.push(
       new Promise((resolve) => {
-        setTimeout(() => {
+        timer = setTimeout(() => {
           resolve("timed-out");
         }, timeoutMs);
       }),
@@ -231,7 +323,7 @@ function raceSettles(
   if (signal !== undefined) {
     racers.push(
       new Promise((resolve) => {
-        const onAbort = (): void => {
+        onAbort = (): void => {
           resolve("aborted");
         };
         if (signal.aborted) onAbort();
@@ -239,5 +331,5 @@ function raceSettles(
       }),
     );
   }
-  return Promise.race(racers);
+  return Promise.race(racers).finally(cleanup);
 }

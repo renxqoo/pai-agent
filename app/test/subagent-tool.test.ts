@@ -73,6 +73,7 @@ interface ToolHarness {
   tools: Map<string, RegisteredTool>;
   registry: SubagentRegistry;
   launches: GrandchildTaskSpec[];
+  steers: Array<{ id: string; message: string }>;
   maxConcurrent: () => number;
 }
 
@@ -105,13 +106,14 @@ function specTemplate(): GrandchildTaskSpec {
     task: "fill",
     cwd: tmpdir(),
     systemPrompt: "p",
-    permissionRules: { mode: "ask" },
+    permissionThreadId: "tid-test",
   };
 }
 
 function makeHarness(options?: { hold?: boolean }): ToolHarness {
   const launches: GrandchildTaskSpec[] = [];
   const held: Array<{ spec: GrandchildTaskSpec; settle: (result: GrandchildResult) => void }> = [];
+  const steers: Array<{ id: string; message: string }> = [];
   let inFlightNow = 0;
   let maxSeen = 0;
   const okResult = makeOkResult();
@@ -119,6 +121,11 @@ function makeHarness(options?: { hold?: boolean }): ToolHarness {
     launches.push(deps.spec);
     inFlightNow += 1;
     maxSeen = Math.max(maxSeen, inFlightNow);
+    // Steers record and ack — the driver mechanics have their own tests.
+    const steer = (message: string): Promise<boolean | string> => {
+      steers.push({ id: deps.spec.subagentId, message });
+      return Promise.resolve(true);
+    };
     if (options?.hold === true) {
       let resolveHeld!: (result: GrandchildResult) => void;
       const result = new Promise<GrandchildResult>((resolve) => {
@@ -128,6 +135,7 @@ function makeHarness(options?: { hold?: boolean }): ToolHarness {
       return {
         result,
         resolveUi: () => false,
+        steer,
         // eslint-disable-next-line unicorn/no-useless-undefined -- interface requires undefined before settle
         progress: () => undefined,
       };
@@ -138,6 +146,7 @@ function makeHarness(options?: { hold?: boolean }): ToolHarness {
     return {
       result,
       resolveUi: () => false,
+      steer,
       // eslint-disable-next-line unicorn/no-useless-undefined -- interface requires undefined before settle
       progress: () => undefined,
     };
@@ -168,6 +177,7 @@ function makeHarness(options?: { hold?: boolean }): ToolHarness {
     tools,
     registry,
     launches,
+    steers,
     maxConcurrent: () => maxSeen,
     settleHeld(): void {
       for (const item of held.splice(0)) item.settle(okResult(item.spec));
@@ -298,6 +308,70 @@ describe("query tools (background plan stage 4)", () => {
       params: { subagentId: "sub_nope22" },
     });
     expect(unknown.isError).toBe(true);
+    // Idempotence: after settle, the second stop returns the terminal state.
+    h.settleHeld();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    const second = await runNamed({ harness: h, name: "task_stop", params: { subagentId: id } });
+    expect(second.isError).toBeUndefined();
+    expect(second.text).toMatch(/sub_.*: (completed|stopped)/); // terminal state
+  });
+});
+
+function liveId(h: ToolHarness, index = 0): string {
+  const entry = (h.registry.snapshot() as Array<{ subagentId: string; status: string }>)[index];
+  if (entry === undefined) throw new Error(`no launch ${index}`);
+  return entry.subagentId;
+}
+
+describe("steer and sibling routing (stages 7/9)", () => {
+  test("task_steer targets a running task through the registry pipeline", async () => {
+    const h = makeHarness({ hold: true });
+    await runTool(h, { agent: "echoer", task: "steer-me", background: true });
+    const id = liveId(h);
+    const ok = await runNamed({
+      harness: h,
+      name: "task_steer",
+      params: { subagentId: id, message: "focus on tests" },
+    });
+    expect(ok.isError).toBeUndefined();
+    expect(ok.text).toContain(`steered ${id}`);
+    expect(h.steers).toEqual([{ id, message: "focus on tests" }]);
+    const unknown = await runNamed({
+      harness: h,
+      name: "task_steer",
+      params: { subagentId: "sub_gone33", message: "x" },
+    });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.text).toContain("unknown subagent");
+  });
+
+  test("task_send routes running-only with the lead envelope", async () => {
+    const h = makeHarness({ hold: true });
+    await runTool(h, { agent: "echoer", task: "target", background: true });
+    await runTool(h, { agent: "echoer", task: "other", background: true });
+    const ok = await runNamed({
+      harness: h,
+      name: "task_send",
+      params: { to: liveId(h, 1), message: "hand over the file list" },
+    });
+    expect(ok.isError).toBeUndefined();
+    expect(ok.text).toContain(`sent to ${liveId(h, 1)}`);
+    expect(h.steers).toEqual([
+      { id: liveId(h, 1), message: "[from: lead via task_send] hand over the file list" },
+    ]);
+    h.settleHeld();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    }); // let the settles propagate to the registry entries
+    const settled = await runNamed({
+      harness: h,
+      name: "task_send",
+      params: { to: liveId(h, 0), message: "hi" },
+    });
+    expect(settled.isError).toBe(true);
+    expect(settled.text).toContain("not running");
   });
 });
 
@@ -378,7 +452,7 @@ describe("task tool execution semantics", () => {
     expect(h.registry.inFlight()).toBe(0); // released on settle
     expect(h.launches.length).toBe(1);
     expect(h.launches[0]?.cwd).toBe(tmpdir());
-    expect(h.launches[0]?.permissionRules).toBeDefined();
+    expect(h.launches[0]?.permissionThreadId).toBe("tid-1");
     expect(r.details?.results[0]?.agent).toBe("echoer");
   });
 

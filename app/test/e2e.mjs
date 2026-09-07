@@ -1262,6 +1262,18 @@ async function assertNoGrandchildren(hostPid, label) {
     );
     assert(killed.length === 0, "C: killed task produced no notification");
   }
+  // P1-3 e2e pin: abort must not be followed by a spontaneous wake turn
+  // (queued notifications die with the registry; 6s of idle proves it).
+  await waitIdle(tid4, 240_000);
+  {
+    const before = await send({ id: `cmsgs-${Date.now()}`, type: "get_messages", threadId: tid4 });
+    const count = (before.data?.messages ?? []).length;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 6000);
+    });
+    const after = await send({ id: `cmsgs2-${Date.now()}`, type: "get_messages", threadId: tid4 });
+    assert((after.data?.messages ?? []).length === count, "C: no new turn after abort");
+  }
   await send({ id: "bg7", type: "thread/stop", threadId: tid4 });
 }
 

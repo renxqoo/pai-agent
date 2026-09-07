@@ -25,7 +25,7 @@ import {
   type ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { createPermissionGate } from "./permission-gate.ts";
+import { createPermissionGate, effectiveRules } from "./permission-gate.ts";
 import type { PermissionRules } from "./rules.ts";
 import type { HubFrame, SessionModel, SetThinkingLevelCmd } from "./protocol.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";
@@ -50,11 +50,17 @@ export interface SessionHostOptions {
   /** Diagnostics sink (worker stderr); used for best-effort degradation notes. */
   writeStderr?: (text: string) => void;
   /**
-   * Extra built-in extensions for non-subagent sessions (the task tool).
-   * Called per spawn with the spawn's trust flag; subagent spawns (depth 1)
-   * and their grandchild sessions never receive these.
+   * Extra built-in extensions, called per spawn with the spawn's trust flag
+   * and — for grandchild spawns — the subagent shaping (stages 8/9: the
+   * worker returns the depth-1 communication tools instead of the task
+   * tool; the task tool never exists inside a grandchild).
    */
-  createExtensions?: (spawn: { trusted: boolean }) => InlineExtension[];
+  createExtensions?: (spawn: {
+    trusted: boolean;
+    subagent: boolean;
+    subagentId?: string;
+    agentName?: string;
+  }) => InlineExtension[];
 }
 
 /** Subagent shaping of a spawn (plan §3.2 internal thread/start fields).
@@ -63,10 +69,15 @@ export interface SpawnShaping {
   systemPrompt?: string;
   tools?: string[];
   thinkingLevel?: SetThinkingLevelCmd["level"];
-  /** Memory-only permission snapshot; never written to disk. */
-  permissionRules?: PermissionRules;
+  /** Parent conversation id: the gate re-reads ITS ruleset (sidecar, else
+   * global) on every decision — tightening propagates to running
+   * grandchildren instead of freezing spawn-time rules forever. */
+  permissionThreadId?: string;
   /** Depth 1: the task tool is not registered inside this session. */
   subagent?: boolean;
+  /** Labels for the grandchild's subagent_message frames (advisory). */
+  subagentId?: string;
+  agentName?: string;
   /** In-memory session (pi --no-session equivalent): no session file. */
   ephemeral?: boolean;
 }
@@ -76,16 +87,20 @@ export function startShaping(cmd: {
   systemPrompt?: string;
   tools?: string[];
   thinkingLevel?: SetThinkingLevelCmd["level"];
-  permissionRules?: PermissionRules;
+  permissionThreadId?: string;
   subagent?: boolean;
+  subagentId?: string;
+  agentName?: string;
   ephemeral?: boolean;
 }): SpawnShaping | undefined {
   const shaping: SpawnShaping = {
     ...(cmd.systemPrompt !== undefined ? { systemPrompt: cmd.systemPrompt } : {}),
     ...(cmd.tools !== undefined ? { tools: cmd.tools } : {}),
     ...(cmd.thinkingLevel !== undefined ? { thinkingLevel: cmd.thinkingLevel } : {}),
-    ...(cmd.permissionRules !== undefined ? { permissionRules: cmd.permissionRules } : {}),
+    ...(cmd.permissionThreadId !== undefined ? { permissionThreadId: cmd.permissionThreadId } : {}),
     ...(cmd.subagent === true ? { subagent: true } : {}),
+    ...(cmd.subagentId !== undefined ? { subagentId: cmd.subagentId } : {}),
+    ...(cmd.agentName !== undefined ? { agentName: cmd.agentName } : {}),
     ...(cmd.ephemeral === true ? { ephemeral: true } : {}),
   };
   return Object.keys(shaping).length > 0 ? shaping : undefined;
@@ -119,30 +134,27 @@ function makeRuntimeFactory(deps: {
   model: SessionModel | undefined;
   threadIdRef: ThreadIdRef;
   shaping: SpawnShaping | undefined;
-  createExtensions: ((spawn: { trusted: boolean }) => InlineExtension[]) | undefined;
+  createExtensions:
+    | ((spawn: {
+        trusted: boolean;
+        subagent: boolean;
+        subagentId?: string;
+        agentName?: string;
+      }) => InlineExtension[])
+    | undefined;
 }): CreateAgentSessionRuntimeFactory {
-  const { modelRuntime, trusted, model, threadIdRef, shaping, createExtensions } = deps;
-  const injected = shaping?.permissionRules;
+  const { trusted, model, threadIdRef, shaping, createExtensions } = deps;
   return async (factoryOptions) => {
-    const extensions: InlineExtension[] = [
-      createPermissionGate(
-        () => threadIdRef.id,
-        injected === undefined ? undefined : () => injected,
-      ),
-    ];
-    if (createExtensions !== undefined && shaping?.subagent !== true) {
-      extensions.push(...createExtensions({ trusted }));
-    }
     const services = await createAgentSessionServices({
       cwd: factoryOptions.cwd,
       agentDir: factoryOptions.agentDir,
-      modelRuntime,
+      modelRuntime: deps.modelRuntime,
       resourceLoaderOptions: {
         // Extensions are arbitrary code. Untrusted sessions load only the
         // built-in permission gate (and the task tool, which is built-in);
         // skills/prompts/context stay available because they are data, not code.
         ...(trusted ? {} : { noExtensions: true }),
-        extensionFactories: extensions,
+        extensionFactories: spawnExtensions({ trusted, threadIdRef, shaping, createExtensions }),
         ...(shaping?.systemPrompt !== undefined ? { systemPrompt: shaping.systemPrompt } : {}),
       },
     });
@@ -158,6 +170,45 @@ function makeRuntimeFactory(deps: {
     });
     return { ...created, services, diagnostics: [] };
   };
+}
+
+/** Permission gate + built-in extensions for one spawn. Subagent spawns
+ * reach this too (stages 8/9): the worker's callback swaps the task tool
+ * for the depth-1 communication tools. */
+function spawnExtensions(factory: {
+  trusted: boolean;
+  threadIdRef: ThreadIdRef;
+  shaping: SpawnShaping | undefined;
+  createExtensions:
+    | ((spawn: {
+        trusted: boolean;
+        subagent: boolean;
+        subagentId?: string;
+        agentName?: string;
+      }) => InlineExtension[])
+    | undefined;
+}): InlineExtension[] {
+  const { trusted, threadIdRef, shaping, createExtensions } = factory;
+  const permissionThreadId = shaping?.permissionThreadId;
+  const extensions: InlineExtension[] = [
+    createPermissionGate(
+      () => threadIdRef.id,
+      // Grandchild gate: re-read the parent conversation's ruleset on
+      // every decision (review B-P2-5) — never a frozen snapshot.
+      permissionThreadId === undefined ? undefined : () => effectiveRules(permissionThreadId),
+    ),
+  ];
+  if (createExtensions !== undefined) {
+    extensions.push(
+      ...createExtensions({
+        trusted,
+        subagent: shaping?.subagent === true,
+        ...(shaping?.subagentId !== undefined ? { subagentId: shaping.subagentId } : {}),
+        ...(shaping?.agentName !== undefined ? { agentName: shaping.agentName } : {}),
+      }),
+    );
+  }
+  return extensions;
 }
 
 /**
@@ -220,8 +271,9 @@ export class SessionHost {
   private readonly options: SessionHostOptions;
   /** Current session id for the permission gate (set on bind/rebind). */
   private readonly threadIdRef: ThreadIdRef = { id: "" };
-  /** Grandchild permission snapshot set at spawn (memory-only). */
-  private injectedRules: PermissionRules | undefined;
+  /** Grandchild gate anchor: the parent conversation whose ruleset is
+   * re-read on every decision. */
+  private permissionThreadId: string | undefined;
   /** Serializes session-replacing operations (fork/clone/stop). */
   private replacementQueue: Promise<unknown> = Promise.resolve();
   /** Spawn in flight, so shutdown can wait for it and start can reject doubles. */
@@ -242,9 +294,12 @@ export class SessionHost {
     return this.threadIdRef.id;
   }
 
-  /** Grandchild permission snapshot (undefined for normal conversations). */
+  /** Grandchild gate ruleset (parent's live rules; undefined for normal
+   * conversations — the caller then falls back to its own threadId). */
   getInjectedRules(): PermissionRules | undefined {
-    return this.injectedRules;
+    return this.permissionThreadId === undefined
+      ? undefined
+      : effectiveRules(this.permissionThreadId);
   }
 
   async start(options: {
@@ -256,7 +311,7 @@ export class SessionHost {
     if (this.thread !== undefined || this.spawning) {
       throw this.oneSessionError();
     }
-    this.injectedRules = options.shaping?.permissionRules;
+    this.permissionThreadId = options.shaping?.permissionThreadId;
     return this.runSpawn(() =>
       this.spawn({
         cwd: options.cwd,

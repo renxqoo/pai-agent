@@ -27,6 +27,7 @@ import type {
   SetSessionNameCmd,
   SetThinkingLevelCmd,
   SteerCmd,
+  SubagentSteerCmd,
   ImagePayload,
   ThreadResumeCmd,
   UiResponseCmd,
@@ -506,6 +507,28 @@ const handleAbortBash: Handler = (ctx, cmd, id) => {
   return Promise.resolve();
 };
 
+/** Stage 7: client-facing steer into a running grandchild (same pipeline as
+ * the model's task_steer tool; the registry owns the not-running wording). */
+const handleSubagentSteer: Handler = async (ctx, cmd, id) => {
+  const steer = cmd as SubagentSteerCmd & { id?: string };
+  const thread = ctx.requireThread(steer.threadId, "subagent/steer", id);
+  if (!thread) return;
+  if (typeof steer.message !== "string" || steer.message.length === 0) {
+    ctx.failure(id, "subagent/steer", "message must be a non-empty string");
+    return;
+  }
+  if (typeof steer.subagentId !== "string" || steer.subagentId.length === 0) {
+    ctx.failure(id, "subagent/steer", "subagentId must be a non-empty string");
+    return;
+  }
+  const outcome = await ctx.steerSubagent(steer.subagentId, steer.message);
+  if (outcome === true) {
+    ctx.success(id, "subagent/steer", { subagentId: steer.subagentId, steered: true });
+    return;
+  }
+  ctx.failure(id, "subagent/steer", typeof outcome === "string" ? outcome : "subagent is gone");
+};
+
 const handleUiResponse: Handler = (ctx, cmd, id) => {
   const uiResponse = cmd as UiResponseCmd & { id?: string };
   // Subagent-relayed dialogs first (their requestIds never collide with the
@@ -545,6 +568,7 @@ export const workerHandlers: ReadonlyMap<string, Handler> = new Map<string, Hand
     get_commands: handleGetCommands,
     bash: handleBash,
     abort_bash: handleAbortBash,
+    "subagent/steer": handleSubagentSteer,
     ui_response: handleUiResponse,
   }),
 );

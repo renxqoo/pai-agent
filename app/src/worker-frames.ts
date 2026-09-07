@@ -58,7 +58,8 @@ export function onWorkerLine(deps: FrameRelayDeps, worker: WorkerHandle, line: s
   if (
     line.startsWith('{"type":"event"') ||
     line.startsWith('{"type":"ui_request"') ||
-    line.startsWith('{"type":"subagent_event"')
+    line.startsWith('{"type":"subagent_event"') ||
+    line.startsWith('{"type":"subagent_message"')
   ) {
     deps.emitRaw(line);
     return;
@@ -119,7 +120,8 @@ function onUnclassifiedLine(deps: FrameRelayDeps, worker: WorkerHandle, line: st
     (parsed.type === "event" ||
       parsed.type === "ui_request" ||
       parsed.type === "hub_error" ||
-      parsed.type === "subagent_event")
+      parsed.type === "subagent_event" ||
+      parsed.type === "subagent_message")
   ) {
     // Known shapes with unexpected key order still forward verbatim.
     deps.emitRaw(line);

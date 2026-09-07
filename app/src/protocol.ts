@@ -264,6 +264,16 @@ export interface AgentsListCmd {
   threadId?: string;
 }
 
+/** v0.5 stage 7: steer a RUNNING background subagent of this conversation
+ * (host routes to the conversation's worker, which writes the steer line
+ * into the grandchild's stdin). Settled/queued/unknown ids fail. */
+export interface SubagentSteerCmd {
+  type: "subagent/steer";
+  threadId: string;
+  subagentId: string;
+  message: string;
+}
+
 export type HubCommand =
   | (ThreadStartCmd & { id?: string })
   | (ThreadResumeCmd & { id?: string })
@@ -299,7 +309,8 @@ export type HubCommand =
   | (UiResponseCmd & { id?: string })
   | (GetPermissionRulesCmd & { id?: string })
   | (SetPermissionRulesCmd & { id?: string })
-  | (AgentsListCmd & { id?: string });
+  | (AgentsListCmd & { id?: string })
+  | (SubagentSteerCmd & { id?: string });
 
 // ============================================================================
 // Frames (stdout, host -> Electron)
@@ -368,6 +379,22 @@ export interface SubagentEventFrame {
   event: AgentSessionEvent;
 }
 
+/**
+ * v0.5 stage 8: an inter-agent message relayed from a grandchild (its
+ * `report`/`send` tools). The conversation's worker re-stamps identity from
+ * its own registry (the grandchild's self-declared id is never trusted) and
+ * forwards the frame to the client verbatim; `to` is present only for
+ * sibling routing (stage 9), where the father model mediates delivery.
+ */
+export interface SubagentMessageFrame {
+  type: "subagent_message";
+  threadId: string;
+  subagentId: string;
+  agent: string;
+  text: string;
+  to?: string;
+}
+
 export interface ThreadListEntry {
   threadId: string;
   cwd: string;
@@ -383,7 +410,8 @@ export type HubFrame =
   | HeartbeatFrame
   | HubErrorFrame
   | ThreadDiedFrame
-  | SubagentEventFrame;
+  | SubagentEventFrame
+  | SubagentMessageFrame;
 
 // ============================================================================
 // INTERNAL: host <-> worker protocol (never on the Electron wire)
@@ -412,17 +440,22 @@ export interface WorkerHeartbeatFrame {
 
 /** INTERNAL thread/start: host injects the resolved model object. v0.5 adds
  * the subagent extension fields (used by the task tool's grandchild spawns):
- * systemPrompt/tools/thinkingLevel shape the grandchild session, permissionRules
- * is a memory-only injection (never persisted), subagent disables the task
- * tool inside the grandchild (depth 1), ephemeral runs an in-memory session
- * (the pi --no-session equivalent). */
+ * systemPrompt/tools/thinkingLevel shape the grandchild session,
+ * permissionThreadId re-reads the parent conversation's live ruleset on
+ * every gate decision (never a frozen snapshot), subagent disables the task
+ * tool inside the grandchild (depth 1) and enables its communication tools
+ * (report/send), subagentId/agentName label the grandchild's outgoing
+ * subagent_message frames (advisory — the parent re-stamps), ephemeral runs
+ * an in-memory session (the pi --no-session equivalent). */
 export interface WorkerThreadStartCmd extends Omit<ThreadStartCmd, "provider" | "modelId"> {
   model?: SessionModel;
   systemPrompt?: string;
   tools?: string[];
   thinkingLevel?: SetThinkingLevelCmd["level"];
-  permissionRules?: PermissionRules;
+  permissionThreadId?: string;
   subagent?: boolean;
+  subagentId?: string;
+  agentName?: string;
   ephemeral?: boolean;
 }
 
@@ -455,7 +488,8 @@ type ThreadScopedCmd =
   | AbortBashCmd
   | ThreadResumeCmd
   | ThreadStopCmd
-  | UiResponseCmd;
+  | UiResponseCmd
+  | SubagentSteerCmd;
 
 export type WorkerCommand =
   | (WorkerThreadStartCmd & { id?: string })
@@ -498,4 +532,5 @@ export const THREAD_SCOPED_COMMANDS: ReadonlySet<string> = new Set([
   "get_commands",
   "bash",
   "abort_bash",
+  "subagent/steer",
 ]);

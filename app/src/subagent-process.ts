@@ -11,119 +11,30 @@
  * "no frame" check; plus a stale no-frame window).
  */
 
-import { randomBytes } from "node:crypto";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { SessionModel } from "./protocol.ts";
-import type { PermissionRules } from "./rules.ts";
+import {
+  type AssistantMessage,
+  type DriverState,
+  type GrandchildDriver,
+  type GrandchildHooks,
+  type GrandchildResult,
+  type GrandchildTaskSpec,
+  type LiveProgress,
+  readIntEnv,
+  RELAY_BUFFER_CAP_BYTES,
+  RESULT_CONTENT_CAP_BYTES,
+  STDERR_CAP_BYTES,
+  SUBAGENT_KILL_GRACE_MS,
+  SUBAGENT_START_TIMEOUT_MS_DEFAULT,
+  SUBAGENT_STALE_MS_DEFAULT,
+} from "./subagent-contract.ts";
+import { truncateBytes } from "./truncate.ts";
+import { matchResponseId, sleep } from "./subagent-wire.ts";
 import { spawnWorkerProcess, type WorkerHandle } from "./worker-process.ts";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
-export const SUBAGENT_START_TIMEOUT_MS_DEFAULT = 30_000;
-export const SUBAGENT_STALE_MS_DEFAULT = 30_000;
-export const SUBAGENT_KILL_GRACE_MS = 5_000;
-export const RESULT_CONTENT_CAP_BYTES = 50 * 1024;
-export const RELAY_BUFFER_CAP_BYTES = 256 * 1024;
-export const STDERR_CAP_BYTES = 32 * 1024;
-
-function readIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const value = Number.parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-export interface GrandchildTaskSpec {
-  subagentId: string;
-  agent: string;
-  task: string;
-  cwd: string;
-  systemPrompt: string;
-  tools?: string[];
-  model?: SessionModel;
-  thinkingLevel?: string;
-  permissionRules: PermissionRules;
-}
-
-export interface GrandchildHooks {
-  /** One grandchild event (already relay-stripped by the caller). */
-  onEvent: (event: AgentSessionEvent) => void;
-  /** Grandchild ui_request relayed upward; answers arrive via resolveUi. */
-  onUiRequest: (frame: Record<string, unknown>) => void;
-  writeStderr: (text: string) => void;
-}
-
-export interface GrandchildUsage {
-  turns: number;
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
-  contextTokens: number;
-}
-
-export interface GrandchildResult {
-  agent: string;
-  task: string;
-  output: string;
-  isError: boolean;
-  errorMessage?: string;
-  aborted: boolean;
-  usage: GrandchildUsage;
-  stderr: string;
-  /** Relay/detail buffer hit a cap; dropped data is counted, not stored. */
-  truncated: boolean;
-  eventsRelayed: number;
-}
-
-export interface GrandchildDriver {
-  result: Promise<GrandchildResult>;
-  /** Route a ui_response back into the grandchild (reconstructed line: the
-   * host's internal id never crosses this boundary). False = unknown/late. */
-  resolveUi: (requestId: string, payload: Record<string, unknown>) => boolean;
-  /** Live progress for task_out snapshots: last assistant text tail and
-   * running usage totals; undefined once settled (use the result). */
-  progress: () => { text: string; usage: GrandchildUsage } | undefined;
-}
-
-interface AssistantMessage {
-  role?: string;
-  content?: Array<{ type: string; text?: string }>;
-  stopReason?: string;
-  errorMessage?: string;
-  usage?: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    cost?: { total: number };
-    totalTokens: number;
-  };
-}
-
-interface DriverState {
-  threadId: string;
-  waiters: Map<string, (frame: Record<string, unknown>) => void>;
-  pendingUiRequests: Set<string>;
-  /** Aggregated over every assistant turn; text/stopReason from the last. */
-  usage: GrandchildUsage;
-  lastText: string;
-  lastStopReason: string | undefined;
-  lastErrorMessage: string | undefined;
-  relayBytes: number;
-  truncated: boolean;
-  stderrBytes: number;
-  stderr: string;
-  eventsRelayed: number;
-  fatal: string | undefined;
-  settled: boolean;
-  /** close arrived (possibly before the settle wait was armed). */
-  closedEarly: boolean;
-  settleResolve: (() => void) | undefined;
-}
-
-export function newSubagentId(): string {
-  return `sub_${randomBytes(4).toString("hex")}`;
-}
+// Re-export the contract surface (single import point for the registry,
+// tool, and tests — the contract lives in subagent-contract.ts).
+export * from "./subagent-contract.ts";
 
 class GrandchildRunner {
   private readonly spec: GrandchildTaskSpec;
@@ -135,6 +46,7 @@ class GrandchildRunner {
   private readonly state: DriverState;
   private child: WorkerHandle | undefined;
   private aborted = false;
+  private steerSeq = 0;
   private startTimer: ReturnType<typeof setTimeout> | undefined;
   private staleSweep: ReturnType<typeof setInterval> | undefined;
   private readonly killTimers: ReturnType<typeof setTimeout>[] = [];
@@ -184,8 +96,26 @@ class GrandchildRunner {
     return {
       result,
       resolveUi: (requestId, payload) => this.resolveUi(requestId, payload),
+      steer: (message) => this.steer(message),
       progress: () => this.progress(),
     };
+  }
+
+  /** Stage 7: fire one steer line into the grandchild and await its ack.
+   * Exchange ids are unique per call — concurrent steers must not collide. */
+  private async steer(message: string): Promise<boolean | string> {
+    const { child } = this;
+    if (child === undefined || this.state.settled || this.state.closedEarly) return false;
+    if (this.state.fatal !== undefined) return false;
+    if (this.state.threadId === "") return "grandchild not ready";
+    const id = `g-steer-${this.steerSeq++}`;
+    const frame = await this.exchange(
+      JSON.stringify({ id, type: "steer", threadId: this.state.threadId, message }),
+      id,
+    );
+    if (frame["__closed"] === true) return false;
+    if (frame["success"] !== true) return String(frame["error"] ?? "grandchild rejected the steer");
+    return true;
   }
 
   private async run(): Promise<GrandchildResult> {
@@ -238,7 +168,8 @@ class GrandchildRunner {
       }
     });
     // First-terminal-wins: snapshot at settle time — an abort landing while
-    // finish() flushes stdin must not flip a settled run into "aborted".
+    // finish() flushes stdin must not flip a settled run into "aborted"
+    // (review P3-9: outcome must read the snapshot, not the live flag).
     const completed = this.state.settled && this.state.fatal === undefined;
     const abortedAtSettle = this.aborted;
     await this.finish();
@@ -248,11 +179,18 @@ class GrandchildRunner {
     if (this.state.lastStopReason === "error" || this.state.lastErrorMessage !== undefined) {
       return this.outcome(this.state.lastErrorMessage ?? "subagent turn failed");
     }
-    return this.outcome();
+    // A genuinely completed run stays completed: an abort that landed in the
+    // finish() window (or before the settle wake) must not discard its output.
+    return this.outcome(undefined, completed ? false : abortedAtSettle);
   }
 
   private startLine(): string {
     const { spec } = this;
+    // Communication tools (report/send, stage 8/9) are appended to a tools
+    // allowlist: pi filters extension tools through the same list, so an
+    // agent definition with `tools:` must not silence them (depth-1 contract).
+    const tools =
+      spec.tools === undefined ? undefined : [...new Set([...spec.tools, "report", "send"])];
     return JSON.stringify({
       id: "g-start",
       type: "thread/start",
@@ -260,11 +198,13 @@ class GrandchildRunner {
       trusted: false,
       ephemeral: true,
       subagent: true,
+      subagentId: spec.subagentId,
+      agentName: spec.agent,
       systemPrompt: spec.systemPrompt,
-      ...(spec.tools !== undefined ? { tools: spec.tools } : {}),
+      ...(tools !== undefined ? { tools } : {}),
       ...(spec.model !== undefined ? { model: spec.model } : {}),
       ...(spec.thinkingLevel !== undefined ? { thinkingLevel: spec.thinkingLevel } : {}),
-      permissionRules: spec.permissionRules,
+      permissionThreadId: spec.permissionThreadId,
     });
   }
 
@@ -376,9 +316,14 @@ class GrandchildRunner {
     child.stdin.end();
   }
 
-  private progress(): { text: string; usage: GrandchildUsage } | undefined {
+  private progress(): LiveProgress | undefined {
     if (this.state.settled || this.state.fatal !== undefined) return undefined;
-    return { text: this.state.lastText, usage: { ...this.state.usage } };
+    return {
+      text: this.state.lastText,
+      usage: { ...this.state.usage },
+      eventsRelayed: this.state.eventsRelayed,
+      truncated: this.state.truncated,
+    };
   }
 
   private resolveUi(requestId: string, payload: Record<string, unknown>): boolean {
@@ -406,6 +351,10 @@ class GrandchildRunner {
       this.onUiRequestLine(line);
       return;
     }
+    if (line.startsWith('{"type":"subagent_message"')) {
+      this.onMessageLine(line);
+      return;
+    }
     if (line.startsWith('{"type":"hub_error"')) {
       this.noteFatal(`grandchild hub error: ${line.slice(0, 400)}`);
       return;
@@ -424,6 +373,28 @@ class GrandchildRunner {
     } catch {
       this.noteFatal("grandchild sent a malformed ui_request");
     }
+  }
+
+  /** Identity fields are advisory: the parent re-stamps from its registry
+   * (stage 8 trust boundary); only text/to cross this boundary. Malformed
+   * frames are fatal regardless of whether the caller wired onMessage —
+   * protocol violations are not the hook's business. */
+  private onMessageLine(line: string): void {
+    let parsed: { text?: unknown; to?: unknown };
+    try {
+      parsed = JSON.parse(line) as { text?: unknown; to?: unknown };
+    } catch {
+      this.noteFatal("grandchild sent a malformed subagent_message");
+      return;
+    }
+    if (typeof parsed.text !== "string" || parsed.text.length === 0) {
+      this.noteFatal("grandchild sent a subagent_message without text");
+      return;
+    }
+    this.hooks.onMessage?.({
+      text: parsed.text,
+      ...(typeof parsed.to === "string" && parsed.to.length > 0 ? { to: parsed.to } : {}),
+    });
   }
 
   private onEventLine(line: string): void {
@@ -489,10 +460,10 @@ class GrandchildRunner {
     this.state.stderr += text;
   }
 
-  private outcome(errorMessage?: string): GrandchildResult {
-    const isError = this.aborted || errorMessage !== undefined;
+  private outcome(errorMessage?: string, aborted = this.aborted): GrandchildResult {
+    const isError = aborted || errorMessage !== undefined;
     const raw =
-      errorMessage !== undefined || this.aborted
+      errorMessage !== undefined || aborted
         ? (errorMessage ?? "subagent aborted")
         : this.state.lastText;
     return {
@@ -501,7 +472,7 @@ class GrandchildRunner {
       output: truncateOutput(raw),
       isError,
       ...(errorMessage !== undefined ? { errorMessage } : {}),
-      aborted: this.aborted,
+      aborted,
       usage: { ...this.state.usage },
       stderr: this.state.stderr,
       truncated: this.state.truncated,
@@ -528,24 +499,6 @@ export function startGrandchildTask(deps: {
   }).start();
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function matchResponseId(line: string): string | undefined {
-  if (!line.startsWith('{"id":"')) return undefined;
-  const end = line.indexOf('"', 7);
-  return end === -1 ? undefined : line.slice(7, end);
-}
-
 function truncateOutput(text: string): string {
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes <= RESULT_CONTENT_CAP_BYTES) return text;
-  let truncated = text.slice(0, RESULT_CONTENT_CAP_BYTES);
-  while (Buffer.byteLength(truncated, "utf8") > RESULT_CONTENT_CAP_BYTES) {
-    truncated = truncated.slice(0, -1);
-  }
-  return `${truncated}\n\n[output truncated: ${bytes - Buffer.byteLength(truncated, "utf8")} bytes omitted]`;
+  return truncateBytes(text, RESULT_CONTENT_CAP_BYTES, "\n\n[output truncated]");
 }

@@ -23,4 +23,6 @@ export interface WorkerContext {
   routeSubagentUi: (requestId: string, payload: Record<string, unknown>) => boolean;
   /** U2: client abort / thread stop kills every subagent (foreground + background). */
   killSubagents: () => void;
+  /** Stage 7: steer a running subagent; true on ack, otherwise an error string. */
+  steerSubagent: (subagentId: string, message: string) => Promise<boolean | string>;
 }

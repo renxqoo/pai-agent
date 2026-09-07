@@ -6,7 +6,7 @@
  * worker-commands.ts, session lifecycle in session-host.ts.
  */
 
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { type InlineExtension, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { DialogBroker } from "./dialogs.ts";
 import { responseFailure, responseSuccess } from "./frames.ts";
 import { createInflightRegistry } from "./inflight-registry.ts";
@@ -14,6 +14,7 @@ import { createJsonlSplitter } from "./jsonl.ts";
 import type { HubFrame, WorkerCommand, WorkerHeartbeatFrame } from "./protocol.ts";
 import { OBSERVER_COMMANDS } from "./protocol.ts";
 import { SessionHost } from "./session-host.ts";
+import { createSubagentCommunicationExtension } from "./subagent-communication.ts";
 import { createTaskTool } from "./subagent-tool.ts";
 import { SubagentRegistry } from "./subagent-registry.ts";
 import {
@@ -99,6 +100,7 @@ function buildContext(deps: {
     triggerShutdown: deps.triggerShutdown,
     routeSubagentUi: (requestId, payload) => deps.subagents.route(requestId, payload),
     killSubagents: () => deps.subagents.killAll(),
+    steerSubagent: (subagentId, message) => deps.subagents.steer(subagentId, message),
     success: (id, command, data) => {
       deps.emit(responseSuccess(id, command, data));
     },
@@ -219,6 +221,45 @@ function createLifecycle(deps: {
   };
 }
 
+/** Built-in extensions (not user code): normal conversations get the task
+ * tool (project-level agent definitions stay trust-gated inside); grandchild
+ * spawns (depth 1) get the communication tools instead — report/send to the
+ * parent, never a task tool of their own. */
+function builtinExtensions(deps: {
+  emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
+  modelRuntime: ModelRuntime;
+  subagents: SubagentRegistry;
+  getThreadId: () => string;
+}): (spawn: {
+  trusted: boolean;
+  subagent: boolean;
+  subagentId?: string;
+  agentName?: string;
+}) => InlineExtension[] {
+  return (spawn) =>
+    spawn.subagent
+      ? [
+          createSubagentCommunicationExtension({
+            emit: (frame) => deps.emit(frame),
+            getThreadId: deps.getThreadId,
+            subagentId: spawn.subagentId ?? "",
+            agentName: spawn.agentName ?? "",
+          }),
+        ]
+      : [
+          createTaskTool(
+            {
+              emit: deps.emit,
+              modelRuntime: deps.modelRuntime,
+              registry: deps.subagents,
+              writeStderr,
+              getThreadId: deps.getThreadId,
+            },
+            spawn.trusted,
+          ),
+        ];
+}
+
 /** Model runtime, dialog broker, and the single-session host. */
 async function setupWorkerServices(deps: {
   refs: WorkerRefs;
@@ -237,20 +278,12 @@ async function setupWorkerServices(deps: {
     createUi: (threadId) => createUiContext(threadId, broker, deps.emit),
     onThreadDisposed: (threadId) => broker.settleThread(threadId),
     writeStderr,
-    // The task tool is built-in (not an extension): untrusted conversations
-    // get it too, project-level agent definitions stay trust-gated inside.
-    createExtensions: (spawn) => [
-      createTaskTool(
-        {
-          emit: deps.emit,
-          modelRuntime,
-          registry: subagents,
-          writeStderr,
-          getThreadId: () => deps.refs.sessions?.threadId() ?? "",
-        },
-        spawn.trusted,
-      ),
-    ],
+    createExtensions: builtinExtensions({
+      emit: deps.emit,
+      modelRuntime,
+      subagents,
+      getThreadId: () => deps.refs.sessions?.threadId() ?? "",
+    }),
   });
   return buildContext({
     refs: deps.refs,

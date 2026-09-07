@@ -15,11 +15,13 @@
 import {
   type GrandchildDriver,
   type GrandchildHooks,
+  type GrandchildMessage,
   type GrandchildResult,
   type GrandchildTaskSpec,
   type GrandchildUsage,
   startGrandchildTask,
 } from "./subagent-process.ts";
+import { tailBytes, truncateBytes } from "./truncate.ts";
 
 /** Subagent budget constants (single truth; the tool re-uses them). */
 export const MAX_TASKS_PER_CALL = 8;
@@ -30,6 +32,10 @@ export const RETAINED_CAP = 16;
 export const NOTIFY_OUTPUT_CAP_BYTES = 8 * 1024;
 /** Per-notification delivery retries before stderr-drop (review P1-2). */
 export const NOTIFY_RETRY_CAP = 3;
+/** Stage 8: inter-agent messages per task (report+send combined). Enforced
+ * in the grandchild's tools AND here (defense in depth — the parent never
+ * trusts the grandchild's own accounting). */
+export const MAX_MESSAGES_PER_TASK = 10;
 
 /** The session-facing surface the notification delivery needs. The worker
  * supplies this; the registry never imports SessionHost (deps direction). */
@@ -42,6 +48,9 @@ export interface NotifySession {
 interface PendingNotification {
   text: string;
   retries: number;
+  /** Whose result this is (null = registry-generated notice); used to
+   * recall queued entries when task_wait consumes the result. */
+  subagentId: string | null;
 }
 
 export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "stopped";
@@ -55,16 +64,22 @@ interface RegistryEntry {
   settledAt: number | null;
   controller: AbortController;
   driver: GrandchildDriver | undefined;
-  stopRequested: boolean;
   killedByKillAll: boolean;
+  /** Background launches notify on settle; foreground results return in the
+   * tool result and a wake turn would duplicate them (review P1-2). */
+  background: boolean;
   result: GrandchildResult | undefined;
   settled: Promise<GrandchildResult>;
+  /** Stage 8: report/send messages accepted from this task (parent-side cap). */
+  messagesDelivered: number;
 }
 
 export interface LaunchHandle {
   result: Promise<GrandchildResult>;
   /** Whether this task got a concurrency slot immediately. */
-  status: "started" | "queued";
+  status: "started" | "queued" | "rejected";
+  /** Set when status is "rejected" (in-flight budget; review P1-4). */
+  rejection?: string;
 }
 
 export interface RegistryDeps {
@@ -90,6 +105,16 @@ export interface SnapshotEntry {
 
 /** running tail cap for task_out previews (plan contract section). */
 export const TASK_OUT_RUNNING_TAIL_BYTES = 2 * 1024;
+/** Envelope task cap (review P2-10): chain steps can embed a 50KB
+ * {previous} output; event frames AND task_out snapshots would re-carry it
+ * without this cap (review B-P3-7 closed the snapshot bypass). */
+export const ENVELOPE_TASK_CAP = 512;
+
+function envelopeTask(task: string): string {
+  return Buffer.byteLength(task, "utf8") <= ENVELOPE_TASK_CAP
+    ? task
+    : truncateBytes(task, ENVELOPE_TASK_CAP, "...");
+}
 
 function elapsedOf(entry: RegistryEntry, now: number): number {
   if (entry.settledAt !== null && entry.startedAt !== null)
@@ -103,7 +128,7 @@ function snapshotOf(entry: RegistryEntry): SnapshotEntry {
   const base = {
     subagentId: entry.spec.subagentId,
     agent: entry.spec.agent,
-    task: entry.spec.task,
+    task: envelopeTask(entry.spec.task),
     status: entry.status,
     elapsedMs: elapsedOf(entry, now),
   };
@@ -122,18 +147,9 @@ function snapshotOf(entry: RegistryEntry): SnapshotEntry {
     ...base,
     output: text,
     usage: live?.usage ?? zeroUsage(),
-    eventsRelayed: 0,
-    truncated: false,
+    eventsRelayed: live?.eventsRelayed ?? 0,
+    truncated: live?.truncated ?? false,
   };
-}
-
-function tailBytes(text: string, cap: number): string {
-  if (Buffer.byteLength(text, "utf8") <= cap) return text;
-  let sliced = text.slice(-cap);
-  while (Buffer.byteLength(sliced, "utf8") > cap) {
-    sliced = sliced.slice(1);
-  }
-  return sliced;
 }
 
 function zeroUsage(): GrandchildUsage {
@@ -172,8 +188,24 @@ export class SubagentRegistry {
     return this.pendingNotifications.length;
   }
 
+  /**
+   * task_wait consumes results directly, so their queued notifications must
+   * be recalled (not just future ones blocked): an entry that settled
+   * mid-turn is already sitting in pendingNotifications. A notification
+   * mid-delivery cannot be recalled (its prompt is running).
+   */
   suppressNotifications(ids: string[]): void {
     for (const id of ids) this.suppressedIds.add(id);
+    for (let i = this.pendingNotifications.length - 1; i >= 0; i--) {
+      const queued = this.pendingNotifications[i];
+      if (
+        queued !== undefined &&
+        queued.subagentId !== null &&
+        this.suppressedIds.has(queued.subagentId)
+      ) {
+        this.pendingNotifications.splice(i, 1);
+      }
+    }
   }
 
   releaseNotifications(ids: string[]): void {
@@ -219,13 +251,26 @@ export class SubagentRegistry {
    * queue otherwise (status "queued" until a slot opens at some settle).
    * `outerSignal` (the foreground turn signal) is chained onto the entry's
    * own controller so both turn abort and killAll reach the grandchild.
+   * The in-flight cap (queued+running ≤ 8) is enforced HERE, synchronously
+   * (review P1-4): the tool's pre-check spans an await, so two parallel
+   * task calls could both pass it and double the budget — the registry is
+   * the single truth. Rejected launches settle immediately with an error.
    */
   launch(deps: {
     spec: GrandchildTaskSpec;
     hooks: GrandchildHooks;
+    background?: boolean;
     outerSignal?: AbortSignal;
   }): LaunchHandle {
     const { spec } = deps;
+    if (this.inFlight() >= MAX_INFLIGHT_PER_CONVERSATION) {
+      const error = `Too many subagents in flight (${MAX_INFLIGHT_PER_CONVERSATION}); wait for running tasks to finish`;
+      return {
+        result: Promise.resolve(settledError(spec, error)),
+        status: "rejected",
+        rejection: error,
+      };
+    }
     let resolveSettle!: (result: GrandchildResult) => void;
     const settled = new Promise<GrandchildResult>((resolvePromise) => {
       resolveSettle = resolvePromise;
@@ -239,23 +284,14 @@ export class SubagentRegistry {
       settledAt: null,
       controller: new AbortController(),
       driver: undefined,
-      stopRequested: false,
       killedByKillAll: false,
+      background: deps.background === true,
       result: undefined,
       settled,
+      messagesDelivered: 0,
     };
     this.entries.set(spec.subagentId, entry);
-    if (deps.outerSignal !== undefined) {
-      if (deps.outerSignal.aborted) entry.controller.abort();
-      else
-        deps.outerSignal.addEventListener(
-          "abort",
-          () => {
-            entry.controller.abort();
-          },
-          { once: true },
-        );
-    }
+    chainOuterSignal(entry, deps.outerSignal);
     if (this.liveCount() < MAX_CONCURRENT_SUBAGENTS) {
       this.startNow(entry);
       return { result: settled, status: "started" };
@@ -275,16 +311,20 @@ export class SubagentRegistry {
       return entry.status;
     }
     if (entry.status === "running") {
-      entry.stopRequested = true;
+      // task_stop (vs killAll): the stopped task still notifies on settle.
       entry.controller.abort();
       return entry.status;
     }
     return entry.status; // already settled: idempotent terminal state
   }
 
-  /** Kill every non-settled task (client abort / thread stop / shutdown). */
+  /** Kill every non-settled task (client abort / thread stop / shutdown) and
+   * drop queued notifications: a wake turn after the user declined the work
+   * would be spurious (review P1-3). */
   killAll(): void {
     this.queue.length = 0;
+    this.pendingNotifications.length = 0;
+    this.suppressedIds.clear();
     for (const entry of this.entries.values()) {
       if (entry.status === "running") {
         entry.killedByKillAll = true;
@@ -325,6 +365,47 @@ export class SubagentRegistry {
     return false;
   }
 
+  /**
+   * Steer one task (stage 7). true = the grandchild accepted the steer;
+   * an error string explains why it cannot run (not running / unknown /
+   * the grandchild's own rejection); callers surface that verbatim.
+   */
+  steer(subagentId: string, message: string): Promise<boolean | string> {
+    const entry = this.entries.get(subagentId);
+    if (entry === undefined) return Promise.resolve(`unknown subagent: ${subagentId}`);
+    if (entry.status !== "running" || entry.driver === undefined) {
+      return Promise.resolve(`subagent ${subagentId} is not running (status: ${entry.status})`);
+    }
+    return entry.driver.steer(message);
+  }
+
+  /**
+   * Queue one inter-agent message (stage 8/9) for turn-boundary delivery to
+   * the father model. Suppressed unless the task is still running and was
+   * not killed (a dying grandchild's in-flight frame must not wake anyone);
+   * the per-task cap is enforced again here (grandchild-side accounting is
+   * not trusted). Overflow drops with a stderr note, never throws.
+   */
+  queueMessage(subagentId: string, message: GrandchildMessage): void {
+    const entry = this.entries.get(subagentId);
+    if (entry === undefined || entry.status !== "running" || entry.killedByKillAll) return;
+    if (entry.messagesDelivered >= MAX_MESSAGES_PER_TASK) {
+      this.writeStderr(
+        `pai-cli dropped subagent message from ${subagentId}: message budget exhausted\n`,
+      );
+      return;
+    }
+    entry.messagesDelivered += 1;
+    this.pendingNotifications.push({
+      text: formatMessage(entry.spec, message),
+      retries: 0,
+      // Interim reports are not duplicated by task_wait results — never
+      // recalled by suppression (only results are).
+      subagentId: null,
+    });
+    this.tryDeliver();
+  }
+
   private startNow(entry: RegistryEntry): void {
     entry.status = "running";
     entry.startedAt = Date.now();
@@ -339,8 +420,10 @@ export class SubagentRegistry {
   }
 
   private async deliverOne(session: NotifySession, next: PendingNotification): Promise<void> {
+    let delivered = false;
     try {
       await session.prompt(next.text);
+      delivered = true;
     } catch {
       next.retries += 1;
       if (next.retries < NOTIFY_RETRY_CAP) {
@@ -351,8 +434,13 @@ export class SubagentRegistry {
       }
     } finally {
       this.delivering = false;
-      // Do NOT chain-deliver here: the just-started run's agent_settled
-      // is the next trigger (serial single-flight contract).
+      // Success path chains the next delivery (review P1-1, both reviewers):
+      // pi's prompt() resolves only AFTER the run's agent_settled fired, so
+      // that trigger raced the still-set delivering flag and was swallowed —
+      // stranding every later queued notification. The failure path must NOT
+      // chain: the just-failed prompt would be retried in a tight loop and
+      // burn the retry cap in microseconds; it waits for the next trigger.
+      if (delivered) this.tryDeliver();
     }
   }
 
@@ -365,11 +453,18 @@ export class SubagentRegistry {
     this.evictOverflow();
     this.scheduleQueued();
     // Stage 3: killed-by-killAll → silent (the user declined the work);
-    // task_stop (stopRequested) and genuine settles DO notify.
-    if (!entry.killedByKillAll && !this.suppressedIds.has(entry.spec.subagentId)) {
+    // task_stop (stopped) and genuine settles DO notify — but background
+    // tasks only (review P1-2): a foreground result returns in the tool
+    // result, and a wake turn would duplicate it and burn a model call.
+    if (
+      entry.background &&
+      !entry.killedByKillAll &&
+      !this.suppressedIds.has(entry.spec.subagentId)
+    ) {
       this.pendingNotifications.push({
         text: formatNotification(entry.spec, result),
         retries: 0,
+        subagentId: entry.spec.subagentId,
       });
       this.tryDeliver();
     }
@@ -385,14 +480,18 @@ export class SubagentRegistry {
     }
   }
 
+  /** Evict beyond RETAINED_CAP by completion order, not launch order
+   * (review P2-6): a long task that launched first but settled last must
+   * not be the first evicted the moment it completes. */
   private evictOverflow(): void {
-    const settledIds: string[] = [];
+    const settled: Array<{ id: string; settledAt: number }> = [];
     for (const [id, entry] of this.entries) {
-      if (entry.result !== undefined) settledIds.push(id);
+      if (entry.settledAt !== null) settled.push({ id, settledAt: entry.settledAt });
     }
-    while (settledIds.length > RETAINED_CAP) {
-      const evicted = settledIds.shift();
-      if (evicted !== undefined) this.entries.delete(evicted);
+    settled.sort((a, b) => a.settledAt - b.settledAt);
+    while (settled.length > RETAINED_CAP) {
+      const evicted = settled.shift();
+      if (evicted !== undefined) this.entries.delete(evicted.id);
     }
   }
 }
@@ -401,13 +500,11 @@ function formatNotification(spec: GrandchildTaskSpec, result: GrandchildResult):
   let statusWord = "completed";
   if (result.aborted) statusWord = "stopped";
   else if (result.isError) statusWord = "failed";
-  let { output } = result;
-  if (Buffer.byteLength(output, "utf8") > NOTIFY_OUTPUT_CAP_BYTES) {
-    while (Buffer.byteLength(output, "utf8") > NOTIFY_OUTPUT_CAP_BYTES) {
-      output = output.slice(0, -1);
-    }
-    output = `${output}\n[output truncated to 8KB]`;
-  }
+  const output = truncateBytes(
+    result.output,
+    NOTIFY_OUTPUT_CAP_BYTES,
+    "\n[output truncated to 8KB]",
+  );
   return [
     `[task-notification] subagent ${spec.subagentId} (${spec.agent}) ${statusWord}.`,
     output,
@@ -415,10 +512,49 @@ function formatNotification(spec: GrandchildTaskSpec, result: GrandchildResult):
   ].join("\n");
 }
 
+/** Envelope for a queued inter-agent message (stage 8/9 guardrails): source
+ * id always; `to` marks a sibling-routing request the father mediates;
+ * project-sourced agents speak as unverified data, not instructions. */
+function formatMessage(spec: GrandchildTaskSpec, message: GrandchildMessage): string {
+  const text = truncateBytes(message.text, NOTIFY_OUTPUT_CAP_BYTES, "\n[message truncated to 8KB]");
+  const header =
+    message.to === undefined
+      ? `[task-message] from subagent ${spec.subagentId} (${spec.agent}):`
+      : `[task-message] from subagent ${spec.subagentId} (${spec.agent}) intended for ${message.to} — route it with task_send only if appropriate:`;
+  const unverified =
+    spec.projectSourced === true
+      ? "\n[unverified data: agent definition from the project directory]"
+      : "";
+  return `${header}\n${text}${unverified}`;
+}
+
 function terminalStatus(entry: RegistryEntry, result: GrandchildResult): SubagentStatus {
   if (result.aborted) return "stopped";
   if (result.isError) return "failed";
   return "completed";
+}
+
+function settledError(spec: GrandchildTaskSpec, message: string): GrandchildResult {
+  return {
+    agent: spec.agent,
+    task: spec.task,
+    output: message,
+    isError: true,
+    errorMessage: message,
+    aborted: false,
+    usage: {
+      turns: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: 0,
+      contextTokens: 0,
+    },
+    stderr: "",
+    truncated: false,
+    eventsRelayed: 0,
+  };
 }
 
 function stoppedResult(spec: GrandchildTaskSpec, killed: boolean): GrandchildResult {
@@ -442,4 +578,18 @@ function stoppedResult(spec: GrandchildTaskSpec, killed: boolean): GrandchildRes
     truncated: false,
     eventsRelayed: 0,
   };
+}
+
+/** The foreground turn's abort reaches the entry's controller (one-shot). */
+function chainOuterSignal(entry: RegistryEntry, outerSignal: AbortSignal | undefined): void {
+  if (outerSignal === undefined) return;
+  if (outerSignal.aborted) entry.controller.abort();
+  else
+    outerSignal.addEventListener(
+      "abort",
+      () => {
+        entry.controller.abort();
+      },
+      { once: true },
+    );
 }
