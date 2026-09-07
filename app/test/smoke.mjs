@@ -120,10 +120,17 @@ await expectResponse(
 );
 
 const stateFrame = await send({ id: "5", type: "get_state", threadId });
+// pi persists lazily: the session path is reported before the FILE exists.
+// Resuming it must fail loudly (host-side validation) instead of spawning a
+// worker over a phantom path.
+assert(typeof stateFrame.data.sessionFile === "string", "get_state: sessionFile is a path");
 await expectResponse(
   { id: "6", type: "thread/resume", sessionPath: stateFrame.data.sessionFile },
   (r) => {
-    assert(!r.success && /already open/.test(r.error ?? ""), "thread/resume double-open: rejected");
+    assert(
+      !r.success && /Session file not found/.test(r.error ?? ""),
+      "thread/resume unpersisted session file: rejected",
+    );
   },
   "thread/resume error",
 );
@@ -590,12 +597,42 @@ writeFileSync(
 
 let fixtureThreadId = null;
 await expectResponse(
+  { id: "v16a", type: "thread/resume", sessionPath: join(fixtureDir, "no-such-file.jsonl") },
+  (r) => {
+    // A missing file must fail loudly: silently "resuming" it as a new empty
+    // session loses the client's history with a success response.
+    assert(
+      !r.success && /Session file not found/.test(r.error ?? ""),
+      "thread/resume missing file: rejected",
+    );
+  },
+);
+await expectResponse(
+  { id: "v16b", type: "thread/resume", sessionPath: "relative/fixture-fork.jsonl" },
+  (r) => {
+    // Relative paths resolve against the HOST cwd (not the client's) —
+    // rejected so the failure mode is explicit.
+    assert(
+      !r.success && /absolute path/.test(r.error ?? ""),
+      "thread/resume relative path: rejected",
+    );
+  },
+);
+await expectResponse(
   { id: "v16", type: "thread/resume", sessionPath: fixturePath },
   (r) => {
     assert(r.success, `thread/resume fixture (${r.error ?? "ok"})`);
     fixtureThreadId = r.data.threadId;
   },
   "thread/resume fixture",
+);
+await expectResponse(
+  { id: "v16c", type: "thread/resume", sessionPath: fixturePath },
+  (r) => {
+    // True double-open: the same persisted file is already held by v16.
+    assert(!r.success && /already open/.test(r.error ?? ""), "thread/resume double-open: rejected");
+  },
+  "thread/resume double-open",
 );
 
 await expectResponse(

@@ -4,6 +4,8 @@
  * thread-scoped falls through to the worker pool via handlePassthrough.
  */
 
+import { existsSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { type ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "./agent-definitions.ts";
 import type {
@@ -82,8 +84,28 @@ const handleStart: HostHandler = async (deps, cmd, id) => {
   await deps.pool.startThread(start, model);
 };
 
-const handleResume: HostHandler = async (deps, cmd, _id) => {
-  await deps.pool.resumeThread(cmd as ThreadResumeCmd);
+const handleResume: HostHandler = async (deps, cmd, id) => {
+  const resume = cmd as ThreadResumeCmd;
+  // Fail fast, host-side: a missing file would otherwise be "resumed" as a
+  // brand-new empty session (pi's SessionManager.open creates), silently
+  // losing the client's history; a relative path would resolve against the
+  // HOST's cwd, not the client's. Absolute paths are what every response
+  // echoes back — require them.
+  if (!isAbsolute(resume.sessionPath ?? "")) {
+    deps.emit(
+      responseFailure(
+        id,
+        resume.type,
+        "sessionPath must be an absolute path (echo the value returned by thread/start or a previous thread/resume)",
+      ),
+    );
+    return;
+  }
+  if (!existsSync(resume.sessionPath)) {
+    deps.emit(responseFailure(id, resume.type, `Session file not found: ${resume.sessionPath}`));
+    return;
+  }
+  await deps.pool.resumeThread(resume);
 };
 
 const handleStop: HostHandler = async (deps, cmd, id) => {
