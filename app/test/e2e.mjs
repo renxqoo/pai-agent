@@ -61,6 +61,21 @@ writeFileSync(
         apiKey: "$GLM_API_KEY",
         models: [{ id: modelId }],
       },
+      // Distinct provider entry over the same backend: C1's second thread
+      // gets a genuinely different model object with real traffic.
+      glm2: {
+        baseUrl,
+        api: "openai-completions",
+        apiKey: "$GLM_API_KEY",
+        models: [{ id: modelId }],
+      },
+      // C2 error journey: instant connection refusal, deterministic.
+      broken: {
+        baseUrl: "http://127.0.0.1:9",
+        api: "openai-completions",
+        apiKey: "$GLM_API_KEY",
+        models: [{ id: modelId }],
+      },
     },
   }),
 );
@@ -341,8 +356,39 @@ const sessionFile = start.data.sessionPath;
       "Read the file note.txt in the current working directory and reply with exactly its content.",
   });
   assert(r.success, "prompt(read task) accepted");
-  await waitEvent((e) => e.type === "tool_execution_start", "read tool start");
-  await waitEvent((e) => e.type === "agent_settled", "read task settled");
+  // Explicit cursor: start and end can land inside one poll window, so a
+  // wait armed after the first resolve would miss the second frame.
+  const c3Cursor = allFrames.length;
+  await waitEvent((e) => e.type === "tool_execution_start", "read tool start", 120_000, c3Cursor);
+  await waitEvent((e) => e.type === "tool_execution_end", "read tool end", 120_000, c3Cursor);
+  // C3: per-call ordering — start precedes end, same toolCallId, and the
+  // toolResult message carries no error flag.
+  {
+    const toolFrames = allFrames.filter(
+      (f) =>
+        f.type === "event" &&
+        (f.event?.type === "tool_execution_start" || f.event?.type === "tool_execution_end"),
+    );
+    const startIdx = toolFrames.findIndex((f) => f.event.type === "tool_execution_start");
+    const endIdx = toolFrames.findIndex((f) => f.event.type === "tool_execution_end");
+    assert(startIdx !== -1 && endIdx !== -1 && startIdx < endIdx, "C3: start precedes end");
+    const startFrame = toolFrames[startIdx];
+    const endFrame = toolFrames.find(
+      (f) =>
+        f.event?.type === "tool_execution_end" &&
+        f.event.toolCallId === startFrame.event.toolCallId,
+    );
+    assert(!!endFrame, "C3: end frame correlates by toolCallId");
+  }
+  await waitEvent((e) => e.type === "agent_settled", "read task settled", 240_000, c3Cursor);
+  {
+    const after = (await send({ id: "e6b", type: "get_messages", threadId: tid })).data.messages;
+    const toolResults = after.filter((m) => m.role === "toolResult");
+    assert(
+      toolResults.length > 0 && toolResults.every((m) => m.isError !== true),
+      "C3: toolResult message isError=false",
+    );
+  }
   const msgs = (await send({ id: "e7", type: "get_messages", threadId: tid })).data.messages;
   const texts = assistantTexts(msgs).join("\n");
   assert(texts.includes("e2e-secret-42"), "agent read the file and reported the secret");
@@ -470,6 +516,37 @@ writeFileSync(
       stats.data.assistantMessages >= 2,
     "get_session_stats: real session usage recorded",
   );
+  // C4: contextUsage shape + conditional cache assertions (plan Feature C).
+  const usage = stats.data.contextUsage;
+  assert(
+    usage &&
+      usage.tokens > 0 &&
+      usage.contextWindow > 0 &&
+      usage.percent > 0 &&
+      usage.percent <= 100,
+    "get_session_stats: contextUsage {tokens, contextWindow, percent in (0,100]}",
+  );
+  {
+    const msgs = (await send({ id: "e19c", type: "get_messages", threadId: tid })).data.messages;
+    const withCache = msgs.filter((m) => (m.usage?.cacheRead ?? 0) > 0);
+    // Conditional: providers with a minimum cacheable prefix may report 0
+    // throughout (environmental, not a defect) — then only the formula path
+    // is asserted, never a permanent red.
+    if (withCache.length > 0) {
+      const cacheRead = withCache.reduce((acc, m) => acc + m.usage.cacheRead, 0);
+      const input = withCache.reduce((acc, m) => acc + m.usage.input, 0);
+      assert(cacheRead > 0, "C4: cacheRead recorded on assistant messages");
+      assert(
+        cacheRead / (cacheRead + input) > 0 && cacheRead / (cacheRead + input) <= 1,
+        "C4: cache hit rate formula lands in (0,1]",
+      );
+    } else {
+      assert(
+        msgs.every((m) => typeof (m.usage?.cacheRead ?? 0) === "number"),
+        "C4: cacheRead field present (zero throughout; provider has no cacheable prefix)",
+      );
+    }
+  }
 
   const entries1 = await send({ id: "e20", type: "get_entries", threadId: tid });
   const ids1 = entries1.data.entries.map((e) => e.id);
@@ -1275,6 +1352,86 @@ async function assertNoGrandchildren(hostPid, label) {
     assert((after.data?.messages ?? []).length === count, "C: no new turn after abort");
   }
   await send({ id: "bg7", type: "thread/stop", threadId: tid4 });
+}
+
+// --- 12h. C1 dual-model isolation + C2 error journey (plan Feature C) -------------
+{
+  // C1: two threads, two providers, concurrent traffic — each keeps its model.
+  const ta = await send({
+    id: "c1a",
+    type: "thread/start",
+    cwd: projectDir,
+    provider: "glm",
+    modelId,
+  });
+  const tb = await send({
+    id: "c1b",
+    type: "thread/start",
+    cwd: projectDir,
+    provider: "glm2",
+    modelId,
+  });
+  assert(ta.success && tb.success, `C1: both threads started (${ta.error ?? tb.error ?? "ok"})`);
+  const ida = ta.data.threadId;
+  const idb = tb.data.threadId;
+  const pa = await send({
+    id: "c1c",
+    type: "prompt",
+    threadId: ida,
+    message: "Reply with exactly: A-OK",
+  });
+  const pb = await send({
+    id: "c1d",
+    type: "prompt",
+    threadId: idb,
+    message: "Reply with exactly: B-OK",
+  });
+  assert(pa.success && pb.success, "C1: concurrent prompts accepted on both threads");
+  await waitEvent((e) => e.type === "agent_settled", "C1: thread A settled", 240_000);
+  await waitEvent((e) => e.type === "agent_settled", "C1: thread B settled", 240_000);
+  const sa = await send({ id: "c1e", type: "get_state", threadId: ida });
+  const sb = await send({ id: "c1f", type: "get_state", threadId: idb });
+  assert(sa.data.model?.provider === "glm", "C1: thread A kept its glm model");
+  assert(sb.data.model?.provider === "glm2", "C1: thread B kept its glm2 model");
+  await send({ id: "c1g", type: "thread/stop", threadId: ida });
+  await send({ id: "c1h", type: "thread/stop", threadId: idb });
+
+  // C2: provider with an unreachable baseUrl — the turn fails cleanly.
+  const tc = await send({
+    id: "c2a",
+    type: "thread/start",
+    cwd: projectDir,
+    provider: "broken",
+    modelId,
+  });
+  assert(tc.success, `C2: broken-provider thread started (${tc.error ?? "ok"})`);
+  const pc = await send({
+    id: "c2b",
+    type: "prompt",
+    threadId: tc.data.threadId,
+    message: "Say exactly: never",
+  });
+  assert(pc.success, "C2: prompt accepted despite the bad provider (fire-and-accept)");
+  await waitEvent(
+    (e) =>
+      e.type === "message_end" &&
+      e.message?.role === "assistant" &&
+      e.message?.stopReason === "error",
+    "C2: message_end stopReason=error",
+    240_000,
+  );
+  await waitEvent((e) => e.type === "agent_settled", "C2: settled after error", 240_000);
+  {
+    const msgs = (await send({ id: "c2c", type: "get_messages", threadId: tc.data.threadId })).data
+      .messages;
+    const errored = msgs.filter((m) => m.role === "assistant" && m.stopReason === "error");
+    assert(errored.length > 0, "C2: assistant message carries stopReason=error");
+    assert(
+      errored.some((m) => (m.errorMessage ?? "").length > 0),
+      "C2: errorMessage is visible (not swallowed)",
+    );
+  }
+  await send({ id: "c2d", type: "thread/stop", threadId: tc.data.threadId });
 }
 
 // --- 13. leak scan + lifecycle ------------------------------------------------------

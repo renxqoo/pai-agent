@@ -29,32 +29,51 @@ JSONL, LF-delimited only (strip optional trailing `\r`; do not use Node `readlin
 
 ### Commands (stdin)
 
-| Command                                      | Fields                                                                                                    | Notes                                                                                |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `thread/start`                               | `cwd?`, `provider?`+`modelId?`, `trusted?`                                                                | New conversation; response carries `threadId` (= pi session id) and `sessionPath`    |
-| `thread/resume`                              | `sessionPath`, `cwd?`, `trusted?`                                                                         | Reopen a saved conversation; rejected if already open (two writers corrupt the file) |
-| `thread/stop`                                | `threadId`                                                                                                | Dispose; the session file remains for later `thread/resume`                          |
-| `thread/list`                                |                                                                                                           | Threads with `isStreaming` and `state` (live/parked/dead, v0.4)                      |
-| `thread/list_saved`                          | `cwd?`                                                                                                    | Saved sessions for a cwd (history list UI)                                           |
-| `prompt`                                     | `threadId`, `message`, `streamingBehavior?` (`"steer"`/`"followUp"`, required while streaming), `images?` | Fire-and-accept; reply streams as `event` frames                                     |
-| `steer` / `follow_up`                        | `threadId`, `message`                                                                                     | Queue mid-stream / post-run messages                                                 |
-| `abort`                                      | `threadId`                                                                                                | Stop the thread's current run                                                        |
-| `compact`                                    | `threadId`, `customInstructions?`                                                                         | Manual compaction                                                                    |
-| `get_state` / `get_messages`                 | `threadId`                                                                                                | State / full history                                                                 |
-| `set_model` / `get_models`                   | `provider`+`modelId`                                                                                      | Per-thread model, shared catalog                                                     |
-| `set_thinking_level` / `get_thinking_levels` | `threadId`, `level?`                                                                                      |                                                                                      |
-| `ui_response`                                | `requestId`, `payload`                                                                                    | Answer a dialog; always acked (late/unknown ids ignored)                             |
+36 commands across ten groups — the canonical table with every field and
+error wording is **[docs/api.md](docs/api.md)**; the highlights:
+
+| Group                         | Commands                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Threads                       | `thread/start`, `thread/resume`, `thread/stop`, `thread/list`, `thread/list_saved`                                                   |
+| Driving                       | `prompt`, `steer`, `follow_up`, `abort`, `clear_queue`, `compact`                                                                    |
+| State/history                 | `get_state`, `get_messages`, `get_entries`, `get_tree`, `get_session_stats`, `set_session_name`, `get_commands`, `get_fork_messages` |
+| Tree/fork                     | `fork`, `clone`, `navigate_tree`                                                                                                     |
+| Models                        | `get_models`, `set_model`, `set_thinking_level`, `get_thinking_levels`                                                               |
+| Credentials                   | `auth/list`, `auth/set_api_key`, `auth/remove_key`                                                                                   |
+| Direct exec                   | `bash`, `abort_bash`                                                                                                                 |
+| Dialogs                       | `ui_response`                                                                                                                        |
+| Per-thread permissions (v0.5) | `get_permission_rules`, `set_permission_rules`                                                                                       |
+| Agents (v0.5)                 | `agents/list`, `subagent/steer`                                                                                                      |
 
 ### Frames (stdout)
 
 - `response` `{ id?, command, success, data? | error }` — correlated by `id`; `prompt` responds at acceptance time (preflight), later failures ride the event stream
 - `event` `{ threadId, event }` — every `AgentSessionEvent`, tagged; `message_update` frames strip cumulative snapshots (`message`, `partial`) so per-delta frame size stays constant
-- `ui_request` `{ requestId, threadId, method, ... }` — `confirm`/`select`/`input`/`editor` need a `ui_response` with `{ confirmed }` / `{ value }` / `{ cancelled: true }`; `notify`/`setStatus` are fire-and-forget. Dialogs carry a timeout (see permission gate): on expiry the hub resolves the default (deny) itself, so an unattended client cannot block the agent.
-- `heartbeat` — 1 Hz (host); absence means the host is stuck (client should kill + `thread/resume` everything)
+- `ui_request` `{ requestId, threadId, method, ... }` — `confirm`/`select`/`input`/`editor` need a `ui_response` with `{ confirmed }` / `{ value }` / `{ cancelled: true }`; `notify`/`setStatus` are fire-and-forget. Dialogs carry a timeout (see permission gate): on expiry the hub resolves the default (deny) itself, so an unattended client cannot block the agent. Requests relayed from a subagent carry `subagentId`/`agent`.
+- `heartbeat` — 1 Hz (host); absence means the host is stuck (client should kill + `thread/resume` everything); carries `subagents` (in-flight count) while background tasks run
 - `hub_error` — uncaught exception / rejection report; process stays alive (worker-origin errors carry a `threadId`)
 - `thread_died` (v0.4) — `{threadId, reason}`: that conversation's worker died unexpectedly; the thread moves to `state:"dead"` and the next command transparently revives it (respawn + resume)
+- `subagent_event` (v0.5) — `{threadId, subagentId, agent, task, event}`: a subagent's session events relayed verbatim, grouped by `subagentId` for task panels
+- `subagent_message` (v0.5) — `{threadId, subagentId, agent, text, to?}`: a subagent's `report`/`send` output (`to` marks a sibling-routing request the lead mediates)
 
-## Permissions
+## Subagents & background tasks (v0.5)
+
+The model-facing `task` tool delegates to agent definitions (`.md` files with
+frontmatter; user-level always visible, project-level `.pi/agents` only for
+`trusted` threads) by spawning one ephemeral grandchild worker per task —
+depth 1, in-memory session, isolated context window. Foreground calls block
+until done; `background:true` returns a receipt immediately and a
+`[task-notification]` user-role message wakes the conversation when the task
+settles (that turn costs tokens like any other). `task_out`/`task_wait`/
+`task_stop` observe and control; `task_steer` injects guidance into a running
+task; `task_send` relays to a running sibling (lead-mediated). Budgets:
+<=8 tasks/call, <=4 concurrent grandchildren globally, <=8 in flight per
+conversation, results retained <=16. `abort`/`thread/stop`/shutdown kill every
+subagent of the conversation (foreground + background; no notification fires
+for killed tasks). Grandchild permission checks re-read the parent
+conversation's live ruleset on every call — tightening propagates instantly.
+
+## Permissions (global + per-thread)
 
 Every thread runs the built-in permission gate (inline extension). Rules in `~/.pi/agent/permission-rules.json`, re-read per tool call, so a settings UI can edit it live:
 
@@ -68,7 +87,7 @@ Every thread runs the built-in permission gate (inline extension). Rules in `~/.
 }
 ```
 
-`mode`: `"ask"` (confirm unmatched via dialog), `"allow-all"`, `"block-all"`. Extend the gate in `src/permission-gate.ts` for `write`/`edit` path rules.
+`mode`: `"ask"` (confirm unmatched via dialog), `"allow-all"`, `"block-all"`. The same gate covers `write`/`edit` path rules. Per-thread overrides (v0.5): `set_permission_rules {threadId, rules}` writes a sidecar file that wins over the global one until cleared with `rules:null`; fork/clone carries it to the new thread id; edits apply hot — every call re-reads, including inside running subagents.
 
 ## Security model
 

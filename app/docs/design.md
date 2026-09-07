@@ -226,3 +226,15 @@ src/
 - 环境旋钮：`PAI_MAX_THREADS`（32）/ `PAI_IDLE_RETIRE_MS`（900000）/ `PAI_WORKER_STALE_MS`（30000）/ `PAI_WORKER_EXIT_TIMEOUT_MS`（10000）。
 
 完整架构规格（职责划分、内部 host↔worker 协议、生命周期状态机、预算）唯一真相：[migration/design.md](migration/design.md)；迁移审计与裁决见同目录 implementation.md / migration.md。旧单进程实现留档于 `pai-inprocess` 分支供对比。
+
+## v0.5 增补（子 agent/后台任务/权限 sidecar/agent 通信，2026-09-07 已实施）
+
+纯增量（36 命令、8 帧），规格唯一真相：[plans/2026-09-07-ui-completeness.md](plans/2026-09-07-ui-completeness.md) 与 [plans/2026-09-07-background-subagents.md](plans/2026-09-07-background-subagents.md)（含阶段 6 双审查处置表）；对外接口：[api.md](api.md)。要点：
+
+- **每线程权限 sidecar**：`get/set_permission_rules`（host 本地、严格校验、`rules:null` 清除）；判定链 injected→sidecar→全局热读；fork/clone 复制。
+- **子 agent 子系统**：`task` 工具（single/parallel/chain + `background:true`）→ 每任务一个 ephemeral 孙 worker（深度 1、in-memory、untrusted）；agent 定义 `.md` 热发现（项目级仅 trusted）；预算：≤8/调用、全局活孙 ≤4、在飞 ≤8（registry 同步闸门）、留存 ≤16（按完成序逐出）、通知/消息/中继/产出/stderr 五级字节上限。
+- **通知唤起链**：后台任务 settle → `[task-notification]` user-role 消息经回合边界投递（串行单飞；成功路径链式；失败回队 ≤3 次后 stderr 丢弃；streaming/compacting 挂起；killed/前台不通知；task_wait 抑制并回收已排队项）；worker isBusy 含在飞与待投递双窗口（retire 免疫）。
+- **agent 通信三扇门**：`subagent/steer` 命令 + `task_steer` 工具（同管线，running-only）；孙内置 `report`/`send`（深度 1 无 task 工具；tools 白名单自动合并）→ `subagent_message` 帧（父重盖身份）+ 信封入通知队列（项目级 agent 标注 unverified data；10 条×8KB 双侧预算）；`task_send` 兄弟路由（父中介，`[from: lead]` 信封）。
+- **U2 停止语义**：`abort`/`thread/stop`/shutdown → killAll（前台+后台+通知队列+抑制集）。
+- **可观察面**：`subagent_event`/`subagent_message` 帧、心跳 `subagents` 计数、user-role 通知注入（自动 token 成本）。
+- **孙权限热读**：thread/start 内部字段 `permissionThreadId` —— 孙的权限门每次调用重读父对话规则（sidecar→全局），收紧即时传导，无 spawn 快照冻结。
