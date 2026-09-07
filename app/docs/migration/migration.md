@@ -92,8 +92,9 @@ proper-lockfile 跨进程安全、行数表。
 - #A1 双开守卫新文案含 `already open`，smoke 正则不改；
 - #A2 smoke 夹具（手工会话文件、权限规则文件、隔离 agentDir）原样复用，
   `PI_CODING_AGENT_DIR` 由 host 经 env 继承传 worker；
-- #A3 e2e-multi RSS 断言从单进程改为 host+Σworker 求和，阈值阶段 1b 实测
-  后定（写明数值与日期）；
+- #A3 e2e-multi RSS 断言从单进程改为 host+Σworker 求和；实测（2026-09-07
+  darwin arm64 / bun 1.4.2）：idle 518 MB、并发峰值 530 MB，阈值定为
+  idle < 750 / peak < 900（约 40% 余量）；
 - #A4 「stdout 纯净度」断言复用于 host stdout；worker stdout 为内部管道，
   由 host 解析错误数隐式覆盖（parseErrors === 0）。
 

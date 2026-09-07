@@ -7,8 +7,12 @@
 // queue -> permission dialog round-trip (real agent bash call) -> rule-blocked
 // tool call -> direct bash (allowed + blocked) -> stats/entries cursor ->
 // fork/clone/navigate -> resume-after-stop -> abort -> compact -> leak scan.
+// Worker-architecture journeys (docs/migration/design.md §6): early-fork
+// survival, kill -9 resilience (exactly-one synthesized failure + thread_died
+// + auto-recovery), concurrent same-path resume, idle retire -> transparent
+// wake, host SIGKILL -> workers self-exit via stdin EOF.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,10 +68,17 @@ writeFileSync(join(projectDir, "note.txt"), "e2e-secret-42\n");
 writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ enableInstallTelemetry: false }));
 
 // --- hub client (what an Electron main process would be) ----------------------
+// Short idle-retire window so the retire -> wake journey runs within the e2e
+// budget (production default is 15min; see docs/migration/design.md §2).
 const hub = spawn("bun", ["src/cli.ts"], {
   cwd: process.cwd(),
   stdio: ["pipe", "pipe", "pipe"],
-  env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, GLM_API_KEY: apiKey },
+  env: {
+    ...process.env,
+    PI_CODING_AGENT_DIR: agentDir,
+    GLM_API_KEY: apiKey,
+    PAI_IDLE_RETIRE_MS: "3000",
+  },
 });
 let stderrText = "";
 hub.stderr.setEncoding("utf8");
@@ -509,7 +520,186 @@ writeFileSync(
   );
 }
 
-// --- 12. leak scan + lifecycle ------------------------------------------------------
+// --- 12. worker journeys (docs/migration/design.md §4/§5/§6) -----------------------
+
+// 12a. fork failure BEFORE teardown keeps the thread usable (v0.3 semantics;
+// api.md corrected — migration.md U6). A bogus entryId fails validation
+// inside pi before any session teardown happens.
+{
+  const r = await send({
+    id: "w1",
+    type: "fork",
+    threadId: tid,
+    entryId: "no-such-entry",
+    position: "at",
+  });
+  assert(!r.success, "fork(bogus entry) fails");
+  const s = await send({ id: "w2", type: "get_state", threadId: tid });
+  assert(s.success, "thread still usable after early fork failure");
+  const died = allFrames.filter((f) => f.type === "thread_died");
+  assert(died.length === 0, "no thread_died for early fork failure");
+}
+
+// 12b. kill -9 the worker mid-command: exactly one synthesized failure,
+// thread_died, entry goes dead, and the next command transparently recovers.
+{
+  const childPids = String(
+    spawnSync("pgrep", ["-P", String(hub.pid)], { encoding: "utf8" }).stdout ?? "",
+  )
+    .split("\n")
+    .filter(Boolean);
+  assert(childPids.length === 1, `exactly one worker process (got ${childPids.length})`);
+  const bashP = send({
+    id: "w3",
+    type: "bash",
+    threadId: tid,
+    command: "echo pai-kill-marker && sleep 30",
+  });
+  await new Promise((r) => setTimeout(r, 800)); // let the bash start running
+  process.kill(Number(childPids[0]), "SIGKILL");
+  const bashR = await bashP;
+  assert(
+    !bashR.success && /worker died/.test(bashR.error ?? ""),
+    "in-flight bash gets its one failure",
+  );
+  assert(
+    allFrames.filter((f) => f.type === "response" && f.id === "w3").length === 1,
+    "exactly one response for the killed command",
+  );
+  const died = allFrames.find((f) => f.type === "thread_died" && f.threadId === tid);
+  assert(!!died, "thread_died emitted for the killed thread");
+  const list1 = await send({ id: "w4", type: "thread/list" });
+  assert(
+    list1.data.threads.find((t) => t.threadId === tid)?.state === "dead",
+    "thread/list shows dead after worker kill",
+  );
+  const s = await send({ id: "w5", type: "get_state", threadId: tid });
+  assert(s.success, "next command transparently revives the dead thread (respawn+resume)");
+  const list2 = await send({ id: "w6", type: "thread/list" });
+  assert(
+    list2.data.threads.find((t) => t.threadId === tid)?.state === "live",
+    "thread/list shows live again after recovery",
+  );
+}
+
+// 12c. concurrent resume of the same session path: exactly one wins
+// (spawning counts as occupied — design §5).
+{
+  const openFile = (await send({ id: "w8", type: "get_state", threadId: tid })).data.sessionFile;
+  const stop = await send({ id: "w7", type: "thread/stop", threadId: tid });
+  assert(stop.success, "stop before concurrent resume test");
+  const [a, b] = await Promise.all([
+    send({ id: "w9", type: "thread/resume", sessionPath: openFile }),
+    send({ id: "w10", type: "thread/resume", sessionPath: openFile }),
+  ]);
+  const wins = [a, b].filter((r) => r.success);
+  const losses = [a, b].filter((r) => !r.success);
+  assert(wins.length === 1, `concurrent same-path resume: exactly one winner (${wins.length})`);
+  assert(
+    losses.length === 1 && /already open/.test(losses[0].error ?? ""),
+    "loser rejected with already-open",
+  );
+  tid = wins[0].data.threadId;
+}
+
+// 12d. idle retire -> parked -> transparent wake. Observer commands (the
+// waitIdle poller) must not keep the worker alive.
+{
+  await waitIdle(tid);
+  let parked = false;
+  for (let i = 0; i < 40 && !parked; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const list = await send({ id: `w11-${i}`, type: "thread/list" }); // host-local: never wakes
+    parked = list.data.threads.find((t) => t.threadId === tid)?.state === "parked";
+  }
+  assert(parked, "idle worker retired to parked (observer polling did not keep it alive)");
+  const children = String(
+    spawnSync("pgrep", ["-P", String(hub.pid)], { encoding: "utf8" }).stdout ?? "",
+  )
+    .split("\n")
+    .filter(Boolean);
+  assert(children.length === 0, `parked thread has no worker process (got ${children.length})`);
+  const s = await send({ id: "w12", type: "get_state", threadId: tid });
+  assert(s.success, "command to parked thread wakes it transparently");
+  const list = await send({ id: "w13", type: "thread/list" });
+  assert(
+    list.data.threads.find((t) => t.threadId === tid)?.state === "live",
+    "woken thread is live again",
+  );
+}
+
+// 12e. host SIGKILL -> every worker self-exits via stdin EOF (no orphans).
+{
+  const agentDir2 = mkdtempSync(join(tmpdir(), "pai-cli-e2e-hostkill-"));
+  writeFileSync(
+    join(agentDir2, "models.json"),
+    JSON.stringify({
+      providers: {
+        glm: {
+          baseUrl,
+          api: "openai-completions",
+          apiKey: "$GLM_API_KEY",
+          models: [{ id: modelId }],
+        },
+      },
+    }),
+  );
+  const proj2 = mkdtempSync(join(tmpdir(), "pai-cli-e2e-proj2-"));
+  const host2 = spawn("bun", ["src/cli.ts"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      PI_CODING_AGENT_DIR: agentDir2,
+      GLM_API_KEY: apiKey,
+      PAI_IDLE_RETIRE_MS: "3600000",
+    },
+  });
+  host2.stdout.resume();
+  host2.stderr.resume();
+  // A worker exists only once a conversation starts.
+  host2.stdin.write(JSON.stringify({ id: "hk1", type: "thread/start", cwd: proj2 }) + "\n");
+  const start2 = await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(() => {
+      // Wait for the worker to exist before killing the host.
+      const kids = spawnSync("pgrep", ["-P", String(host2.pid)], { encoding: "utf8" }).stdout ?? "";
+      if (kids.trim()) {
+        clearInterval(t);
+        resolve(kids.trim().split("\n").length);
+      } else if (Date.now() - t0 > 30_000) {
+        clearInterval(t);
+        reject(new Error("host2 worker never spawned"));
+      }
+    }, 200);
+  });
+  assert(start2 >= 1, "host2 has a live worker before the kill");
+  const kidPids = String(
+    spawnSync("pgrep", ["-P", String(host2.pid)], { encoding: "utf8" }).stdout ?? "",
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map(Number);
+  process.kill(host2.pid, "SIGKILL");
+  let gone = false;
+  for (let i = 0; i < 40 && !gone; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const alive = kidPids.filter((p) => {
+      try {
+        process.kill(p, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    gone = alive.length === 0;
+  }
+  assert(gone, "workers self-exit within 20s after host SIGKILL (stdin EOF)");
+  rmSync(agentDir2, { recursive: true, force: true });
+  rmSync(proj2, { recursive: true, force: true });
+}
+
+// --- 13. leak scan + lifecycle ------------------------------------------------------
 assert(
   !allFrames.some((f) => JSON.stringify(f).includes(apiKey)),
   "API key never appears in any frame",

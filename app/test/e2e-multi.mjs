@@ -4,7 +4,10 @@
 //      replies must contain ONLY their own marker, never another thread's.
 //   2. 设置不冲突 — per-thread sessionName/thinkingLevel survive concurrent
 //      traffic without cross-over; conversation context stays per-thread.
-//   3. 资源占用 — measured RSS: idle base, peak during 4 concurrent streams.
+//   3. 资源占用 — measured process-tree RSS (host + workers): idle base,
+//      peak during 4 concurrent streams.
+//   4. worker 隔离 — kill -9 ONE worker: the others' streams continue, the
+//      victim thread_died, and its next command transparently recovers.
 // Opt-in gate: npm run e2e:multi   (needs .env)
 
 import { spawn, spawnSync } from "node:child_process";
@@ -147,11 +150,22 @@ const rssOf = async (pid) => {
   const kb = Number.parseInt((r.stdout ?? "").trim(), 10);
   return Number.isNaN(kb) ? -1 : kb / 1024;
 };
+/** Process-tree RSS: host + every worker child (the worker architecture's
+ * real footprint — a single-process number would hide the per-worker cost). */
+const treeRss = async () => {
+  const kids = String(
+    spawnSync("pgrep", ["-P", String(pai.pid)], { encoding: "utf8" }).stdout ?? "",
+  )
+    .split("\n")
+    .filter(Boolean);
+  const parts = await Promise.all([rssOf(pai.pid), ...kids.map((k) => rssOf(Number(k)))]);
+  return parts.reduce((sum, v) => sum + Math.max(v, 0), 0);
+};
 
 // RSS sampler running for the whole journey.
 let peakRss = 0;
 const sampler = setInterval(async () => {
-  const rss = await rssOf(pai.pid);
+  const rss = await treeRss();
   if (rss > peakRss) peakRss = rss;
 }, 400);
 
@@ -181,8 +195,8 @@ for (let i = 0; i < THREADS; i++) {
   });
   assert(name.success && lvl.success, `thread ${i} settings applied`);
 }
-const idleRss = await rssOf(pai.pid);
-console.log(`INFO idle RSS with ${THREADS} threads: ${idleRss.toFixed(0)} MB`);
+const idleRss = await treeRss();
+console.log(`INFO idle process-tree RSS with ${THREADS} threads: ${idleRss.toFixed(0)} MB`);
 
 // --- 2. concurrent round 1: each thread reads its own marker ----------------------
 const round1Index = allFrames.length;
@@ -243,6 +257,7 @@ for (let i = 0; i < THREADS; i++) {
   for (let i = 0; i < THREADS; i++) {
     const t = list.find((t) => t.threadId === tids[i]);
     assert(t?.cwd === projects[i], `thread ${i}: cwd isolated`);
+    assert(t?.state === "live", `thread ${i}: thread/list state is live`);
   }
 }
 
@@ -342,14 +357,89 @@ await longPrompt.catch(() => {});
 await waitSettled(tids[0], interIndex);
 assert(true, "interleaved stream + bash both completed");
 
+// --- 5b. kill ONE worker: others unaffected, victim recovers ------------------------
+// Workers were spawned in tids order, so tids[0]'s worker is the oldest
+// child; the victim is the highest-pid child (heuristic: darwin pids are
+// monotonic within a test run).
+{
+  const longIndex = allFrames.length;
+  const longPrompt = send({
+    id: "p4-0",
+    type: "prompt",
+    threadId: tids[0],
+    message: "Count from 1 to 60, one number per line, nothing else.",
+  });
+  await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(() => {
+      if (eventsOf(tids[0], (e) => e.assistantMessageEvent?.type === "text_delta").length > 0) {
+        clearInterval(t);
+        resolve();
+      } else if (Date.now() - t0 > 120_000) {
+        clearInterval(t);
+        reject(new Error("victim-test: stream never started"));
+      }
+    }, 100);
+  });
+  const kids = String(
+    spawnSync("pgrep", ["-P", String(pai.pid)], { encoding: "utf8" }).stdout ?? "",
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map(Number);
+  assert(kids.length === THREADS, `four workers before the kill (got ${kids.length})`);
+  const victimPid = Math.max(...kids);
+  process.kill(victimPid, "SIGKILL");
+  const died = await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(() => {
+      const f = allFrames.find((f, i) => i > longIndex && f.type === "thread_died");
+      if (f) {
+        clearInterval(t);
+        resolve(f);
+      } else if (Date.now() - t0 > 20_000) {
+        clearInterval(t);
+        reject(new Error("victim-test: thread_died never arrived"));
+      }
+    }, 100);
+  });
+  const victimTid = died.threadId;
+  assert(
+    victimTid !== tids[0] && tids.slice(1).includes(victimTid),
+    `thread_died names a non-streaming thread (${victimTid.slice(0, 8)}…)`,
+  );
+  assert(
+    allFrames.filter((f) => f.type === "thread_died").length === 1,
+    "exactly one thread_died for the whole kill",
+  );
+  // The streaming conversation must complete normally despite the kill.
+  await longPrompt.catch(() => {});
+  await waitSettled(tids[0], longIndex);
+  assert(true, "unrelated stream completed after the worker kill");
+  for (const other of tids.filter((t) => t !== tids[0] && t !== victimTid)) {
+    const s = await send({ id: `ok-${other.slice(0, 4)}`, type: "get_state", threadId: other });
+    assert(s.success, "other workers unaffected by the kill");
+  }
+  const revived = await send({ id: "revive", type: "get_state", threadId: victimTid });
+  assert(revived.success, "victim thread transparently recovers on next command");
+  const list = await send({ id: "post-kill-list", type: "thread/list" });
+  assert(
+    list.data.threads.filter((t) => t.state === "live").length === THREADS,
+    "all four threads live again after recovery",
+  );
+}
+
 // --- 6. resource + integrity report -------------------------------------------------
 await new Promise((r) => setTimeout(r, 1000));
-const finalRss = await rssOf(pai.pid);
+const finalRss = await treeRss();
 console.log(
-  `INFO final RSS: ${finalRss.toFixed(0)} MB | peak during concurrency: ${peakRss.toFixed(0)} MB`,
+  `INFO final process-tree RSS: ${finalRss.toFixed(0)} MB | peak during concurrency: ${peakRss.toFixed(0)} MB`,
 );
-assert(idleRss > 0 && idleRss < 450, `idle RSS sane (${idleRss.toFixed(0)} MB < 450)`);
-assert(peakRss < 900, `peak RSS sane (${peakRss.toFixed(0)} MB < 900)`);
+// Process-tree budgets (host + 4 workers; measured 2026-09-07 darwin arm64,
+// bun 1.4.2: idle 518 MB, peak 530 MB — thresholds carry ~40% headroom.
+// Recorded as 装置适配 #A3 in docs/migration/migration.md).
+assert(idleRss > 0 && idleRss < 750, `idle process-tree RSS sane (${idleRss.toFixed(0)} MB)`);
+assert(peakRss < 900, `peak process-tree RSS sane (${peakRss.toFixed(0)} MB)`);
 assert(parseErrors === 0, `bundled artifact stdout is pure JSONL (${parseErrors} parse errors)`);
 assert(!stderrText.includes(apiKey), "API key never on stderr");
 {
