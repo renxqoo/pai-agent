@@ -2,12 +2,16 @@
  * pai-cli protocol types.
  *
  * Wire format: JSONL over stdio, LF is the only record delimiter.
- * - Electron -> hub (stdin): commands with optional `id` for correlation
- * - hub -> Electron (stdout): responses (`id` echoes the command), events
- *   (tagged with `threadId`), dialog requests, heartbeat
+ * - Electron -> host (stdin): commands with optional `id` for correlation
+ * - host -> Electron (stdout): responses (`id` echoes the command), events
+ *   (tagged with `threadId`), dialog requests, heartbeat, thread_died
+ *
+ * Two protocol layers live here: the public Electron-facing v0.3+v0.4 shapes,
+ * and the internal host<->worker shapes (marked INTERNAL; they never appear
+ * on the Electron wire).
  */
 
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 export interface ImagePayload {
   type: "image";
@@ -15,8 +19,11 @@ export interface ImagePayload {
   mimeType: string;
 }
 
+/** Session model type without importing the transitive pi-ai package. */
+export type SessionModel = NonNullable<AgentSession["model"]>;
+
 // ============================================================================
-// Commands (stdin)
+// Commands (stdin, Electron -> host)
 // ============================================================================
 
 export interface ThreadStartCmd {
@@ -265,7 +272,7 @@ export type HubCommand =
   | (UiResponseCmd & { id?: string });
 
 // ============================================================================
-// Frames (stdout)
+// Frames (stdout, host -> Electron)
 // ============================================================================
 
 export interface ResponseFrame {
@@ -298,8 +305,107 @@ export interface HeartbeatFrame {
 
 export interface HubErrorFrame {
   type: "hub_error";
+  /** Present when the error originated inside a worker; identifies the thread. */
+  threadId?: string;
   scope: string;
   error: string;
 }
 
-export type HubFrame = ResponseFrame | EventFrame | UiRequestFrame | HeartbeatFrame | HubErrorFrame;
+/** v0.4: a worker died unexpectedly; the thread entry moves to state "dead". */
+export interface ThreadDiedFrame {
+  type: "thread_died";
+  threadId: string;
+  reason: string;
+}
+
+export interface ThreadListEntry {
+  threadId: string;
+  cwd: string;
+  sessionPath: string | null;
+  isStreaming: boolean;
+  state: "live" | "parked" | "dead";
+}
+
+export type HubFrame =
+  | ResponseFrame
+  | EventFrame
+  | UiRequestFrame
+  | HeartbeatFrame
+  | HubErrorFrame
+  | ThreadDiedFrame;
+
+// ============================================================================
+// INTERNAL: host <-> worker protocol (never on the Electron wire)
+// ============================================================================
+
+/** CLI flag that enters single-session worker mode. */
+export const WORKER_FLAG = "--internal-worker";
+
+/** Generation convention for host-initiated command ids. Absorption is decided
+ * by membership in the host's pending-internal-id set, never by this prefix
+ * (the Electron id space is unconstrained). */
+export const INTERNAL_ID_PREFIX = "pai-internal-";
+
+/** Worker heartbeat carries the worker-side truth: how long the session has
+ * been idle (observer commands do not reset it), whether it is streaming,
+ * and the current session file path (null until first persist; the host
+ * needs it to park a retired conversation). */
+export interface WorkerHeartbeatFrame {
+  type: "heartbeat";
+  idleMs: number;
+  streaming: boolean;
+  sessionPath: string | null;
+}
+
+/** INTERNAL thread/start: host injects the resolved model object. */
+export interface WorkerThreadStartCmd extends Omit<ThreadStartCmd, "provider" | "modelId"> {
+  model?: SessionModel;
+}
+
+/** INTERNAL set_model: host injects the resolved model object. */
+export interface WorkerSetModelCmd extends Omit<SetModelCmd, "provider" | "modelId"> {
+  model: SessionModel;
+}
+
+type ThreadScopedCmd =
+  | PromptCmd
+  | SteerCmd
+  | FollowUpCmd
+  | AbortCmd
+  | CompactCmd
+  | GetStateCmd
+  | GetMessagesCmd
+  | SetThinkingLevelCmd
+  | GetThinkingLevelsCmd
+  | GetEntriesCmd
+  | GetTreeCmd
+  | SetSessionNameCmd
+  | GetSessionStatsCmd
+  | ClearQueueCmd
+  | ForkCmd
+  | CloneCmd
+  | NavigateTreeCmd
+  | GetForkMessagesCmd
+  | GetCommandsCmd
+  | BashCmd
+  | AbortBashCmd
+  | ThreadResumeCmd
+  | ThreadStopCmd
+  | UiResponseCmd;
+
+export type WorkerCommand =
+  | (WorkerThreadStartCmd & { id?: string })
+  | (WorkerSetModelCmd & { id?: string })
+  | (ThreadScopedCmd & { id?: string });
+
+/** Commands that do not mutate or exercise the session; they never reset the
+ * worker's idle timer (a polling client must not keep workers alive). */
+export const OBSERVER_COMMANDS: ReadonlySet<string> = new Set([
+  "get_state",
+  "get_messages",
+  "get_entries",
+  "get_tree",
+  "get_session_stats",
+  "get_commands",
+  "get_fork_messages",
+]);

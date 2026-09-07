@@ -73,6 +73,11 @@ export class DialogBroker {
     return true;
   }
 
+  /** Number of unsettled dialogs (worker idle computation). */
+  pendingCount(): number {
+    return this.pending.size;
+  }
+
   /** Settle every dialog of a thread with the default; called on thread/stop. */
   settleThread(threadId: string): void {
     for (const entry of Array.from(this.pending.values())) {

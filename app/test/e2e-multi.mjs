@@ -8,7 +8,7 @@
 // Opt-in gate: npm run e2e:multi   (needs .env)
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -196,7 +196,7 @@ await Promise.all(
     }),
   ),
 );
-await Promise.all(tids.map((tid, i) => waitSettled(tid, round1Index)));
+await Promise.all(tids.map((tid) => waitSettled(tid, round1Index)));
 
 for (let i = 0; i < THREADS; i++) {
   const msgs = (await send({ id: `m1-${i}`, type: "get_messages", threadId: tids[i] })).data
@@ -298,7 +298,7 @@ await Promise.all(
     }),
   ),
 );
-await Promise.all(tids.map((tid, i) => waitSettled(tid, round2Index)));
+await Promise.all(tids.map((tid) => waitSettled(tid, round2Index)));
 for (let i = 0; i < THREADS; i++) {
   const msgs = (await send({ id: `m2-${i}`, type: "get_messages", threadId: tids[i] })).data
     .messages;

@@ -2,11 +2,16 @@
  * JSONL record splitter: LF is the only delimiter, trailing CR is stripped,
  * empty lines are ignored. U+2028/U+2029 are ordinary characters (Node's
  * readline is not protocol-compliant for this reason). Lines longer than
- * MAX_LINE_BYTES are dropped whole and reported via onOverflow so a
- * misbehaving peer cannot grow the buffer without bound.
+ * maxLineBytes are dropped whole and reported via onOverflow so a misbehaving
+ * peer cannot grow the buffer without bound.
  */
 
 export const MAX_LINE_BYTES = 16 * 1024 * 1024;
+
+/** INTERNAL host<-worker cap: single-line get_messages responses can reach
+ * tens of MB; the worker is our own binary, so the trusted-channel limit is
+ * higher than the Electron-facing default. */
+export const WORKER_LINE_BYTES = 128 * 1024 * 1024;
 
 export interface JsonlSplitter {
   /** Feed a chunk; complete lines are emitted synchronously. */
@@ -18,6 +23,7 @@ export interface JsonlSplitter {
 export function createJsonlSplitter(
   onLine: (line: string) => void,
   onOverflow?: (limit: number) => void,
+  maxLineBytes: number = MAX_LINE_BYTES,
 ): JsonlSplitter {
   let buffer = "";
   let dropping = false;
@@ -27,10 +33,10 @@ export function createJsonlSplitter(
       while (true) {
         const newlineIndex = buffer.indexOf("\n");
         if (newlineIndex === -1) {
-          if (buffer.length > MAX_LINE_BYTES) {
+          if (buffer.length > maxLineBytes) {
             dropping = true;
             buffer = "";
-            onOverflow?.(MAX_LINE_BYTES);
+            onOverflow?.(maxLineBytes);
           }
           break;
         }
@@ -41,8 +47,8 @@ export function createJsonlSplitter(
           dropping = false;
           continue;
         }
-        if (line.length > MAX_LINE_BYTES) {
-          onOverflow?.(MAX_LINE_BYTES);
+        if (line.length > maxLineBytes) {
+          onOverflow?.(maxLineBytes);
           continue;
         }
         if (line.endsWith("\r")) line = line.slice(0, -1);

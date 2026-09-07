@@ -1,4 +1,10 @@
 #!/usr/bin/env bun
-import { runHub } from "./hub.ts";
+import { runHost } from "./host.ts";
+import { WORKER_FLAG } from "./protocol.ts";
+import { runWorker } from "./worker.ts";
 
-runHub(process.argv.slice(2));
+if (process.argv.includes(WORKER_FLAG)) {
+  runWorker();
+} else {
+  runHost(process.argv.slice(2));
+}
