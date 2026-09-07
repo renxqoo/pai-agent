@@ -54,6 +54,9 @@ export type HostHandler = (
 
 /** Model resolution is host-only (single source of truth; the host's
  * snapshot is always fresh, a spawned-earlier worker's is not). */
+/** Exported despite single-file use: the named single-truth point for
+ * provider+modelId resolution (see AGENTS.md) — future callers must not
+ * reimplement it. */
 export function resolveModel(
   modelRuntime: ModelRuntime,
   provider: string,

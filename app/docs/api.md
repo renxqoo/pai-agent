@@ -1,6 +1,6 @@
 # pai-cli 对接文档（外部接口说明）
 
-面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、36 个命令、8 类输出帧、对话框子协议、权限规则、子 agent 可观察面。规格细节与裁决见 `docs/design.md`；v0.4 进程架构见 `docs/migration/design.md`；v0.5 子 agent/后台任务见 `docs/plans/2026-09-07-ui-completeness.md` 与 `docs/plans/2026-09-07-background-subagents.md`。
+面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、36 个命令、8 类输出帧、对话框子协议、权限规则、子 agent 可观察面。规格细节与裁决见 `docs/design.md`（v0.5 增补为自足摘要）；v0.4 进程架构见 `docs/migration/design.md`；v0.5 实施方案存于本地工作目录 `docs/plans/`（不入库）。
 
 ## 1. 启动与进程约定
 
@@ -142,7 +142,7 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 | `response`                | 命令应答（§2 契约）                                                                                                                                                                          |
 | `event`                   | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序                                                                                       |
 | `ui_request`              | 确认/输入请求（§6）                                                                                                                                                                          |
-| `heartbeat`               | 1Hz 心跳（host 发出；有后台子 agent 在途时带 `subagents` 计数 = queued+running）                                                                                                             |
+| `heartbeat`               | 1Hz 心跳（host 发出；有任何子 agent 在途时带 `subagents` 计数 = queued+running，前台委派也计入）                                                                                             |
 | `hub_error`               | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段                                                                                                  |
 | `thread_died`             | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，下条命令自动恢复                                                                                                  |
 | `subagent_event` (v0.5)   | `{"threadId","subagentId","agent","task","event"}`：子 agent（grandchild 进程）的会话事件原样转发，按 `subagentId` 分组渲染                                                                  |

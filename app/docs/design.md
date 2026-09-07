@@ -229,7 +229,7 @@ src/
 
 ## v0.5 增补（子 agent/后台任务/权限 sidecar/agent 通信，2026-09-07 已实施）
 
-纯增量（36 命令、8 帧），规格唯一真相：[plans/2026-09-07-ui-completeness.md](plans/2026-09-07-ui-completeness.md) 与 [plans/2026-09-07-background-subagents.md](plans/2026-09-07-background-subagents.md)（含阶段 6 双审查处置表）；对外接口：[api.md](api.md)。要点：
+纯增量（36 命令、8 帧），对外接口：[api.md](api.md)；实施与审查细节存于本地工作目录 `plans/`（不入库，本节为自足摘要）。要点：
 
 - **每线程权限 sidecar**：`get/set_permission_rules`（host 本地、严格校验、`rules:null` 清除）；判定链 injected→sidecar→全局热读；fork/clone 复制。
 - **子 agent 子系统**：`task` 工具（single/parallel/chain + `background:true`）→ 每任务一个 ephemeral 孙 worker（深度 1、in-memory、untrusted）；agent 定义 `.md` 热发现（项目级仅 trusted）；预算：≤8/调用、全局活孙 ≤4、在飞 ≤8（registry 同步闸门）、留存 ≤16（按完成序逐出）、通知/消息/中继/产出/stderr 五级字节上限。

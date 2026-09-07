@@ -50,7 +50,7 @@ error wording is **[docs/api.md](docs/api.md)**; the highlights:
 - `response` `{ id?, command, success, data? | error }` — correlated by `id`; `prompt` responds at acceptance time (preflight), later failures ride the event stream
 - `event` `{ threadId, event }` — every `AgentSessionEvent`, tagged; `message_update` frames strip cumulative snapshots (`message`, `partial`) so per-delta frame size stays constant
 - `ui_request` `{ requestId, threadId, method, ... }` — `confirm`/`select`/`input`/`editor` need a `ui_response` with `{ confirmed }` / `{ value }` / `{ cancelled: true }`; `notify`/`setStatus` are fire-and-forget. Dialogs carry a timeout (see permission gate): on expiry the hub resolves the default (deny) itself, so an unattended client cannot block the agent. Requests relayed from a subagent carry `subagentId`/`agent`.
-- `heartbeat` — 1 Hz (host); absence means the host is stuck (client should kill + `thread/resume` everything); carries `subagents` (in-flight count) while background tasks run
+- `heartbeat` — 1 Hz (host); absence means the host is stuck (client should kill + `thread/resume` everything); carries `subagents` (in-flight count) while any subagent runs (foreground delegation included)
 - `hub_error` — uncaught exception / rejection report; process stays alive (worker-origin errors carry a `threadId`)
 - `thread_died` (v0.4) — `{threadId, reason}`: that conversation's worker died unexpectedly; the thread moves to `state:"dead"` and the next command transparently revives it (respawn + resume)
 - `subagent_event` (v0.5) — `{threadId, subagentId, agent, task, event}`: a subagent's session events relayed verbatim, grouped by `subagentId` for task panels
@@ -67,8 +67,9 @@ until done; `background:true` returns a receipt immediately and a
 settles (that turn costs tokens like any other). `task_out`/`task_wait`/
 `task_stop` observe and control; `task_steer` injects guidance into a running
 task; `task_send` relays to a running sibling (lead-mediated). Budgets:
-<=8 tasks/call, <=4 concurrent grandchildren globally, <=8 in flight per
-conversation, results retained <=16. `abort`/`thread/stop`/shutdown kill every
+<=8 tasks/call, <=4 concurrent grandchildren per conversation, <=8 in flight
+per conversation, results retained <=16 (there is no host-level grandchild
+quota: worst case = `PAI_MAX_THREADS` x 8). `abort`/`thread/stop`/shutdown kill every
 subagent of the conversation (foreground + background; no notification fires
 for killed tasks). Grandchild permission checks re-read the parent
 conversation's live ruleset on every call — tightening propagates instantly.

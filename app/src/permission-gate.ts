@@ -41,8 +41,9 @@ export function rulesPath(): string {
 }
 
 /**
- * Memory-injected rules (grandchild permission snapshot) win over the
- * sidecar; then sidecar; then the global hot read.
+ * Grandchild gates get a LIVE rules provider (the parent conversation's
+ * ruleset, re-read per call — never a spawn-time snapshot): the injected
+ * provider wins; then sidecar; then the global hot read.
  */
 export function effectiveRules(
   threadId: string | undefined,
@@ -86,8 +87,8 @@ export async function checkPermission(deps: {
  * Gate extension bound to one conversation: the session id is only known
  * after the session exists (and changes on fork/clone), so the factory
  * closes over a mutable ref owned by the SessionHost. The optional injected
- * rules getter carries the grandchild permission snapshot (memory-only,
- * never persisted — plan §3.5).
+ * rules getter is the grandchild's LIVE rules provider (it re-reads the
+ * parent conversation's ruleset on every call).
  */
 export function createPermissionGate(
   getThreadId: () => string,

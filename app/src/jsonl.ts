@@ -13,7 +13,7 @@ export const MAX_LINE_BYTES = 16 * 1024 * 1024;
  * higher than the Electron-facing default. */
 export const WORKER_LINE_BYTES = 128 * 1024 * 1024;
 
-export interface JsonlSplitter {
+interface JsonlSplitter {
   /** Feed a chunk; complete lines are emitted synchronously. */
   push(chunk: string): void;
   /** Emit a final non-empty line left in the buffer (no trailing LF). */
