@@ -4,53 +4,41 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJsonlSplitter, MAX_LINE_BYTES, WORKER_LINE_BYTES } from "../src/jsonl.ts";
 import { matchResponseHead, workerSpawnArgs } from "../src/worker-pool.ts";
+import { responseFailure, responseSuccess } from "../src/worker.ts";
 
 /**
  * Locks the wire key order assumption (design.md migration §3): the worker
  * serializes response frames with `type`/`id` first, which is what the
- * host's strict head match relies on. If a frame produced the way worker.ts
- * builds them stops classifying, this test fails before e2e can misroute.
+ * host's strict head match relies on. These use the worker's REAL builders —
+ * a literal-shape drift in worker.ts must fail here.
  */
 describe("response head classification", () => {
-  test("classifies a success response with an id", () => {
-    const frame = JSON.stringify({
-      id: "cmd-1",
-      type: "response",
-      command: "get_messages",
-      success: true,
-      data: { messages: [] },
-    });
+  test("classifies the worker's real success frames (with id)", () => {
+    const frame = JSON.stringify(responseSuccess("cmd-1", "get_messages", { messages: [] }));
     expect(matchResponseHead(frame)).toEqual({ id: "cmd-1", command: "get_messages" });
   });
 
-  test("classifies a failure response with an id", () => {
-    const frame = JSON.stringify({
-      id: "cmd-2",
-      type: "response",
-      command: "prompt",
-      success: false,
-      error: "nope",
-    });
+  test("classifies the worker's real failure frames (with id)", () => {
+    const frame = JSON.stringify(responseFailure("cmd-2", "prompt", "nope"));
     expect(matchResponseHead(frame)).toEqual({ id: "cmd-2", command: "prompt" });
   });
 
-  test("classifies a response without an id (undefined omitted by stringify)", () => {
-    const frame = JSON.stringify({
-      id: undefined,
-      type: "response",
-      command: "ui_response",
-      success: true,
-    });
+  test("classifies the worker's real id-less frames (undefined omitted by stringify)", () => {
+    const frame = JSON.stringify(responseSuccess(undefined, "ui_response"));
     expect(matchResponseHead(frame)).toEqual({ id: undefined, command: "ui_response" });
   });
 
-  test("returns null for a response whose id contains escapes (caller falls back to parse)", () => {
-    const frame = JSON.stringify({
-      id: 'we"ird\\id',
-      type: "response",
-      command: "prompt",
-      success: true,
-    });
+  test("numeric ids serialize outside the strict prefixes (parse-fallback path)", () => {
+    // JSON.stringify keeps numeric ids unquoted: {"id":1,...}. The strict
+    // prefixes must NOT match (undefined), so the pool's parse fallback
+    // classifies them instead of dropping a healthy worker's response.
+    const frame = JSON.stringify(responseSuccess(1 as unknown as string, "thread/list"));
+    expect(frame.startsWith('{"id":1,')).toBe(true);
+    expect(matchResponseHead(frame)).toBeUndefined();
+  });
+
+  test("returns null for a string id containing escapes (full-parse fallback)", () => {
+    const frame = JSON.stringify(responseSuccess('we"ird\\id', "prompt"));
     expect(matchResponseHead(frame)).toBeNull();
   });
 

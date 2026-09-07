@@ -57,6 +57,33 @@ function isCommandShape(message: unknown): message is WorkerCommand {
   return typeof message === "object" && message !== null && !Array.isArray(message);
 }
 
+/**
+ * Frame builders live at module level (pure): the host's strict head match
+ * relies on these literals serializing with id/type first, and the
+ * worker-pool unit test asserts the real output. Exported for that test.
+ */
+export function responseSuccess(
+  id: string | undefined,
+  command: string,
+  data?: unknown,
+): ResponseFrame {
+  return {
+    id,
+    type: "response",
+    command,
+    success: true,
+    ...(data !== undefined ? { data } : {}),
+  };
+}
+
+export function responseFailure(
+  id: string | undefined,
+  command: string,
+  error: string,
+): ResponseFrame {
+  return { id, type: "response", command, success: false, error };
+}
+
 export async function runWorker(): Promise<void> {
   takeOverStdout();
   const writer = createFrameWriter(getRawStdoutWrite());
@@ -144,20 +171,8 @@ export async function runWorker(): Promise<void> {
     (threadId) => broker?.settleThread(threadId),
   );
 
-  const success = (id: string | undefined, command: string, data?: unknown): ResponseFrame => ({
-    id,
-    type: "response",
-    command,
-    success: true,
-    ...(data !== undefined ? { data } : {}),
-  });
-  const failure = (id: string | undefined, command: string, error: string): ResponseFrame => ({
-    id,
-    type: "response",
-    command,
-    success: false,
-    error,
-  });
+  const success = responseSuccess;
+  const failure = responseFailure;
 
   const requireThread = (
     threadId: string,
@@ -425,7 +440,7 @@ export async function runWorker(): Promise<void> {
           | { thread: Thread; previousThreadId: string; selectedText?: string; cancelled: boolean }
           | undefined;
         try {
-          result = await sessions?.fork(cmd.entryId, cmd.position ?? "before");
+          result = await sessions?.fork(cmd.threadId, cmd.entryId, cmd.position ?? "before");
         } catch (error) {
           if (error instanceof SessionDestroyedError) {
             // Teardown already disposed the session (migration.md F-1):
@@ -459,7 +474,7 @@ export async function runWorker(): Promise<void> {
         let cloneError: string | undefined;
         let result: { thread: Thread; previousThreadId: string; cancelled: boolean } | undefined;
         try {
-          result = await sessions?.clone();
+          result = await sessions?.clone(cmd.threadId);
         } catch (error) {
           if (error instanceof SessionDestroyedError) {
             emit(failure(id, cmd.type, error.message));

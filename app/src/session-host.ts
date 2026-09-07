@@ -150,8 +150,12 @@ export class SessionHost {
   /**
    * Fork from a historical entry. On success the runtime replaced the
    * session in place; resolves the thread under its new session id.
+   * `expectedThreadId` is validated INSIDE the serialized task: a second
+   * fork queued behind a re-keying first fork must fail on the stale id
+   * instead of forking the replacement session (v0.3 defensive behavior).
    */
   async fork(
+    expectedThreadId: string,
     entryId: string,
     position: "before" | "at",
   ): Promise<{
@@ -162,6 +166,7 @@ export class SessionHost {
   }> {
     return this.runReplacement(async () => {
       const thread = this.requireSession();
+      this.assertThreadId(thread, expectedThreadId);
       const previousThreadId = thread.session.sessionId;
       const result = await this.replaceSession(thread, (runtime) =>
         runtime.fork(entryId, { position }),
@@ -179,9 +184,14 @@ export class SessionHost {
   }
 
   /** Clone: fork at the current leaf. */
-  async clone(): Promise<{ thread: Thread; previousThreadId: string; cancelled: boolean }> {
+  async clone(expectedThreadId: string): Promise<{
+    thread: Thread;
+    previousThreadId: string;
+    cancelled: boolean;
+  }> {
     return this.runReplacement(async () => {
       const thread = this.requireSession();
+      this.assertThreadId(thread, expectedThreadId);
       const leafId = thread.session.sessionManager.getLeafId();
       if (!leafId) {
         throw new Error("Cannot clone: session has no entries");
@@ -218,6 +228,14 @@ export class SessionHost {
     const thread = this.thread;
     if (!thread) throw new Error("No active session in this worker");
     return thread;
+  }
+
+  /** Executed inside the replacement queue: the id the command addressed
+   * must still be the live session's id at execution time. */
+  private assertThreadId(thread: Thread, expectedThreadId: string): void {
+    if (thread.session.sessionId !== expectedThreadId) {
+      throw new Error(`Unknown threadId: ${expectedThreadId}`);
+    }
   }
 
   /** Serialize session-replacing operations on the one session. */

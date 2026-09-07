@@ -214,6 +214,12 @@ const waitAssistantContains = (threadId, needle, ms = 150_000) =>
   assert(r.success && glm.some((m) => m.id === modelId), "get_models: glm model present");
 }
 {
+  // Numeric ids are legal (id is optional and untyped on the wire); the
+  // host's strict head match must not drop their responses.
+  const r = await send({ id: 123, type: "thread/list" });
+  assert(r.success && r.id === 123, "numeric id echoed (parse-fallback path)");
+}
+{
   const r = await send({ id: "e2", type: "auth/list" });
   assert(
     r.success && Array.isArray(r.data.credentials),
@@ -626,6 +632,32 @@ writeFileSync(
     list.data.threads.find((t) => t.threadId === tid)?.state === "live",
     "woken thread is live again",
   );
+
+  // 12d-2. thread/stop racing an in-flight wake must not resurrect the
+  // conversation (design §6 spawning -thread/stop-> cancelled edge).
+  let parkedAgain = false;
+  for (let i = 0; i < 40 && !parkedAgain; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const l = await send({ id: `w14-${i}`, type: "thread/list" });
+    parkedAgain = l.data.threads.find((t) => t.threadId === tid)?.state === "parked";
+  }
+  assert(parkedAgain, "thread parked again for the stop-vs-wake race");
+  const beforeDied = allFrames.filter((f) => f.type === "thread_died").length;
+  const gs = send({ id: "w15", type: "get_state", threadId: tid }).catch(() => "settled");
+  const st = await send({ id: "w16", type: "thread/stop", threadId: tid });
+  assert(st.success, "thread/stop succeeds while a wake is in flight");
+  await gs; // must settle (failure is fine), never hang
+  assert(true, "racing command settled");
+  await new Promise((r) => setTimeout(r, 3000));
+  const list2 = await send({ id: "w17", type: "thread/list" });
+  assert(
+    !list2.data.threads.some((t) => t.threadId === tid),
+    "stopped thread stays gone (no resurrection)",
+  );
+  assert(
+    allFrames.filter((f) => f.type === "thread_died").length === beforeDied,
+    "stop-vs-wake emits no thread_died",
+  );
 }
 
 // 12e. host SIGKILL -> every worker self-exits via stdin EOF (no orphans).
@@ -653,12 +685,47 @@ writeFileSync(
       PI_CODING_AGENT_DIR: agentDir2,
       GLM_API_KEY: apiKey,
       PAI_IDLE_RETIRE_MS: "3600000",
+      PAI_MAX_THREADS: "1",
     },
   });
-  host2.stdout.resume();
+  const host2Frames = [];
+  let host2Buf = "";
+  host2.stdout.setEncoding("utf8");
+  host2.stdout.on("data", (c) => {
+    host2Buf += c;
+    let i;
+    while ((i = host2Buf.indexOf("\n")) !== -1) {
+      let line = host2Buf.slice(0, i);
+      host2Buf = host2Buf.slice(i + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      if (line) host2Frames.push(JSON.parse(line));
+    }
+  });
   host2.stderr.resume();
   // A worker exists only once a conversation starts.
-  host2.stdin.write(JSON.stringify({ id: "hk1", type: "thread/start", cwd: proj2 }) + "\n");
+  const send2 = (cmd) =>
+    new Promise((resolve, reject) => {
+      host2.stdin.write(JSON.stringify(cmd) + "\n");
+      const t0 = Date.now();
+      const t = setInterval(() => {
+        const f = host2Frames.find((f) => f.type === "response" && f.id === cmd.id);
+        if (f) {
+          clearInterval(t);
+          resolve(f);
+        } else if (Date.now() - t0 > 30_000) {
+          clearInterval(t);
+          reject(new Error(`host2 response timeout ${cmd.id}`));
+        }
+      }, 50);
+    });
+  const start2r = await send2({ id: "hk1", type: "thread/start", cwd: proj2 });
+  assert(start2r.success, "host2 first thread starts under PAI_MAX_THREADS=1");
+  // Budget edge (review #1): N=1 must allow exactly one conversation, not zero.
+  const over = await send2({ id: "hk2", type: "thread/start", cwd: proj2 });
+  assert(
+    !over.success && /Too many concurrent conversations \(limit 1\)/.test(over.error ?? ""),
+    "PAI_MAX_THREADS=1 allows exactly one conversation (no off-by-one)",
+  );
   const start2 = await new Promise((resolve, reject) => {
     const t0 = Date.now();
     const t = setInterval(() => {
@@ -705,6 +772,10 @@ assert(
   "API key never appears in any frame",
 );
 assert(!stderrText.includes(apiKey), "API key never appears on stderr");
+assert(
+  !allFrames.some((f) => JSON.stringify(f).includes("pai-internal-")),
+  "host-internal command ids never leak to the client",
+);
 assert(seen.includes("heartbeat"), "heartbeat flowing");
 
 hub.stdin.end();

@@ -1,6 +1,6 @@
 # pai-cli worker 架构迁移文档（MIGRATION）
 
-> 状态：实施中（阶段 1 已完成：worker 减法重构 + host/pool 新写，smoke 178 断言全过）
+> 状态：已核销（2026-09-07：四门 + 三 e2e 门全绿；文档审查 20 项与实现审查 12 项全部处置）
 > 迁移单元：pai-inprocess 单进程多会话 → host + 每对话一 worker
 > 旧实现：`pai-inprocess` @ 07b294bf4（src 10 文件 2048 行；断言数以运行器
 > 实测为准，当前调用点 smoke 76 / e2e 49 / e2e-multi 24）
@@ -104,24 +104,86 @@ proper-lockfile 跨进程安全、行数表。
 文件格式是 pi 自有的，两架构完全互通；回滚 = 切回 `pai-inprocess` 分支，
 无数据动作。
 
-## 7. 验收清单（收口时逐项打勾）
+## 7. 验收清单（2026-09-07 核销）
 
-- [ ] 四门全绿（check / build / test / e2e+multi+compile-smoke），数字如实
-      报告（断言数以运行器输出为准）；
-- [ ] smoke/e2e/multi 全部断言语义等价（§1 变更清单 + #A1–#A4 之外零漂移）；
-- [ ] 假绿对抗抽查：无迁移矩阵之外的删除断言、无装置适配记录之外的断言改弱；
-- [ ] 行为对照清单逐项（对话隔离 / key 零泄漏 / 权限门 / fork/clone 重键
-      先于转发 / 恰好一响应（含 worker 死亡补 failure）/ 优雅停机退出码）；
-- [ ] worker 韧性：kill -9 单 worker → thread_died + 其他对话不受影响 +
-      resume 恢复；retire→wake 透明；kill -9 host → worker 限时自灭；
-- [ ] F-1/F-2 回归用例（teardown 后 fork 失败自退；fork/stop 并发不复活）；
-- [ ] 泄漏审计：internal-id 集合、路由/占用表、retire 定时器、子进程
-      close/exit 监听全部有界清理；
-- [ ] 文档同步：../design.md v0.4 节、../api.md（含 fork 语义修正）、
-      AGENTS.md、README、本文档状态推进「已核销」；
-- [ ] 实测数字回填：host/worker RSS、spawn 延迟、满载对话数、e2e-multi
-      新 RSS 阈值。
+- [x] 四门全绿：oxlint 0-0 / oxfmt / tsc 0 错误 / bun build 11.1MB / bun
+      test 63 pass / smoke 178 断言 ALL PASS；
+- [x] e2e 门全绿：e2e ALL PASS（70 断言，含 12 项 worker 韧性新增）/
+      e2e-multi ALL PASS（含杀一 worker 旅程）/ compile-smoke ALL PASS
+      （编译形态真实 GLM 旅程）；
+- [x] smoke/e2e/multi 断言语义等价（§1 变更清单 + #A1–#A4 之外零漂移）；
+- [x] 假绿对抗抽查（独立审查确认）：smoke.mjs 零改动即全绿；e2e 无断言
+      删除；e2e-multi 仅 #A3 记录的 RSS 阈值调整 + 新增旅程；键序测试已改
+      为真实 builder 输出；
+- [x] 行为对照清单逐项（对话隔离 / key 零泄漏 / 权限门 / fork/clone 重键
+      先于转发 / 恰好一响应（含 worker 死亡补 failure 与投放失败补）/
+      优雅停机退出码 / 数字 id 往返 / 旧文案语义恢复）；
+- [x] worker 韧性：kill -9 单 worker → thread_died + 恰好一补 failure +
+      透明恢复；retire→wake 透明且观察类轮询不阻止收编；stop-vs-wake 不
+      复活；PAI_MAX_THREADS=1 边界正确；kill -9 host → worker 限时自灭；
+- [x] F-1/F-2 回归用例：session-host.test.ts（stub 单测 6 项）+ e2e
+      早期 fork 存活断言（teardown 真实触发不可确定性构造，判定逻辑单测
+      覆盖、pi 钩子语义对照源码核实）；
+- [x] 泄漏审计（独立审查确认）：internalIds/pendingIds/occupiedPaths/
+      entries(1024 FIFO)/allWorkers/retire 定时器有界清理；孤儿 worker
+      e2e 实测为零；
+- [x] 文档同步：../design.md v0.4 节、../api.md（32 命令 + fork 语义修正 + thread_died/state）、AGENTS.md、README、本文档；
+- [x] 实测数字回填：e2e-multi 进程树 RSS idle 518MB / 峰值 530MB（阈值
+      750/900）；单 worker 冷启动实测 ~1–2s（e2e 全旅程内含）；host+4
+      worker 形态；对照基线 pai-inprocess 同口径单进程 idle 116MB /
+      峰值 127MB——隔离的代价是每对话 +~110MB 常驻与冷启动延迟，收益是
+      故障/内存域按对话隔离（杀一 worker 其他存活，e2e-multi 实证）。
 
 ## 8. 实施记录
 
-（每波收口追加：交付物、门禁数字、新增裁决补录、修复的真实缺陷、挂账。）
+### 波次 1（阶段 1a+1b，提交 "feat: pai-cli worker-per-conversation architecture, phase 1"）
+
+- 交付：src/{host,worker,session-host,worker-pool}.ts 新写/减法重构；protocol.ts
+  v0.4 增量与内部协议分区；jsonl.ts maxLineBytes 参数化；dialogs.ts
+  pendingCount()；cli.ts 入口分流；hub.ts/threads.ts 删除。
+- 修复：F-1（SessionDestroyedError + beforeSessionInvalidate 判定 + worker
+  自退）、F-2（fork/clone/stop 串行化）。
+- 门禁：oxlint 0-0 / oxfmt / tsc 0 错误 / bun build 11.1MB / bun test 56 pass
+  （新增 worker-pool.test.ts 10 项）/ smoke 178 断言 ALL PASS（对 host 进程，
+  首跑即绿）；退出后 pgrep 无 worker 残留。
+- 实现期裁决补录：心跳载荷定为 `{idleMs, streaming, sessionPath}`（host 收编
+  需要 path；persisted 可由 path 推导），design §3 已同步；host 全局定时器
+  实为 2 个（陈旧杀线与收编合并进同一扫描），design §8 已同步。
+
+### 波次 3（实现对抗审查修复，2026-09-07）
+
+独立审查（对照 pai-inprocess 基线）12 项发现，全部处置：
+
+| #   | 级别 | 发现                                                             | 处置                                                                                                                                                                                |
+| --- | ---- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | P0   | liveBudgetExceeded 差一（N 上限实为 N-1，N=1 全灭）              | 修：spawn 后检查改 overBudget(>)；e2e PAI_MAX_THREADS=1 边界断言                                                                                                                    |
+| 2   | P0   | thread/stop 与进行中 wake 竞态 → 停止的会话复活                  | 修：stopRequested 标记 + doWake 成功路径回收；e2e stop-vs-wake 旅程（含无 thread_died、无复活断言）                                                                                 |
+| 3   | P1   | 帧分类无 parse 兜底，数字 id 响应被丢 → 好 worker 被误报启动超时 | 修：unclassified 行 JSON.parse 兜底；单测（数字 id 不匹配严格前缀）+ e2e 数字 id 往返                                                                                               |
+| 4   | P1   | 单测缩水 + 键序测试是假绿（手写字面量非真实 builder）            | 修：responseSuccess/Failure 提升为模块级导出，键序测试改用真实 builder；新增 session-host.test.ts（F-1 判定/F-2 串行/执行期 id 校验，stub runtime）；implementation §4 同步如实记录 |
+| 5   | P2   | internal-id 泄漏无测试可抓                                       | 修：e2e 全帧扫描不含 pai-internal-                                                                                                                                                  |
+| 6   | P2   | design §2 文案清单不全（实约八条）                               | 修：design §2 补全含 `pai-cli worker is shutting down` 文案变更记录                                                                                                                 |
+| 7   | P2   | 测试矩阵两处不实（smoke 未改、F-1 teardown 无测试）              | 修：矩阵如实化；F-1 以 stub 单测覆盖（teardown 真实触发无法确定性构造，pi 钩子语义已对照源码核实）                                                                                  |
+| 8   | P2   | thread/start 落盘→占用登记的亚秒盲区                             | 缓解：pathHolder 占用检查叠加心跳已上报路径；design §6 记录盲区                                                                                                                     |
+| 9   | P2   | 并发双 fork 从防御失败变错位成功                                 | 修：fork/clone 执行期校验 expectedThreadId；单测覆盖                                                                                                                                |
+| 10  | P2   | host default 分支文案分叉                                        | 修：THREAD_SCOPED_COMMANDS 集合 + 恢复 v0.3 文案（Unknown command / Unknown threadId: undefined）                                                                                   |
+| 11  | P2   | worker stderr 超限行静默丢弃                                     | 修：onOverflow 记截断告警                                                                                                                                                           |
+| 12  | P2   | spawn 超时补 failure 带 worker died 前缀，与 design §2 承诺不符  | 修：该路径裸文案                                                                                                                                                                    |
+
+门禁（修复后全量复跑）：check 0-0 / build / bun test 63 pass / smoke 178 /
+e2e ALL PASS（含新增 12 断言）/ e2e-multi ALL PASS / compile-smoke ALL PASS。
+
+### 波次 2（阶段 2，提交 "test: pai-cli worker-architecture e2e journeys, phase 2"）
+
+- 交付：e2e.mjs 五个 worker 旅程（早期 fork 存活、kill -9 恰好一补
+  failure+thread_died+透明恢复、并发同路径 resume 恰一胜者、retire→parked→
+  唤醒（观察类轮询不阻止收编）、host SIGKILL 无孤儿）；e2e-multi.mjs 进程树
+  RSS + state 断言 + 杀一 worker 其他存活段；compile-smoke.mjs（编译形态
+  真实 GLM 旅程）；package.json e2e:compile。
+- 装置适配补录：e2e 以 PAI_IDLE_RETIRE_MS=3000 跑全程（收编在旅程中可透明
+  发生）；e2e-multi 杀 worker 段用「最高子 pid = 最后启动」启发式选定受害者，
+  断言放宽为 died ∈ 非流式线程（不依赖精确映射）。
+- 门禁：check / build / bun test 56 / smoke 178 / e2e ALL PASS（62 断言）/
+  e2e-multi ALL PASS（树 RSS idle 518MB、峰值 530MB）/ compile-smoke ALL PASS。
+- 实施期缺陷（测试装置自身，非产品代码）：compile-smoke 轮询 id 固定导致
+  永远读缓存首帧——改为每轮唯一 id；调试脚本裸用 .env baseUrl 未剥
+  `/chat/completions` 导致 404 空回复（已订正为与 e2e 一致的 replace）。

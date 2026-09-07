@@ -90,10 +90,21 @@ migration.md F-2）。
    - `PAI_WORKER_STALE_MS`（默认 30000）：心跳陈旧杀线；
    - `PAI_WORKER_EXIT_TIMEOUT_MS`（默认 10000）：优雅退出等待上限。
 
-新增对外错误文案（英文中性，v0.3 承诺延续）：
+新增对外错误文案（英文中性，v0.3 承诺延续；worker 侧内部拒绝如
+`Worker already hosts a conversation` 只出现在 host 路由异常时，正常流不可达）：
 
 - 超限：`Too many concurrent conversations (limit <N>)`（thread/start 与唤醒时同文案）；
-- spawn 未就绪：`Worker failed to start within <N>ms`。
+- spawn 未就绪：`Worker failed to start within <N>ms`（无 "worker died:" 前缀，
+  与死亡补 failure 的前缀形态区分）；
+- 跨进程双开：`Session already open (threadId: <T>); two writers would corrupt
+the session file`（占位竞态落败方为 `Session already open in another
+conversation; …` 同尾句）；
+- 投递失败：`worker died: command could not be delivered (<原因>)`；
+- 唤醒中死亡：`worker died while resuming`；
+- 唤醒未落盘线程：`Cannot wake thread: session was never persisted`；
+- worker 关闭窗口内到达的命令：`pai-cli worker is shutting down`
+  （v0.3 同路径文案为 `pai-cli is shutting down`，主语更正为 worker，
+  属记录在案的有意文案变更）。
 
 ## 3. 内部协议（host ↔ worker，D-W4 / D-W14 / D-W17）
 
@@ -199,6 +210,13 @@ host 才做状态迁移；对该 worker 全部 pending 命令按 id 对账：已
   在案。
 - **retire 竞态**：retiring 中命令到达 → 排队到 close 后走唤醒。绝不与新
   worker 并存于同一会话文件。
+- **stop 与唤醒竞态**（已闭环）：非 live 条目唤醒进行中收到 thread/stop →
+  条目标记 stopRequested → 唤醒完成后回收 respawn 的 worker 并删除表项，
+  不复活（触发唤醒的命令按 Unknown threadId 失败，诚实可接受）。
+- **已知盲区**（与 retire 心跳盲区同列，接受并记录）：thread/start 的会话
+  文件在「首次落盘 → start 响应/心跳上报占用」之间有亚秒级窗口，外部
+  thread/resume 恰在该窗口命中同路径可短暂双开。缓解：占用检查除注册表外
+  再扫描各 worker 心跳已上报的 sessionPath（pathHolder）。
 - **唤醒**：对 parked/dead thread 的任何命令 → respawn + `thread/resume`
   （sessionPath/cwd/trusted 取自表项；路径须通过 §5 占用检查）→ resume 响应
   （内部 id，吸收）到达后转发原命令。resume 后 sessionId 应与表项一致，不一致

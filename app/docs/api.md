@@ -1,6 +1,6 @@
 # pai-cli 对接文档（外部接口说明）
 
-面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、31 个命令、4 类输出帧、对话框子协议、权限规则。规格细节与裁决见 `docs/design.md`。
+面向 Electron / 任何宿主客户端。本文覆盖**全部对外接口**：启动方式、协议帧、32 个命令、6 类输出帧、对话框子协议、权限规则。规格细节与裁决见 `docs/design.md`；v0.4 进程架构（host + 每对话一个 worker 进程）见 `docs/migration/design.md`。
 
 ## 1. 启动与进程约定
 
@@ -16,8 +16,9 @@ spawn("pai-cli", [], {
 });
 ```
 
-- 协议走 **stdin/stdout JSONL**，stderr 是日志（无协议含义）。
-- 进程生命周期：stdin EOF / SIGTERM / SIGINT → hub 落盘全部会话并 exit 0。
+- 进程形态（v0.4）：你 spawn 的是 **host 进程**；每个活跃对话各跑一个 host 的 **worker 子进程**（故障与内存按对话隔离）。协议只对着 host 的 stdin/stdout；worker 对客户端完全透明。
+- 协议走 **stdin/stdout JSONL**，stderr 是日志（无协议含义；worker 的日志带 `[pai:worker:<threadId>]` 前缀转发到 host stderr）。
+- 进程生命周期：stdin EOF / SIGTERM / SIGINT → host 优雅停掉全部 worker（落盘会话）并 exit 0。
 - 心跳：stdout 每 1 秒一帧 `{"type":"heartbeat"}`；**超过 10 秒没有心跳 = 进程卡死**，杀掉重启后用 `thread/resume` 恢复各会话（`thread/list` 的 `sessionPath` 先持久化到你的注册表）。
 
 ## 2. 协议基础
@@ -54,7 +55,7 @@ spawn("pai-cli", [], {
 
 **`thread/stop`** — 释放对话（dispose，会话文件保留）。幂等：未知 id 也回 success。配合 resume 实现"闲置回收"。
 
-**`thread/list`** — 活跃线程：`[{threadId, cwd, sessionPath, isStreaming}]`。崩溃恢复的注册表来源。
+**`thread/list`** — 会话表：`[{threadId, cwd, sessionPath, isStreaming, state}]`。`state`：`live`（有 worker 进程；`isStreaming` 来自最近心跳，陈旧度 ≤1s，精确值用 `get_state`）/ `parked`（已闲置收编，下条命令自动唤醒）/ `dead`（worker 异常死亡，见 `thread_died`）。崩溃恢复的注册表来源。
 
 **`thread/list_saved`** — 落盘会话列表（历史会话页）。字段：`cwd?`。响应 `{sessions:[...]}`。
 
@@ -90,7 +91,7 @@ spawn("pai-cli", [], {
 
 **`fork`** — 从历史条目分叉出新会话。字段：`threadId`、`entryId`（来自 get_entries/get_fork_messages）、`position?`：`"before"`（默认，从该用户消息之前重试——响应带 `text` 原文）或 `"at"`（含该条目复制）。
 **响应 `{threadId: 新, previousThreadId: 旧, sessionPath, text, cancelled}`。threadId 已换新：旧 id 立即失效（查询回 Unknown threadId），把窗口路由到新 id。** `cancelled:true`（扩展拦截）时会话未变，忽略 threadId 字段。
-**fork 失败 → 该线程视为终止**（旧会话文件仍在，可 thread/resume 恢复）。
+fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落盘）→ `success:false`，**线程保留可继续使用**；罕见的替换中途失败（会话已被销毁）→ `success:false` + 一帧 `thread_died`（旧会话文件已落盘，可 `thread/resume` 恢复）。
 
 **`clone`** — 在当前 leaf 复制分叉（等价 fork at leaf）。响应同 fork。同样换 id。
 
@@ -119,13 +120,14 @@ spawn("pai-cli", [], {
 
 ## 5. 输出帧（stdout → 客户端）
 
-| 帧           | 说明                                                                                                     |
-| ------------ | -------------------------------------------------------------------------------------------------------- |
-| `response`   | 命令应答（§2 契约）                                                                                      |
-| `event`      | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，全局有序不交错 |
-| `ui_request` | 确认/输入请求（§6）                                                                                      |
-| `heartbeat`  | 1Hz 心跳                                                                                                 |
-| `hub_error`  | 进程内未捕获异常报告（进程不退出；心跳消失才需要杀进程）                                                 |
+| 帧            | 说明                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------ |
+| `response`    | 命令应答（§2 契约）                                                                                    |
+| `event`       | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序 |
+| `ui_request`  | 确认/输入请求（§6）                                                                                    |
+| `heartbeat`   | 1Hz 心跳（host 发出）                                                                                  |
+| `hub_error`   | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段            |
+| `thread_died` | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，下条命令自动恢复            |
 
 **渲染聊天界面需要的核心事件**（`event.type`）：
 
@@ -186,7 +188,8 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 
 ## 9. 客户端侧 checklist
 
-- [ ] 心跳监督（>10s 无心跳 → 杀 + thread/list 注册表逐个 resume）
+- [ ] 心跳监督（>10s 无心跳 → 杀 host + thread/list 注册表逐个 resume）
+- [ ] `thread_died` 处理：标记窗口（可提示用户），下条命令自动恢复；或用 `thread/list` 里的 `sessionPath` 主动 resume
 - [ ] response 按 id 关联；`agent_settled` 驱动输入框可用态
 - [ ] 流式渲染只拼 `text_delta.delta`，以 `message_end.message` 为权威
 - [ ] `fork/clone` 后用响应里的新 `threadId` 重路由窗口，旧 id 立即失效

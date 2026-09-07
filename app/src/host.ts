@@ -11,6 +11,7 @@ import { ModelRuntime, SessionManager, VERSION } from "@earendil-works/pi-coding
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { createJsonlSplitter } from "./jsonl.ts";
 import type { HubCommand, HubFrame, ResponseFrame, SessionModel } from "./protocol.ts";
+import { THREAD_SCOPED_COMMANDS } from "./protocol.ts";
 import {
   createFrameWriter,
   getRawStdoutWrite,
@@ -332,10 +333,16 @@ export async function runHost(argv: string[]): Promise<void> {
       default: {
         // Thread-scoped commands: raw-line passthrough to the owning worker
         // (shape is identical on both sides of the host<->worker protocol).
-        const scoped = cmd as { type: string; threadId?: string };
-        if (typeof scoped.threadId !== "string") {
-          const name = typeof cmd.type === "string" ? cmd.type : "unknown";
+        // Anything else keeps the v0.3 wording: unknown type -> "Unknown
+        // command"; known type missing its threadId -> the old lookup error.
+        const name = typeof cmd.type === "string" ? cmd.type : "unknown";
+        if (!THREAD_SCOPED_COMMANDS.has(name)) {
           emit(failure(id, name, `Unknown command: ${name}`));
+          return;
+        }
+        const scoped = cmd as { threadId?: unknown };
+        if (typeof scoped.threadId !== "string") {
+          emit(failure(id, name, "Unknown threadId: undefined"));
           return;
         }
         await pool?.sendToThread(cmd as { type: string; threadId: string; id?: string }, line);

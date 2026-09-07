@@ -44,6 +44,9 @@ interface ThreadEntry {
   state: "live" | "parked" | "dead";
   /** In-progress respawn (parked/dead -> live); concurrent senders share it. */
   wake: Promise<void> | undefined;
+  /** thread/stop arrived while a wake was in flight; the wake must not
+   * resurrect the entry (design §6 spawning -thread/stop-> cancelled). */
+  stopRequested: boolean;
 }
 
 interface InternalWaiter {
@@ -231,7 +234,9 @@ export class WorkerPool {
       return;
     }
     const worker = await this.spawnWorker(cmd.trusted === true);
-    if (this.liveBudgetExceeded()) {
+    if (this.overBudget()) {
+      // A concurrent start took the last slot while this worker spawned
+      // (this spawn now counts itself). Exactly maxThreads survive.
       await this.killWorker(worker, "stop");
       this.failure(
         cmd.id,
@@ -264,7 +269,7 @@ export class WorkerPool {
     trusted?: boolean;
   }): Promise<void> {
     const sessionPath = resolve(cmd.sessionPath);
-    const holder = this.occupiedPaths.get(sessionPath);
+    const holder = this.pathHolder(sessionPath);
     if (holder !== undefined) {
       this.failure(
         cmd.id,
@@ -284,7 +289,7 @@ export class WorkerPool {
     // A parked/dead entry for the same file is being replaced, not duplicated.
     this.dropNonLiveEntryByPath(sessionPath);
     const worker = await this.spawnWorker(cmd.trusted === true);
-    if (this.occupiedPaths.has(sessionPath) || this.liveBudgetExceeded()) {
+    if (this.pathHolder(sessionPath) !== undefined || this.overBudget()) {
       await this.killWorker(worker, "stop");
       this.failure(
         cmd.id,
@@ -368,7 +373,16 @@ export class WorkerPool {
       return;
     }
     if (entry.state !== "live") {
-      this.entries.delete(threadId);
+      if (entry.wake !== undefined) {
+        // A wake is respawning this thread right now (design §6 spawning -
+        // thread/stop edge): mark it so the wake lands on a stopped thread,
+        // tears its worker down, and drops the re-registered entry instead
+        // of resurrecting it.
+        entry.stopRequested = true;
+        void entry.wake.catch(() => {}).finally(() => this.entries.delete(entry.threadId));
+      } else {
+        this.entries.delete(threadId);
+      }
       this.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
       return;
     }
@@ -449,6 +463,34 @@ export class WorkerPool {
       if (worker.awaitingStart) spawning++;
     }
     return this.workers.size + spawning >= this.maxThreads;
+  }
+
+  /** Post-spawn check: the caller's own spawn now counts itself, so the
+   * budget is only violated when total EXCEEDS the cap (a spawn landing on
+   * the exact last slot is legitimate — the off-by-one would otherwise make
+   * PAI_MAX_THREADS=N an effective N-1, and N=1 unusable). */
+  private overBudget(): boolean {
+    let spawning = 0;
+    for (const worker of this.allWorkers) {
+      if (worker.awaitingStart) spawning++;
+    }
+    return this.workers.size + spawning > this.maxThreads;
+  }
+
+  /**
+   * Path occupancy check with a belt beyond the occupiedPaths registry: a
+   * spawning worker whose session file just appeared (persist → response
+   * window, design §6 blind window) may only be known via its heartbeat.
+   */
+  private pathHolder(sessionPath: string): WorkerHandle | undefined {
+    const direct = this.occupiedPaths.get(sessionPath);
+    if (direct !== undefined) return direct;
+    for (const worker of this.allWorkers) {
+      if (worker.sessionPath !== null && resolve(worker.sessionPath) === sessionPath) {
+        return worker;
+      }
+    }
+    return undefined;
   }
 
   private failure(id: string | undefined, command: string, error: string): void {
@@ -538,14 +580,14 @@ export class WorkerPool {
       throw new Error(`Too many concurrent conversations (limit ${this.maxThreads})`);
     }
     const sessionPath = resolve(entry.sessionPath);
-    const holder = this.occupiedPaths.get(sessionPath);
+    const holder = this.pathHolder(sessionPath);
     if (holder !== undefined) {
       throw new Error(
         `Session already open (threadId: ${holder.threadId}); two writers would corrupt the session file`,
       );
     }
     const worker = await this.spawnWorker(entry.trusted);
-    if (this.occupiedPaths.has(sessionPath) || this.liveBudgetExceeded()) {
+    if (this.pathHolder(sessionPath) !== undefined || this.overBudget()) {
       await this.killWorker(worker, "stop");
       throw new Error("Session already open in another conversation");
     }
@@ -589,7 +631,15 @@ export class WorkerPool {
       await this.killWorker(worker, "stop").catch(() => {});
       throw error instanceof Error ? error : new Error(String(error));
     }
-    // The absorbed resume response already registered the live entry.
+    // The absorbed resume response already registered the live entry —
+    // unless thread/stop raced the wake (design §6 spawning -thread/stop
+    // edge): tear the respawned worker down and drop the entry instead of
+    // resurrecting a stopped conversation.
+    if (entry.stopRequested) {
+      const spawned = this.workers.get(entry.threadId);
+      this.entries.delete(entry.threadId);
+      if (spawned !== undefined) await this.killWorker(spawned, "stop");
+    }
   }
 
   private async killWorker(worker: WorkerHandle, intent: RetireIntent): Promise<void> {
@@ -715,7 +765,12 @@ export class WorkerPool {
           const name = worker.threadId !== "" ? worker.threadId : String(child.pid ?? "?");
           this.writeStderr(`[pai:worker:${name}] ${line}\n`);
         },
-        undefined,
+        (limit) => {
+          const name = worker.threadId !== "" ? worker.threadId : String(child.pid ?? "?");
+          this.writeStderr(
+            `[pai:worker:${name}] stderr line exceeded ${limit} bytes and was dropped\n`,
+          );
+        },
         WORKER_LINE_BYTES,
       );
       stderr.setEncoding("utf8");
@@ -787,6 +842,27 @@ export class WorkerPool {
     const head = matchResponseHead(line);
     if (head !== undefined) {
       this.onWorkerResponse(worker, line, head);
+      return;
+    }
+    // Parse fallback (design §3): numeric/non-string ids serialize outside
+    // the strict head prefixes and must still classify — dropping them would
+    // make a healthy worker look like a spawn timeout.
+    let parsed: { type?: unknown } | undefined;
+    try {
+      parsed = JSON.parse(line) as { type?: unknown };
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed !== undefined && parsed.type === "response") {
+      this.onWorkerResponse(worker, line, null);
+      return;
+    }
+    if (
+      parsed !== undefined &&
+      (parsed.type === "event" || parsed.type === "ui_request" || parsed.type === "hub_error")
+    ) {
+      // Known shapes with unexpected key order still forward verbatim.
+      this.emitRaw(line);
       return;
     }
     this.writeStderr(`pai-cli worker sent an unclassified frame; ignored: ${line.slice(0, 200)}\n`);
@@ -866,6 +942,7 @@ export class WorkerPool {
         trusted: worker.trusted,
         state: "live",
         wake: undefined,
+        stopRequested: false,
       };
       entry.threadId = start.threadId;
       entry.cwd = start.cwd;
@@ -873,6 +950,7 @@ export class WorkerPool {
       entry.trusted = worker.trusted;
       entry.state = "live";
       entry.wake = undefined;
+      entry.stopRequested = false;
       this.entries.set(start.threadId, entry);
       worker.threadId = start.threadId;
       this.workers.set(start.threadId, worker);
@@ -918,6 +996,8 @@ export class WorkerPool {
     const wasRetire = worker.retireIntent === "retire";
     const wasStop = worker.retireIntent === "stop";
     const wasShutdown = worker.retireIntent === "shutdown";
+    const spawnTimeout =
+      worker.retireIntent === "none" && worker.awaitingStart && worker.spawnError === undefined;
     const reason =
       worker.retireIntent === "none" && worker.awaitingStart
         ? worker.spawnError !== undefined
@@ -927,8 +1007,9 @@ export class WorkerPool {
     if (!wasShutdown) {
       for (const [id, command] of worker.pendingIds) {
         // Responses already seen were removed from pendingIds; what remains
-        // never got its exactly-one response.
-        this.failure(id, command, `worker died: ${reason}`);
+        // never got its exactly-one response. Spawn timeouts use the bare
+        // documented message (design §2), without the "worker died" prefix.
+        this.failure(id, command, spawnTimeout ? reason : `worker died: ${reason}`);
       }
     }
     worker.pendingIds.clear();

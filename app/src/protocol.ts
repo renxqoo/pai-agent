@@ -409,3 +409,29 @@ export const OBSERVER_COMMANDS: ReadonlySet<string> = new Set([
   "get_commands",
   "get_fork_messages",
 ]);
+
+/** Commands the host routes verbatim to the owning worker. Anything else on
+ * stdin is rejected with the v0.3 "Unknown command" wording. */
+export const THREAD_SCOPED_COMMANDS: ReadonlySet<string> = new Set([
+  "prompt",
+  "steer",
+  "follow_up",
+  "abort",
+  "compact",
+  "get_state",
+  "get_messages",
+  "set_thinking_level",
+  "get_thinking_levels",
+  "get_entries",
+  "get_tree",
+  "set_session_name",
+  "get_session_stats",
+  "clear_queue",
+  "fork",
+  "clone",
+  "navigate_tree",
+  "get_fork_messages",
+  "get_commands",
+  "bash",
+  "abort_bash",
+]);

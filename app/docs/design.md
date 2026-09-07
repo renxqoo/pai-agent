@@ -214,3 +214,15 @@ src/
 - [x] 对抗审查问题清零（14 修 / 1 改文档 / 1 驳回，见「审查处置」）
 - [x] 假绿抽查：单测无 skip；smoke 唯一 SKIP 为事件流断言（无 provider 认证环境，真实 LLM 门 opt-in，方案已声明）；无被注释/删除的断言
 - [x] v0.2：auth/list / auth/set_api_key（未知 provider 拒绝、多提示 provider 拒绝、OAuth 保护、key 零回显含 stderr、auth.json 落盘验证）/ auth/remove_key（OAuth 保护、幂等）往返；smoke 隔离 agentDir；聚焦对抗审查 7 项处置完毕（1 项裁决范围外）
+
+## v0.4 增补（worker 架构，2026-09-07 已实施）
+
+进程模型从「单进程多会话」重构为 **host + 每对话一个 worker 进程**；对外 v0.3 协议不变，纯增量：
+
+- 新帧 `thread_died {threadId, reason}`（worker 异常死亡时恰好一次；retire/关闭不发）；
+- `thread/list` 条目新增 `state: live|parked|dead`（live 的 `isStreaming` 来自最近心跳，陈旧度 ≤1s）；
+- `hub_error` 帧新增可选 `threadId`（worker 来源的注入）；
+- fork/clone 失败语义修正为实际行为：校验类失败线程保留；替换中途失败 → `thread_died`（修复旧实现僵尸会话缺陷 F-1）；
+- 环境旋钮：`PAI_MAX_THREADS`（32）/ `PAI_IDLE_RETIRE_MS`（900000）/ `PAI_WORKER_STALE_MS`（30000）/ `PAI_WORKER_EXIT_TIMEOUT_MS`（10000）。
+
+完整架构规格（职责划分、内部 host↔worker 协议、生命周期状态机、预算）唯一真相：[migration/design.md](migration/design.md)；迁移审计与裁决见同目录 implementation.md / migration.md。旧单进程实现留档于 `pai-inprocess` 分支供对比。
