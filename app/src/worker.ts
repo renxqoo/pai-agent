@@ -1,135 +1,241 @@
 /**
  * pai-cli worker: one conversation per process (design.md migration §1).
  * Speaks the thread-scoped subset of the v0.3 protocol on stdin/stdout to
- * the pai-cli host. Global commands (auth, models, thread listing) live in
- * the host. Stdout is the protocol channel; takeOverStdout keeps stray
- * writes off it.
+ * the pai-cli host; global commands (auth, models, thread listing) live in
+ * the host. This file is bootstrap only — command behavior is in
+ * worker-commands.ts, session lifecycle in session-host.ts.
  */
 
-import { type AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { DialogBroker } from "./dialogs.ts";
-import { checkPermission } from "./permission-gate.ts";
+import { responseFailure, responseSuccess } from "./frames.ts";
+import { createInflightRegistry } from "./inflight-registry.ts";
 import { createJsonlSplitter } from "./jsonl.ts";
-import {
-  type HubFrame,
-  type ImagePayload,
-  OBSERVER_COMMANDS,
-  type ResponseFrame,
-  type WorkerCommand,
-  type WorkerHeartbeatFrame,
-} from "./protocol.ts";
+import type { HubFrame, WorkerCommand, WorkerHeartbeatFrame } from "./protocol.ts";
+import { OBSERVER_COMMANDS } from "./protocol.ts";
+import { SessionHost } from "./session-host.ts";
 import {
   createFrameWriter,
   getRawStdoutWrite,
   takeOverStdout,
   writeStderr,
 } from "./stdout-guard.ts";
-import { SessionDestroyedError, type Thread } from "./session-host.ts";
-import { SessionHost } from "./session-host.ts";
+import { workerHandlers } from "./worker-commands.ts";
+import type { WorkerContext } from "./worker-context.ts";
+import type { InflightRegistry } from "./inflight-registry.ts";
 import { createUiContext } from "./ui-context.ts";
 
 const HEARTBEAT_INTERVAL_MS = 1_000;
-const BASH_CONFIRM_TIMEOUT_MS = 300_000;
-
-function toImages(images: ImagePayload[] | undefined): ImagePayload[] | undefined {
-  return images && images.length > 0 ? images : undefined;
-}
-
-/** Wire-level image shape validation (design.md v0.3). */
-function validateImages(images: ImagePayload[] | undefined): string | undefined {
-  if (images === undefined) return undefined;
-  if (!Array.isArray(images)) return "images must be an array";
-  for (const image of images) {
-    if (
-      typeof image !== "object" ||
-      image === null ||
-      image.type !== "image" ||
-      typeof image.data !== "string" ||
-      typeof image.mimeType !== "string"
-    ) {
-      return 'each image must be {type:"image", data:string, mimeType:string}';
-    }
-  }
-  return undefined;
-}
 
 function isCommandShape(message: unknown): message is WorkerCommand {
   return typeof message === "object" && message !== null && !Array.isArray(message);
 }
 
-/**
- * Frame builders live at module level (pure): the host's strict head match
- * relies on these literals serializing with id/type first, and the
- * worker-pool unit test asserts the real output. Exported for that test.
- */
-export function responseSuccess(
-  id: string | undefined,
-  command: string,
-  data?: unknown,
-): ResponseFrame {
+interface WorkerRefs {
+  broker?: DialogBroker;
+  sessions?: SessionHost;
+}
+
+interface WorkerStatus {
+  /** Idle timer baseline: reset by non-observer commands and by activity
+   * (streaming/compaction/dialogs/in-flight ops) on each heartbeat tick. */
+  lastBusyAt: number;
+}
+
+/** Heartbeat carries the worker-side truth (design.md migration §3): the
+ * host retires/kills workers from these fields and never guesses. */
+function startHeartbeat(deps: {
+  emit: (frame: WorkerHeartbeatFrame) => void;
+  refs: WorkerRefs;
+  registry: InflightRegistry;
+  status: WorkerStatus;
+}): void {
+  const { emit, refs, registry, status } = deps;
+  const heartbeat = setInterval(() => {
+    const session = refs.sessions?.get()?.session;
+    if (
+      session?.isStreaming === true ||
+      session?.isCompacting === true ||
+      (refs.broker?.pendingCount() ?? 0) > 0 ||
+      registry.size() > 0
+    ) {
+      status.lastBusyAt = Date.now();
+    }
+    emit({
+      type: "heartbeat",
+      idleMs: Date.now() - status.lastBusyAt,
+      streaming: session?.isStreaming === true,
+      sessionPath: session?.sessionFile ?? null,
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+  process.on("exit", () => clearInterval(heartbeat));
+}
+
+function buildContext(deps: {
+  refs: WorkerRefs;
+  registry: InflightRegistry;
+  emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
+  triggerShutdown: (reason: string) => void;
+}): WorkerContext {
+  const { sessions } = deps.refs;
+  const { broker } = deps.refs;
+  if (sessions === undefined || broker === undefined) {
+    throw new Error("worker context built before services are ready");
+  }
   return {
-    id,
-    type: "response",
-    command,
-    success: true,
-    ...(data !== undefined ? { data } : {}),
+    sessions,
+    broker,
+    emit: deps.emit,
+    registerInflight: deps.registry.register,
+    triggerShutdown: deps.triggerShutdown,
+    success: (id, command, data) => {
+      deps.emit(responseSuccess(id, command, data));
+    },
+    failure: (id, command, error) => {
+      deps.emit(responseFailure(id, command, error));
+    },
+    requireThread: (threadId, command, id) => {
+      const thread = sessions.get();
+      if (!thread || thread.session.sessionId !== threadId) {
+        responseFailure(id, command, `Unknown threadId: ${threadId}`);
+        return;
+      }
+      return thread;
+    },
   };
 }
 
-export function responseFailure(
-  id: string | undefined,
-  command: string,
-  error: string,
-): ResponseFrame {
-  return { id, type: "response", command, success: false, error };
+/** Parse + dispatch one stdin line; parse failures become parse responses. */
+function createLineHandler(deps: {
+  emit: (frame: HubFrame) => void;
+  handleCommand: (cmd: WorkerCommand) => Promise<void>;
+}): (line: string) => void {
+  const { emit, handleCommand } = deps;
+  return (line) => {
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      emit(
+        responseFailure(
+          undefined,
+          "parse",
+          `Failed to parse command: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+      return;
+    }
+    if (!isCommandShape(message)) {
+      emit(responseFailure(undefined, "parse", "Command must be a JSON object"));
+      return;
+    }
+    void handleCommand(message).catch((error: unknown) => {
+      emit(
+        responseFailure(
+          message.id,
+          message.type,
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    });
+  };
+}
+
+function attachStdinLoop(deps: {
+  emit: (frame: HubFrame) => void;
+  handleCommand: (cmd: WorkerCommand) => Promise<void>;
+  onEnd: () => void;
+}): void {
+  const onOverflow = (lineLength: number): void => {
+    deps.emit(
+      responseFailure(undefined, "parse", `Command line exceeds ${lineLength} byte limit; dropped`),
+    );
+  };
+  const splitter = createJsonlSplitter(
+    createLineHandler({ emit: deps.emit, handleCommand: deps.handleCommand }),
+    onOverflow,
+  );
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk: string) => splitter.push(chunk));
+  process.stdin.on("end", () => {
+    splitter.flush();
+    deps.onEnd();
+  });
+}
+
+function attachProcessGuards(deps: {
+  emit: (frame: HubFrame) => void;
+  onSignal: (signal: string) => void;
+}): void {
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => deps.onSignal(signal));
+  }
+  process.on("uncaughtException", (error) => {
+    deps.emit({
+      type: "hub_error",
+      scope: "uncaughtException",
+      error: String(error?.stack ?? error),
+    });
+  });
+  process.on("unhandledRejection", (reason) => {
+    deps.emit({ type: "hub_error", scope: "unhandledRejection", error: String(reason) });
+  });
+}
+
+/** Shutdown is re-entry safe and runs to completion once (contract). */
+function createLifecycle(deps: {
+  writer: ReturnType<typeof createFrameWriter>;
+  registry: ReturnType<typeof createInflightRegistry>;
+  refs: WorkerRefs;
+}): { shutdown: (reason: string) => Promise<void>; isShuttingDown: () => boolean } {
+  let shuttingDown = false;
+  return {
+    async shutdown(reason: string): Promise<void> {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      writeStderr(`pai-cli worker shutting down: ${reason}\n`);
+      await deps.registry.abortAll();
+      deps.refs.broker?.settleAll();
+      await deps.refs.sessions?.dispose();
+      await deps.writer.flush().catch(() => {});
+      process.exit(0);
+    },
+    isShuttingDown: () => shuttingDown,
+  };
+}
+
+/** Model runtime, dialog broker, and the single-session host. */
+async function setupWorkerServices(deps: {
+  refs: WorkerRefs;
+  registry: ReturnType<typeof createInflightRegistry>;
+  emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
+  shutdown: (reason: string) => Promise<void>;
+}): Promise<WorkerContext> {
+  const modelRuntime = await ModelRuntime.create();
+  const broker = new DialogBroker((frame) => deps.emit(frame));
+  deps.refs.broker = broker;
+  deps.refs.sessions = new SessionHost({
+    modelRuntime,
+    emit: deps.emit,
+    createUi: (threadId) => createUiContext(threadId, broker, deps.emit),
+    onThreadDisposed: (threadId) => broker.settleThread(threadId),
+  });
+  return buildContext({
+    refs: deps.refs,
+    registry: deps.registry,
+    emit: deps.emit,
+    triggerShutdown: (reason) => void deps.shutdown(reason),
+  });
 }
 
 export async function runWorker(): Promise<void> {
   takeOverStdout();
   const writer = createFrameWriter(getRawStdoutWrite());
-
-  let broker: DialogBroker | undefined;
-  let sessions: SessionHost | undefined;
-  let shuttingDown = false;
-  /** Idle timer baseline: reset by non-observer commands and by activity
-   * (streaming/compaction/dialogs/in-flight ops) on each heartbeat tick. */
-  let lastBusyAt = Date.now();
-  // In-flight long operations (bash, compact): shutdown aborts them and
-  // waits for their responses to be emitted, so every accepted command
-  // keeps its exactly-one response guarantee.
-  interface InflightOp {
-    abort: () => void;
-    done: Promise<void>;
-  }
-  const inflightOps = new Map<number, InflightOp>();
-  let inflightSeq = 0;
-  const registerInflight = (abort: () => void): { done: () => void; unregister: () => void } => {
-    const seq = ++inflightSeq;
-    let markDone: () => void = () => {};
-    const done = new Promise<void>((resolve) => {
-      markDone = resolve;
-    });
-    inflightOps.set(seq, { abort, done });
-    return {
-      done: markDone,
-      unregister: () => {
-        markDone();
-        inflightOps.delete(seq);
-      },
-    };
-  };
-
-  const shutdown = async (reason: string): Promise<void> => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    writeStderr(`pai-cli worker shutting down: ${reason}\n`);
-    for (const op of Array.from(inflightOps.values())) op.abort();
-    await Promise.allSettled(Array.from(inflightOps.values()).map((op) => op.done));
-    broker?.settleAll();
-    await sessions?.dispose();
-    await writer.flush().catch(() => {});
-    process.exit(0);
-  };
+  const refs: WorkerRefs = {};
+  const status: WorkerStatus = { lastBusyAt: Date.now() };
+  const registry = createInflightRegistry();
+  const lifecycle = createLifecycle({ writer, registry, refs });
+  const { shutdown } = lifecycle;
 
   const emit = (frame: HubFrame | WorkerHeartbeatFrame): void => {
     writer.write(`${JSON.stringify(frame)}\n`).catch((error: unknown) => {
@@ -139,546 +245,28 @@ export async function runWorker(): Promise<void> {
       void shutdown("stdout write failed");
     });
   };
-
-  // Heartbeat carries the worker-side truth (design.md migration §3): the
-  // host retires/kills workers from these fields and never guesses.
-  const heartbeat = setInterval(() => {
-    const session = sessions?.get()?.session;
-    if (
-      session?.isStreaming === true ||
-      session?.isCompacting === true ||
-      (broker?.pendingCount() ?? 0) > 0 ||
-      inflightOps.size > 0
-    ) {
-      lastBusyAt = Date.now();
-    }
-    const frame: WorkerHeartbeatFrame = {
-      type: "heartbeat",
-      idleMs: Date.now() - lastBusyAt,
-      streaming: session?.isStreaming === true,
-      sessionPath: session?.sessionFile ?? null,
-    };
-    emit(frame);
-  }, HEARTBEAT_INTERVAL_MS);
-  process.on("exit", () => clearInterval(heartbeat));
-
-  const modelRuntime = await ModelRuntime.create();
-  broker = new DialogBroker((frame) => emit(frame));
-  sessions = new SessionHost(
-    modelRuntime,
-    emit,
-    (threadId) => createUiContext(threadId, broker, emit),
-    (threadId) => broker?.settleThread(threadId),
-  );
-
-  const success = responseSuccess;
-  const failure = responseFailure;
-
-  const requireThread = (
-    threadId: string,
-    command: string,
-    id: string | undefined,
-  ): Thread | undefined => {
-    const thread = sessions?.get();
-    if (!thread || thread.session.sessionId !== threadId) {
-      emit(failure(id, command, `Unknown threadId: ${threadId}`));
-      return undefined;
-    }
-    return thread;
-  };
+  startHeartbeat({ emit, refs, registry, status });
+  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown });
 
   const handleCommand = async (cmd: WorkerCommand): Promise<void> => {
-    const id = cmd.id;
-    if (shuttingDown) {
-      emit(failure(id, String(cmd.type ?? "unknown"), "pai-cli worker is shutting down"));
+    const { id } = cmd;
+    if (lifecycle.isShuttingDown()) {
+      responseFailure(id, String(cmd.type ?? "unknown"), "pai-cli worker is shutting down");
       return;
     }
-    if (!OBSERVER_COMMANDS.has(cmd.type)) lastBusyAt = Date.now();
-    switch (cmd.type) {
-      case "thread/start": {
-        const thread = await sessions?.start({
-          cwd: cmd.cwd ?? process.cwd(),
-          trusted: cmd.trusted === true,
-          ...(cmd.model !== undefined ? { model: cmd.model } : {}),
-        });
-        if (!thread) return;
-        emit(
-          success(id, cmd.type, {
-            threadId: thread.session.sessionId,
-            cwd: thread.cwd,
-            sessionPath: thread.session.sessionFile ?? null,
-          }),
-        );
-        return;
-      }
-
-      case "thread/resume": {
-        const thread = await sessions?.resume({
-          cwd: cmd.cwd,
-          trusted: cmd.trusted === true,
-          sessionPath: cmd.sessionPath,
-        });
-        if (!thread) return;
-        emit(
-          success(id, cmd.type, {
-            threadId: thread.session.sessionId,
-            cwd: thread.cwd,
-            sessionPath: thread.session.sessionFile ?? null,
-          }),
-        );
-        return;
-      }
-
-      case "thread/stop": {
-        await sessions?.stop();
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      case "prompt": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const imagesError = validateImages(cmd.images);
-        if (imagesError !== undefined) {
-          emit(failure(id, cmd.type, imagesError));
-          return;
-        }
-        if (
-          cmd.streamingBehavior !== undefined &&
-          cmd.streamingBehavior !== "steer" &&
-          cmd.streamingBehavior !== "followUp"
-        ) {
-          emit(failure(id, cmd.type, 'streamingBehavior must be "steer" or "followUp"'));
-          return;
-        }
-        const session: AgentSession = thread.session;
-        // Fire-and-accept via the SDK's preflight hook (same strategy
-        // as pi's RPC mode): exactly one response at acceptance time;
-        // failures before acceptance become the failure response, and
-        // failures after acceptance ride the event stream.
-        let accepted = false;
-        void session
-          .prompt(cmd.message, {
-            images: toImages(cmd.images),
-            ...(cmd.streamingBehavior ? { streamingBehavior: cmd.streamingBehavior } : {}),
-            source: "rpc",
-            preflightResult: (didSucceed) => {
-              if (didSucceed) {
-                accepted = true;
-                emit(success(id, cmd.type));
-              }
-            },
-          })
-          .catch((error: unknown) => {
-            if (!accepted) {
-              emit(failure(id, cmd.type, error instanceof Error ? error.message : String(error)));
-            }
-          });
-        return;
-      }
-
-      case "steer": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const imagesError = validateImages(cmd.images);
-        if (imagesError !== undefined) {
-          emit(failure(id, cmd.type, imagesError));
-          return;
-        }
-        await thread.session.steer(cmd.message, toImages(cmd.images));
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      case "follow_up": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const imagesError = validateImages(cmd.images);
-        if (imagesError !== undefined) {
-          emit(failure(id, cmd.type, imagesError));
-          return;
-        }
-        await thread.session.followUp(cmd.message, toImages(cmd.images));
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      case "abort": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        await thread.session.abort();
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      case "compact": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const inflight = registerInflight(() => thread.session.abortCompaction());
-        try {
-          const result = await thread.session.compact(cmd.customInstructions);
-          emit(success(id, cmd.type, result));
-        } finally {
-          inflight.unregister();
-        }
-        return;
-      }
-
-      case "get_state": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const session = thread.session;
-        emit(
-          success(id, cmd.type, {
-            model: session.model,
-            thinkingLevel: session.thinkingLevel,
-            isStreaming: session.isStreaming,
-            isCompacting: session.isCompacting,
-            sessionId: session.sessionId,
-            sessionName: session.sessionName ?? null,
-            sessionFile: session.sessionFile ?? null,
-            messageCount: session.messages.length,
-          }),
-        );
-        return;
-      }
-
-      case "get_messages": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        emit(success(id, cmd.type, { messages: thread.session.messages }));
-        return;
-      }
-
-      case "set_model": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        // Model was resolved by the host against its always-fresh snapshot
-        // (design.md migration §1); the worker applies it as-is.
-        await thread.session.setModel(cmd.model);
-        emit(success(id, cmd.type, { model: cmd.model }));
-        return;
-      }
-
-      case "set_thinking_level": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        thread.session.setThinkingLevel(cmd.level);
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      case "get_thinking_levels": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        emit(success(id, cmd.type, { levels: thread.session.getAvailableThinkingLevels() }));
-        return;
-      }
-
-      case "get_entries": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const sessionManager = thread.session.sessionManager;
-        let entries = sessionManager.getEntries();
-        if (cmd.since !== undefined) {
-          const sinceIndex = entries.findIndex((e) => e.id === cmd.since);
-          if (sinceIndex === -1) {
-            emit(failure(id, cmd.type, `Entry not found: ${cmd.since}`));
-            return;
-          }
-          entries = entries.slice(sinceIndex + 1);
-        }
-        emit(success(id, cmd.type, { entries, leafId: sessionManager.getLeafId() }));
-        return;
-      }
-
-      case "get_tree": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const sessionManager = thread.session.sessionManager;
-        emit(
-          success(id, cmd.type, {
-            tree: sessionManager.getTree(),
-            leafId: sessionManager.getLeafId(),
-          }),
-        );
-        return;
-      }
-
-      case "set_session_name": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const name = cmd.name.trim();
-        if (name.length === 0) {
-          emit(failure(id, cmd.type, "Session name cannot be empty"));
-          return;
-        }
-        thread.session.setSessionName(name);
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      case "get_session_stats": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        emit(success(id, cmd.type, thread.session.getSessionStats()));
-        return;
-      }
-
-      case "clear_queue": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        emit(success(id, cmd.type, thread.session.clearQueue()));
-        return;
-      }
-
-      case "fork": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        let forkError: string | undefined;
-        let result:
-          | { thread: Thread; previousThreadId: string; selectedText?: string; cancelled: boolean }
-          | undefined;
-        try {
-          result = await sessions?.fork(cmd.threadId, cmd.entryId, cmd.position ?? "before");
-        } catch (error) {
-          if (error instanceof SessionDestroyedError) {
-            // Teardown already disposed the session (migration.md F-1):
-            // the thread cannot continue. Fail the command, then exit —
-            // the host turns this into thread_died.
-            emit(failure(id, cmd.type, error.message));
-            void shutdown("session destroyed by failed fork");
-            return;
-          }
-          forkError = error instanceof Error ? error.message : String(error);
-        }
-        if (forkError !== undefined || result === undefined) {
-          emit(failure(id, cmd.type, forkError ?? "fork failed"));
-          return;
-        }
-        emit(
-          success(id, cmd.type, {
-            threadId: result.thread.session.sessionId,
-            previousThreadId: result.previousThreadId,
-            sessionPath: result.thread.session.sessionFile ?? null,
-            text: result.selectedText ?? null,
-            cancelled: result.cancelled,
-          }),
-        );
-        return;
-      }
-
-      case "clone": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        let cloneError: string | undefined;
-        let result: { thread: Thread; previousThreadId: string; cancelled: boolean } | undefined;
-        try {
-          result = await sessions?.clone(cmd.threadId);
-        } catch (error) {
-          if (error instanceof SessionDestroyedError) {
-            emit(failure(id, cmd.type, error.message));
-            void shutdown("session destroyed by failed clone");
-            return;
-          }
-          cloneError = error instanceof Error ? error.message : String(error);
-        }
-        if (cloneError !== undefined || result === undefined) {
-          emit(failure(id, cmd.type, cloneError ?? "clone failed"));
-          return;
-        }
-        emit(
-          success(id, cmd.type, {
-            threadId: result.thread.session.sessionId,
-            previousThreadId: result.previousThreadId,
-            sessionPath: result.thread.session.sessionFile ?? null,
-            cancelled: result.cancelled,
-          }),
-        );
-        return;
-      }
-
-      case "navigate_tree": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const result = await thread.session.navigateTree(cmd.targetId, {
-          ...(cmd.summarize !== undefined ? { summarize: cmd.summarize } : {}),
-          ...(cmd.customInstructions !== undefined
-            ? { customInstructions: cmd.customInstructions }
-            : {}),
-          ...(cmd.replaceInstructions !== undefined
-            ? { replaceInstructions: cmd.replaceInstructions }
-            : {}),
-          ...(cmd.label !== undefined ? { label: cmd.label } : {}),
-        });
-        emit(success(id, cmd.type, result));
-        return;
-      }
-
-      case "get_fork_messages": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        emit(success(id, cmd.type, { messages: thread.session.getUserMessagesForForking() }));
-        return;
-      }
-
-      case "get_commands": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        const session = thread.session;
-        const commands: Array<{ name: string; description?: string; source: string }> = [];
-        for (const command of session.extensionRunner.getRegisteredCommands()) {
-          commands.push({
-            name: command.invocationName,
-            ...(command.description !== undefined ? { description: command.description } : {}),
-            source: "extension",
-          });
-        }
-        for (const template of session.promptTemplates) {
-          commands.push({
-            name: template.name,
-            ...(template.description !== undefined ? { description: template.description } : {}),
-            source: "prompt",
-          });
-        }
-        for (const skill of session.resourceLoader.getSkills().skills) {
-          commands.push({
-            name: `skill:${skill.name}`,
-            ...(skill.description !== undefined ? { description: skill.description } : {}),
-            source: "skill",
-          });
-        }
-        emit(success(id, cmd.type, { commands }));
-        return;
-      }
-
-      case "bash": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        if (typeof cmd.command !== "string" || cmd.command.length === 0) {
-          emit(failure(id, cmd.type, "command must be a non-empty string"));
-          return;
-        }
-        // Direct execution does not go through tool_call: gate it with the
-        // same rules/dialog path as the agent's bash tool.
-        const check = await checkPermission("bash", cmd.command, async (title, value) => {
-          const response = await broker?.ask(
-            cmd.threadId,
-            { method: "confirm", title, message: value },
-            { timeout: BASH_CONFIRM_TIMEOUT_MS },
-          );
-          return response?.["confirmed"] === true;
-        });
-        if (check.block) {
-          emit(failure(id, cmd.type, check.reason ?? "Blocked by permission rules"));
-          return;
-        }
-        // Mirror pi's RPC mode: extensions may observe or fully replace the
-        // execution via the user_bash event.
-        const eventResult = await thread.session.extensionRunner.emitUserBash({
-          type: "user_bash",
-          command: cmd.command,
-          excludeFromContext: cmd.excludeFromContext === true,
-          cwd: thread.session.sessionManager.getCwd(),
-        });
-        if (eventResult?.result) {
-          thread.session.recordBashResult(cmd.command, eventResult.result, {
-            excludeFromContext: cmd.excludeFromContext === true,
-          });
-          emit(success(id, cmd.type, eventResult.result));
-          return;
-        }
-        const inflight = registerInflight(() => thread.session.abortBash());
-        try {
-          // Streaming output arrives as bash_execution_update events (carrying
-          // this command's id) through the normal event frames.
-          const result = await thread.session.executeBash(cmd.command, undefined, {
-            excludeFromContext: cmd.excludeFromContext === true,
-            id,
-            ...(eventResult?.operations !== undefined
-              ? { operations: eventResult.operations }
-              : {}),
-          });
-          emit(success(id, cmd.type, result));
-        } finally {
-          inflight.unregister();
-        }
-        return;
-      }
-
-      case "abort_bash": {
-        const thread = requireThread(cmd.threadId, cmd.type, id);
-        if (!thread) return;
-        thread.session.abortBash();
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      case "ui_response": {
-        // Exactly one ack regardless of hit or late/unknown requestId.
-        broker?.resolve(cmd.requestId, cmd.payload);
-        emit(success(id, cmd.type));
-        return;
-      }
-
-      default: {
-        const unknown = cmd as { type?: unknown };
-        const name = typeof unknown.type === "string" ? unknown.type : "unknown";
-        emit(failure(id, name, `Unknown command: ${name}`));
-      }
+    if (!OBSERVER_COMMANDS.has(cmd.type)) status.lastBusyAt = Date.now();
+    const handler = workerHandlers.get(cmd.type);
+    if (handler === undefined) {
+      const unknown = cmd as { type?: unknown };
+      const name = typeof unknown.type === "string" ? unknown.type : "unknown";
+      responseFailure(id, name, `Unknown command: ${name}`);
+      return;
     }
+    await handler(ctx, cmd, id);
   };
 
-  // --- stdin JSONL loop -----------------------------------------------------
-
-  const splitter = createJsonlSplitter(
-    (line) => {
-      let message: unknown;
-      try {
-        message = JSON.parse(line);
-      } catch (error) {
-        emit(
-          failure(
-            undefined,
-            "parse",
-            `Failed to parse command: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-        );
-        return;
-      }
-      if (!isCommandShape(message)) {
-        emit(failure(undefined, "parse", "Command must be a JSON object"));
-        return;
-      }
-      const command = message;
-      void handleCommand(command).catch((error: unknown) => {
-        emit(
-          failure(command.id, command.type, error instanceof Error ? error.message : String(error)),
-        );
-      });
-    },
-    (lineLength) => {
-      emit(failure(undefined, "parse", `Command line exceeds ${lineLength} byte limit; dropped`));
-    },
-  );
-
-  process.stdin.setEncoding("utf8");
-  process.stdin.on("data", (chunk: string) => splitter.push(chunk));
-  process.stdin.on("end", () => {
-    splitter.flush();
-    void shutdown("stdin end");
-  });
-
-  for (const signal of ["SIGTERM", "SIGINT"] as const) {
-    process.on(signal, () => void shutdown(signal));
-  }
-
-  process.on("uncaughtException", (error) => {
-    emit({ type: "hub_error", scope: "uncaughtException", error: String(error?.stack ?? error) });
-  });
-  process.on("unhandledRejection", (reason) => {
-    emit({ type: "hub_error", scope: "unhandledRejection", error: String(reason) });
-  });
+  attachStdinLoop({ emit, handleCommand, onEnd: () => void shutdown("stdin end") });
+  attachProcessGuards({ emit, onSignal: (signal) => void shutdown(signal) });
 
   // Keep the process alive waiting on stdin.
   await new Promise<void>(() => {});

@@ -26,6 +26,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { permissionGate } from "./permission-gate.ts";
 import type { HubFrame, SessionModel } from "./protocol.ts";
+import { SessionDestroyedError } from "./session-destroyed-error.ts";
 
 export interface Thread {
   runtime: AgentSessionRuntime;
@@ -38,16 +39,11 @@ export interface Thread {
 
 export type UiContextFactory = (threadId: string) => ExtensionUIContext;
 
-/**
- * Fork/clone failed AFTER the runtime tore down the current session
- * (migration.md F-1). The session object left in place is disposed; the
- * worker must fail the command and exit instead of keeping a zombie thread.
- */
-export class SessionDestroyedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SessionDestroyedError";
-  }
+export interface SessionHostOptions {
+  modelRuntime: ModelRuntime;
+  emit: (frame: HubFrame) => void;
+  createUi: UiContextFactory;
+  onThreadDisposed?: (threadId: string) => void;
 }
 
 /**
@@ -56,7 +52,7 @@ export class SessionDestroyedError extends Error {
  * serialization; frame size must stay constant per delta, otherwise long
  * replies amplify to quadratic wire traffic. Top-level usage is kept.
  */
-function toWireEvent(event: AgentSessionEvent): AgentSessionEvent {
+export function toWireEvent(event: AgentSessionEvent): AgentSessionEvent {
   if (event.type !== "message_update") return event;
   const { message: _message, assistantMessageEvent, ...rest } = event;
   if (assistantMessageEvent === undefined) {
@@ -68,12 +64,71 @@ function toWireEvent(event: AgentSessionEvent): AgentSessionEvent {
   return { ...rest, assistantMessageEvent: delta } as AgentSessionEvent;
 }
 
+/** Official two-stage factory: services (resource loader, settings, shared
+ * model runtime) then the session bound to the passed manager — the runtime
+ * calls this again on fork/switch with a fresh manager. */
+function makeRuntimeFactory(deps: {
+  modelRuntime: ModelRuntime;
+  trusted: boolean;
+  model: SessionModel | undefined;
+}): CreateAgentSessionRuntimeFactory {
+  const { modelRuntime, trusted, model } = deps;
+  return async (factoryOptions) => {
+    const services = await createAgentSessionServices({
+      cwd: factoryOptions.cwd,
+      agentDir: factoryOptions.agentDir,
+      modelRuntime,
+      resourceLoaderOptions: {
+        // Extensions are arbitrary code. Untrusted sessions load only the
+        // built-in permission gate; skills/prompts/context stay available
+        // because they are data, not code.
+        ...(trusted ? {} : { noExtensions: true }),
+        extensionFactories: [permissionGate],
+      },
+    });
+    const created = await createAgentSessionFromServices({
+      services,
+      sessionManager: factoryOptions.sessionManager,
+      ...(factoryOptions.sessionStartEvent !== undefined
+        ? { sessionStartEvent: factoryOptions.sessionStartEvent }
+        : {}),
+      ...(model !== undefined ? { model } : {}),
+    });
+    return { ...created, services, diagnostics: [] };
+  };
+}
+
+/** Subscribe to session events and register the fork/clone rebind closure:
+ * replacement swaps the subscription in place, and the thread's id becomes
+ * the new session's id (the host updates its routing from the response). */
+function bindThread(deps: {
+  thread: Thread;
+  emit: (frame: HubFrame) => void;
+  createUi: UiContextFactory;
+}): Promise<void> {
+  const { thread, emit, createUi } = deps;
+  const { runtime, session } = thread;
+  runtime.setRebindSession(async (replacement) => {
+    thread.unsubscribe();
+    thread.session = replacement;
+    thread.sessionPath = replacement.sessionFile;
+    thread.unsubscribe = replacement.subscribe((event: AgentSessionEvent) => {
+      emit({ type: "event", threadId: replacement.sessionId, event: toWireEvent(event) });
+    });
+    await replacement.bindExtensions({
+      uiContext: createUi(replacement.sessionId),
+      mode: "rpc",
+    });
+  });
+  thread.unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+    emit({ type: "event", threadId: session.sessionId, event: toWireEvent(event) });
+  });
+  return session.bindExtensions({ uiContext: createUi(session.sessionId), mode: "rpc" });
+}
+
 export class SessionHost {
   private thread: Thread | undefined;
-  private readonly modelRuntime: ModelRuntime;
-  private readonly emit: (frame: HubFrame) => void;
-  private readonly createUi: UiContextFactory;
-  private readonly onThreadDisposed?: (threadId: string) => void;
+  private readonly options: SessionHostOptions;
   /** Serializes session-replacing operations (fork/clone/stop). */
   private replacementQueue: Promise<unknown> = Promise.resolve();
   /** Spawn in flight, so shutdown can wait for it and start can reject doubles. */
@@ -81,16 +136,8 @@ export class SessionHost {
   private currentSpawn: Promise<unknown> | undefined;
   private closed = false;
 
-  constructor(
-    modelRuntime: ModelRuntime,
-    emit: (frame: HubFrame) => void,
-    createUi: UiContextFactory,
-    onThreadDisposed?: (threadId: string) => void,
-  ) {
-    this.modelRuntime = modelRuntime;
-    this.emit = emit;
-    this.createUi = createUi;
-    this.onThreadDisposed = onThreadDisposed;
+  constructor(options: SessionHostOptions) {
+    this.options = options;
   }
 
   get(): Thread | undefined {
@@ -99,23 +146,17 @@ export class SessionHost {
 
   async start(options: { cwd: string; trusted: boolean; model?: SessionModel }): Promise<Thread> {
     if (this.thread !== undefined || this.spawning) {
-      throw new Error("Worker already hosts a conversation; one session per worker process");
+      throw this.oneSessionError();
     }
-    this.spawning = true;
-    const spawn = this.spawn({
-      cwd: options.cwd,
-      trusted: options.trusted,
-      model: options.model,
-      sessionManager: SessionManager.create(options.cwd),
-      spawnPath: undefined,
-    });
-    this.currentSpawn = spawn;
-    try {
-      return await spawn;
-    } finally {
-      this.spawning = false;
-      this.currentSpawn = undefined;
-    }
+    return this.runSpawn(() =>
+      this.spawn({
+        cwd: options.cwd,
+        trusted: options.trusted,
+        model: options.model,
+        sessionManager: SessionManager.create(options.cwd),
+        spawnPath: undefined,
+      }),
+    );
   }
 
   async resume(options: {
@@ -124,27 +165,16 @@ export class SessionHost {
     sessionPath: string;
   }): Promise<Thread> {
     if (this.thread !== undefined || this.spawning) {
-      throw new Error("Worker already hosts a conversation; one session per worker process");
+      throw this.oneSessionError();
     }
-    this.spawning = true;
-    const sessionPath = resolve(options.sessionPath);
-    const sessionManager = SessionManager.open(sessionPath);
-    // Default cwd comes from the session header, not the worker cwd:
-    // resumed tools must operate where the conversation started.
-    const cwd = options.cwd ?? sessionManager.getCwd();
-    const spawn = this.spawn({
-      cwd,
-      trusted: options.trusted,
-      sessionManager,
-      spawnPath: sessionPath,
+    return this.runSpawn(() => {
+      const sessionPath = resolve(options.sessionPath);
+      const sessionManager = SessionManager.open(sessionPath);
+      // Default cwd comes from the session header, not the worker cwd:
+      // resumed tools must operate where the conversation started.
+      const cwd = options.cwd ?? sessionManager.getCwd();
+      return this.spawn({ cwd, trusted: options.trusted, sessionManager, spawnPath: sessionPath });
     });
-    this.currentSpawn = spawn;
-    try {
-      return await spawn;
-    } finally {
-      this.spawning = false;
-      this.currentSpawn = undefined;
-    }
   }
 
   /**
@@ -207,13 +237,13 @@ export class SessionHost {
   /** Idempotent: stopping when no session is hosted succeeds silently. */
   async stop(): Promise<void> {
     return this.runReplacement(async () => {
-      const thread = this.thread;
+      const { thread } = this;
       if (!thread) return;
       const threadId = thread.session.sessionId;
       this.thread = undefined;
       thread.unsubscribe();
       await thread.runtime.dispose();
-      this.onThreadDisposed?.(threadId);
+      this.options.onThreadDisposed?.(threadId);
     });
   }
 
@@ -224,8 +254,24 @@ export class SessionHost {
     await this.stop();
   }
 
+  private oneSessionError(): Error {
+    return new Error("Worker already hosts a conversation; one session per worker process");
+  }
+
+  private async runSpawn(spawn: () => Promise<Thread>): Promise<Thread> {
+    this.spawning = true;
+    const pending = spawn();
+    this.currentSpawn = pending;
+    try {
+      return await pending;
+    } finally {
+      this.spawning = false;
+      this.currentSpawn = undefined;
+    }
+  }
+
   private requireSession(): Thread {
-    const thread = this.thread;
+    const { thread } = this;
     if (!thread) throw new Error("No active session in this worker");
     return thread;
   }
@@ -283,44 +329,19 @@ export class SessionHost {
     sessionManager: SessionManager;
     spawnPath: string | undefined;
   }): Promise<Thread> {
-    // Official two-stage factory: services (resource loader, settings,
-    // shared model runtime) then the session bound to the passed manager —
-    // the runtime calls this again on fork/switch with a fresh manager.
-    const makeFactory = (
-      trusted: boolean,
-      model: SessionModel | undefined,
-    ): CreateAgentSessionRuntimeFactory => {
-      return async (factoryOptions) => {
-        const services = await createAgentSessionServices({
-          cwd: factoryOptions.cwd,
-          agentDir: factoryOptions.agentDir,
-          modelRuntime: this.modelRuntime,
-          resourceLoaderOptions: {
-            // Extensions are arbitrary code. Untrusted sessions load only
-            // the built-in permission gate; skills/prompts/context stay
-            // available because they are data, not code.
-            ...(trusted ? {} : { noExtensions: true }),
-            extensionFactories: [permissionGate],
-          },
-        });
-        const created = await createAgentSessionFromServices({
-          services,
-          sessionManager: factoryOptions.sessionManager,
-          ...(factoryOptions.sessionStartEvent !== undefined
-            ? { sessionStartEvent: factoryOptions.sessionStartEvent }
-            : {}),
-          ...(model ? { model } : {}),
-        });
-        return { ...created, services, diagnostics: [] };
-      };
-    };
-
-    const runtime = await createAgentSessionRuntime(makeFactory(options.trusted, options.model), {
-      cwd: options.cwd,
-      agentDir: getAgentDir(),
-      sessionManager: options.sessionManager,
-    });
-    const session = runtime.session;
+    const runtime = await createAgentSessionRuntime(
+      makeRuntimeFactory({
+        modelRuntime: this.options.modelRuntime,
+        trusted: options.trusted,
+        model: options.model,
+      }),
+      {
+        cwd: options.cwd,
+        agentDir: getAgentDir(),
+        sessionManager: options.sessionManager,
+      },
+    );
+    const { session } = runtime;
 
     if (this.closed) {
       // Shutdown raced this spawn: dispose immediately so the session
@@ -336,28 +357,7 @@ export class SessionHost {
       sessionPath: session.sessionFile,
       unsubscribe: () => {},
     };
-
-    // fork/clone replaces the session inside the runtime; rebind swaps the
-    // subscription and re-binds extensions. The thread's id becomes the new
-    // session's id (v0.3 "threadId 语义修订" — the host updates its routing
-    // from the fork/clone response).
-    runtime.setRebindSession(async (replacement) => {
-      thread.unsubscribe();
-      thread.session = replacement;
-      thread.sessionPath = replacement.sessionFile;
-      thread.unsubscribe = replacement.subscribe((event: AgentSessionEvent) => {
-        this.emit({ type: "event", threadId: replacement.sessionId, event: toWireEvent(event) });
-      });
-      await replacement.bindExtensions({
-        uiContext: this.createUi(replacement.sessionId),
-        mode: "rpc",
-      });
-    });
-
-    thread.unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-      this.emit({ type: "event", threadId: session.sessionId, event: toWireEvent(event) });
-    });
-    await session.bindExtensions({ uiContext: this.createUi(session.sessionId), mode: "rpc" });
+    await bindThread({ thread, emit: this.options.emit, createUi: this.options.createUi });
     this.thread = thread;
     return thread;
   }

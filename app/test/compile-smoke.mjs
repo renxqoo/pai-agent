@@ -94,13 +94,13 @@ pai.stdout.on("data", (c) => {
 });
 const send = (cmd) =>
   new Promise((resolve, reject) => {
-    pai.stdin.write(JSON.stringify(cmd) + "\n");
+    pai.stdin.write(`${JSON.stringify(cmd)}\n`);
     const t0 = Date.now();
     const t = setInterval(() => {
-      const f = allFrames.find((f) => f.type === "response" && f.id === cmd.id);
-      if (f) {
+      const fr = allFrames.find((x) => x.type === "response" && x.id === cmd.id);
+      if (fr) {
         clearInterval(t);
-        resolve(f);
+        resolve(fr);
       } else if (Date.now() - t0 > 120_000) {
         clearInterval(t);
         reject(new Error(`response timeout ${cmd.id}`));
@@ -145,7 +145,7 @@ const tid = start.data.threadId;
         id: `c3-${t0}-${Math.random()}`,
         type: "get_messages",
         threadId: tid,
-      }).catch(() => undefined);
+      }).catch(() => {});
       const text = (m?.data?.messages ?? [])
         .filter((msg) => msg.role === "assistant")
         .map((msg) =>
@@ -183,7 +183,9 @@ assert(!allFrames.some((f) => JSON.stringify(f).includes(apiKey)), "API key neve
 assert(!stderrText.includes(apiKey), "API key never on stderr");
 
 pai.stdin.end();
-const exitCode = await new Promise((r) => pai.on("exit", r));
+const exitCode = await new Promise((r) => {
+  pai.on("exit", r);
+});
 clearTimeout(watchdog);
 assert(exitCode === 0, `stdin EOF: exit 0 (got ${exitCode})`);
 rmSync(agentDir, { recursive: true, force: true });

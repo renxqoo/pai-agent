@@ -43,9 +43,7 @@ describe("frame writer", () => {
     const writer = createFrameWriter(write);
     let secondStarted = false;
     const p1 = writer.write("slow\n");
-    const p2 = writer.write("fast\n").then(() => {
-      secondStarted = true;
-    });
+    const p2 = writer.write("fast\n").then(() => (secondStarted = true));
     await p1;
     expect(writes).toEqual(["slow\n"]);
     expect(secondStarted).toBe(false);

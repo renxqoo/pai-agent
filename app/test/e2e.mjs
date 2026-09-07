@@ -105,14 +105,11 @@ hub.stdout.on("data", (c) => {
 });
 
 const pending = new Map();
-const poll = (id) => {
-  const f = allFrames.find((f) => f.type === "response" && f.id === id);
-  return f;
-};
+const poll = (id) => allFrames.find((fr) => fr.type === "response" && fr.id === id);
 const send = (cmd) =>
   new Promise((resolve, reject) => {
     pending.set(cmd.id, resolve);
-    hub.stdin.write(JSON.stringify(cmd) + "\n");
+    hub.stdin.write(`${JSON.stringify(cmd)}\n`);
     const t0 = Date.now();
     const t = setInterval(() => {
       const f = poll(cmd.id);
@@ -130,10 +127,10 @@ const waitEvent = (pred, label, ms = 120_000) =>
   new Promise((resolve, reject) => {
     const t0 = Date.now();
     const t = setInterval(() => {
-      const f = allFrames.find((f) => f.type === "event" && pred(f.event));
-      if (f) {
+      const fr = allFrames.find((x) => x.type === "event" && pred(x.event));
+      if (fr) {
         clearInterval(t);
-        resolve(f.event);
+        resolve(fr.event);
       } else if (Date.now() - t0 > ms) {
         clearInterval(t);
         reject(new Error(`event timeout: ${label}`));
@@ -143,11 +140,11 @@ const waitEvent = (pred, label, ms = 120_000) =>
 const nextRequestId = (() => {
   const ids = new Set();
   return () => {
-    const f = allFrames.find(
-      (f) => f.type === "ui_request" && f.method === "confirm" && !ids.has(f.requestId),
+    const fr = allFrames.find(
+      (x) => x.type === "ui_request" && x.method === "confirm" && !ids.has(x.requestId),
     );
-    if (f) ids.add(f.requestId);
-    return f;
+    if (fr) ids.add(fr.requestId);
+    return fr;
   };
 })();
 const waitConfirm = (ms = 120_000) =>
@@ -178,7 +175,7 @@ const waitIdle = (threadId, ms = 120_000) =>
         id: `idle-${t0}-${Math.random()}`,
         type: "get_state",
         threadId,
-      }).catch(() => undefined);
+      }).catch(() => {});
       if (s?.success && s.data.isStreaming === false && s.data.isCompacting === false) {
         clearInterval(t);
         resolve();
@@ -196,7 +193,7 @@ const waitAssistantContains = (threadId, needle, ms = 150_000) =>
         id: `contains-${t0}-${Math.random()}`,
         type: "get_messages",
         threadId,
-      }).catch(() => undefined);
+      }).catch(() => {});
       if (r?.success && assistantTexts(r.data.messages).some((text) => text.includes(needle))) {
         clearInterval(t);
         resolve();
@@ -393,11 +390,11 @@ writeFileSync(
   const ids1 = entries1.data.entries.map((e) => e.id);
   assert(entries1.success && ids1.length >= 6, "get_entries: full history");
 
-  const cursor = ids1[ids1.length - 3];
+  const cursor = ids1.at(-3);
   const entries2 = await send({ id: "e21", type: "get_entries", threadId: tid, since: cursor });
   assert(
     entries2.success &&
-      entries2.data.entries.length >= 1 &&
+      entries2.data.entries.length > 0 &&
       !entries2.data.entries.some((e) => ids1.indexOf(e.id) <= ids1.indexOf(cursor)),
     "get_entries since cursor: only newer entries",
   );
@@ -481,7 +478,7 @@ writeFileSync(
     "thread/list contains live thread",
   );
   const saved = await send({ id: "e35", type: "thread/list_saved", cwd: projectDir });
-  assert(saved.success && saved.data.sessions.length >= 1, "thread/list_saved: sessions found");
+  assert(saved.success && saved.data.sessions.length > 0, "thread/list_saved: sessions found");
   const cmds = await send({ id: "e36", type: "get_commands", threadId: tid });
   assert(cmds.success && Array.isArray(cmds.data.commands), "get_commands");
   const cleared = await send({ id: "e37", type: "clear_queue", threadId: tid });
@@ -561,7 +558,9 @@ writeFileSync(
     threadId: tid,
     command: "echo pai-kill-marker && sleep 30",
   });
-  await new Promise((r) => setTimeout(r, 800)); // let the bash start running
+  await new Promise((r) => {
+    setTimeout(r, 800);
+  }); // let the bash start running
   process.kill(Number(childPids[0]), "SIGKILL");
   const bashR = await bashP;
   assert(
@@ -614,7 +613,9 @@ writeFileSync(
   await waitIdle(tid);
   let parked = false;
   for (let i = 0; i < 40 && !parked; i++) {
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => {
+      setTimeout(r, 500);
+    });
     const list = await send({ id: `w11-${i}`, type: "thread/list" }); // host-local: never wakes
     parked = list.data.threads.find((t) => t.threadId === tid)?.state === "parked";
   }
@@ -637,7 +638,9 @@ writeFileSync(
   // conversation (design §6 spawning -thread/stop-> cancelled edge).
   let parkedAgain = false;
   for (let i = 0; i < 40 && !parkedAgain; i++) {
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => {
+      setTimeout(r, 500);
+    });
     const l = await send({ id: `w14-${i}`, type: "thread/list" });
     parkedAgain = l.data.threads.find((t) => t.threadId === tid)?.state === "parked";
   }
@@ -648,7 +651,9 @@ writeFileSync(
   assert(st.success, "thread/stop succeeds while a wake is in flight");
   await gs; // must settle (failure is fine), never hang
   assert(true, "racing command settled");
-  await new Promise((r) => setTimeout(r, 3000));
+  await new Promise((r) => {
+    setTimeout(r, 3000);
+  });
   const list2 = await send({ id: "w17", type: "thread/list" });
   assert(
     !list2.data.threads.some((t) => t.threadId === tid),
@@ -705,13 +710,13 @@ writeFileSync(
   // A worker exists only once a conversation starts.
   const send2 = (cmd) =>
     new Promise((resolve, reject) => {
-      host2.stdin.write(JSON.stringify(cmd) + "\n");
+      host2.stdin.write(`${JSON.stringify(cmd)}\n`);
       const t0 = Date.now();
       const t = setInterval(() => {
-        const f = host2Frames.find((f) => f.type === "response" && f.id === cmd.id);
-        if (f) {
+        const fr = host2Frames.find((x) => x.type === "response" && x.id === cmd.id);
+        if (fr) {
           clearInterval(t);
-          resolve(f);
+          resolve(fr);
         } else if (Date.now() - t0 > 30_000) {
           clearInterval(t);
           reject(new Error(`host2 response timeout ${cmd.id}`));
@@ -750,7 +755,9 @@ writeFileSync(
   process.kill(host2.pid, "SIGKILL");
   let gone = false;
   for (let i = 0; i < 40 && !gone; i++) {
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => {
+      setTimeout(r, 500);
+    });
     const alive = kidPids.filter((p) => {
       try {
         process.kill(p, 0);
@@ -779,7 +786,9 @@ assert(
 assert(seen.includes("heartbeat"), "heartbeat flowing");
 
 hub.stdin.end();
-const exitCode = await new Promise((r) => hub.on("exit", r));
+const exitCode = await new Promise((r) => {
+  hub.on("exit", r);
+});
 clearTimeout(watchdog);
 assert(exitCode === 0, `stdin EOF: exit 0 (got ${exitCode})`);
 rmSync(agentDir, { recursive: true, force: true });

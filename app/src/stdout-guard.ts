@@ -22,10 +22,12 @@ let rawStderrWrite: RawWrite | undefined;
 
 export function takeOverStdout(): void {
   if (rawStdoutWrite) return;
-  rawStdoutWrite = process.stdout.write.bind(process.stdout) as RawWrite;
-  rawStderrWrite = process.stderr.write.bind(process.stderr) as RawWrite;
+  const boundStdout = process.stdout.write.bind(process.stdout) as RawWrite;
+  const boundStderr = process.stderr.write.bind(process.stderr) as RawWrite;
+  rawStdoutWrite = boundStdout;
+  rawStderrWrite = boundStderr;
   process.stdout.write = ((chunk: unknown, callback?: (error?: Error | null) => void) =>
-    rawStderrWrite!(String(chunk), callback)) as unknown as typeof process.stdout.write;
+    boundStderr(String(chunk), callback)) as unknown as typeof process.stdout.write;
 
   const toStderr = (...args: unknown[]): void => {
     rawStderrWrite?.(`${args.map(String).join(" ")}\n`);
@@ -60,7 +62,7 @@ export interface FrameWriter {
 }
 
 function isTransient(error: Error): boolean {
-  const code = (error as Error & { code?: unknown }).code;
+  const { code } = error as Error & { code?: unknown };
   return code === "ENOBUFS" || code === "EAGAIN" || code === "EWOULDBLOCK";
 }
 
@@ -78,20 +80,22 @@ export function createFrameWriter(write: RawWrite): FrameWriter {
     for (;;) {
       const error = await new Promise<Error | null>((resolve) => {
         let settled = false;
-        const done = (error?: Error | null): void => {
+        const done = (writeError?: Error | null): void => {
           if (settled) return;
           settled = true;
-          resolve(error ?? null);
+          resolve(writeError ?? null);
         };
         try {
           write(text, done);
-        } catch (error) {
-          done(error instanceof Error ? error : new Error(String(error)));
+        } catch (writeError) {
+          done(writeError instanceof Error ? writeError : new Error(String(writeError)));
         }
       });
       if (error === null) return;
       if (isTransient(error)) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        await new Promise((resolve) => {
+          setTimeout(resolve, RETRY_DELAY_MS);
+        });
         continue;
       }
       throw error;

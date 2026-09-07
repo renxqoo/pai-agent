@@ -3,8 +3,9 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJsonlSplitter, MAX_LINE_BYTES, WORKER_LINE_BYTES } from "../src/jsonl.ts";
-import { matchResponseHead, workerSpawnArgs } from "../src/worker-pool.ts";
-import { responseFailure, responseSuccess } from "../src/worker.ts";
+import { matchResponseHead } from "../src/frame-classify.ts";
+import { workerSpawnArgs } from "../src/worker-process.ts";
+import { responseFailure, responseSuccess } from "../src/frames.ts";
 
 /**
  * Locks the wire key order assumption (design.md migration §3): the worker

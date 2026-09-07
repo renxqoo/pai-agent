@@ -59,7 +59,7 @@ hub.stdout.on("data", (chunk) => {
 function send(cmd) {
   return new Promise((resolve) => {
     pending.set(cmd.id, resolve);
-    hub.stdin.write(JSON.stringify(cmd) + "\n");
+    hub.stdin.write(`${JSON.stringify(cmd)}\n`);
   });
 }
 
@@ -87,7 +87,7 @@ await expectResponse(
   (r) => {
     assert(r.success && typeof r.data.threadId === "string", "thread/start: returns threadId");
     assert(typeof r.data.sessionPath === "string", "thread/start: returns sessionPath");
-    threadId = r.data.threadId;
+    ({ threadId } = r.data);
   },
   "thread/start happy",
 );
@@ -162,7 +162,9 @@ await expectResponse(
 // Parse failures have no id; track full frames to locate them precisely.
 hub.stdin.write("{not json\n");
 hub.stdin.write("null\n");
-await new Promise((r) => setTimeout(r, 300));
+await new Promise((r) => {
+  setTimeout(r, 300);
+});
 const parseFrames = allFrames.filter((f) => f.type === "response" && f.command === "parse");
 assert(
   parseFrames.length === 2,
@@ -180,9 +182,11 @@ assert(
 {
   const pad = "z".repeat(17 * 1024 * 1024);
   hub.stdin.write(`${pad}\n`);
-  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => {
+    setTimeout(r, 500);
+  });
   const overflow = allFrames.filter((f) => f.type === "response" && /exceeds/.test(f.error ?? ""));
-  assert(overflow.length >= 1, "oversized line: reported via parse failure");
+  assert(overflow.length > 0, "oversized line: reported via parse failure");
   const probe = await send({ id: "10b", type: "thread/list" });
   assert(probe.success, "thread/list: still serving after oversized line");
 }
@@ -483,7 +487,9 @@ await expectResponse(
   },
   "bash happy",
 );
-await new Promise((r) => setTimeout(r, 300));
+await new Promise((r) => {
+  setTimeout(r, 300);
+});
 const bashFramesAfter = allFrames.filter(
   (f) => f.type === "event" && f.event?.type === "bash_execution_update",
 ).length;
@@ -544,7 +550,7 @@ let firstEntryId = null;
 await expectResponse(
   { id: "v13", type: "get_entries", threadId },
   (r) => {
-    assert(r.success && r.data.entries.length >= 1, "get_entries: bash created session entries");
+    assert(r.success && r.data.entries.length > 0, "get_entries: bash created session entries");
     firstEntryId = r.data.entries[0].id;
     assert(typeof firstEntryId === "string", "get_entries: entry ids are strings");
   },
@@ -575,11 +581,11 @@ mkdirSync(fixtureDir, { recursive: true });
 const fixturePath = join(fixtureDir, "fixture-fork.jsonl");
 writeFileSync(
   fixturePath,
-  [
+  `${[
     '{"type":"session","version":3,"id":"11111111-1111-1111-1111-111111111111","timestamp":"2026-09-07T00:00:00.000Z","cwd":"/tmp"}',
     '{"type":"message","id":"e1","parentId":null,"timestamp":"2026-09-07T00:00:01.000Z","message":{"role":"user","content":"Hello"}}',
     '{"type":"message","id":"e2","parentId":"e1","timestamp":"2026-09-07T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Hi!"}],"provider":"anthropic","model":"fixture-model","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop"}}',
-  ].join("\n") + "\n",
+  ].join("\n")}\n`,
 );
 
 let fixtureThreadId = null;
@@ -655,7 +661,9 @@ await expectResponse(
 
 // --- lifecycle --------------------------------------------------------------
 
-await new Promise((r) => setTimeout(r, 1500));
+await new Promise((r) => {
+  setTimeout(r, 1500);
+});
 assert(seenFrames.includes("heartbeat"), "heartbeat: at least one frame");
 // Event-stream assertion runs only where a provider is configured; on a
 // keyless machine prompt is rejected at preflight and pi emits no events.
@@ -666,7 +674,9 @@ if (promptAccepted) {
 }
 
 hub.stdin.end();
-const exitCode = await new Promise((r) => hub.on("exit", r));
+const exitCode = await new Promise((r) => {
+  hub.on("exit", r);
+});
 clearTimeout(watchdog);
 assert(exitCode === 0, `stdin EOF: exit 0 (got ${exitCode})`);
 rmSync(agentDir, { recursive: true, force: true });

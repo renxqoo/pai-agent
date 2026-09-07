@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { unlinkSync, writeFileSync } from "node:fs";
 import {
   decide,
   globToRegExp,
@@ -10,7 +11,7 @@ import {
 
 describe("parseRules", () => {
   test("missing input returns ask default", () => {
-    expect(parseRules(undefined)).toEqual({ mode: "ask" });
+    expect(parseRules()).toEqual({ mode: "ask" });
   });
   test("invalid JSON returns ask default", () => {
     expect(parseRules("{oops")).toEqual({ mode: "ask" });
@@ -119,15 +120,15 @@ describe("loadRules", () => {
   });
   test("reads and parses existing file", () => {
     const path = `/tmp/pai-cli-rules-${Date.now()}.json`;
-    require("node:fs").writeFileSync(path, '{"mode":"block-all"}');
+    writeFileSync(path, '{"mode":"block-all"}');
     expect(loadRules(path)).toEqual({ mode: "block-all" });
-    require("node:fs").unlinkSync(path);
+    unlinkSync(path);
   });
   test("corrupt file returns default", () => {
     const path = `/tmp/pai-cli-rules-bad-${Date.now()}.json`;
-    require("node:fs").writeFileSync(path, "not json");
+    writeFileSync(path, "not json");
     expect(loadRules(path)).toEqual({ mode: "ask" });
-    require("node:fs").unlinkSync(path);
+    unlinkSync(path);
   });
 });
 

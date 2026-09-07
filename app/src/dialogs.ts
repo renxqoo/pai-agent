@@ -39,23 +39,25 @@ export class DialogBroker {
     payload: DialogRequest,
     options: DialogAskOptions,
   ): Promise<DialogPayload | undefined> {
+    // The explicit undefined pins the resolved type to DialogPayload | undefined.
+    // eslint-disable-next-line unicorn/no-useless-undefined
     if (options.signal?.aborted) return Promise.resolve(undefined);
 
     const requestId = randomUUID();
     return new Promise((resolve) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const signal = options.signal;
+      const timerRef: { value?: ReturnType<typeof setTimeout> } = {};
+      const { signal } = options;
 
       const settle = (result: DialogPayload | undefined): void => {
         if (signal) signal.removeEventListener("abort", onAbort);
-        if (timer !== undefined) clearTimeout(timer);
+        if (timerRef.value !== undefined) clearTimeout(timerRef.value);
         this.pending.delete(requestId);
         resolve(result);
       };
       const onAbort = (): void => settle(undefined);
 
       signal?.addEventListener("abort", onAbort, { once: true });
-      timer =
+      timerRef.value =
         options.timeout !== undefined
           ? setTimeout(() => settle(undefined), options.timeout)
           : undefined;

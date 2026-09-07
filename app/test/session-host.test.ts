@@ -4,7 +4,8 @@ import type {
   AgentSessionRuntime,
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { SessionDestroyedError, SessionHost, type Thread } from "../src/session-host.ts";
+import { SessionHost, type Thread } from "../src/session-host.ts";
+import { SessionDestroyedError } from "../src/session-destroyed-error.ts";
 
 /**
  * Unit coverage for the session-replacement fixes (migration.md F-1/F-2 and
@@ -63,13 +64,13 @@ function makeHost(sessionId: string): {
     sessionPath: null,
     unsubscribe: () => {},
   };
-  const host = new SessionHost(
+  const host = new SessionHost({
     // The model runtime is only touched by spawn(), which these tests bypass.
-    undefined as unknown as ModelRuntime,
-    () => {},
-    () => undefined as never,
-    () => {},
-  );
+    modelRuntime: undefined as unknown as ModelRuntime,
+    emit: () => {},
+    createUi: () => undefined as never,
+    onThreadDisposed: () => {},
+  });
   (host as unknown as { thread: Thread | undefined }).thread = thread;
   return {
     host,
@@ -112,9 +113,11 @@ describe("F-1: post-teardown fork failure detection", () => {
 describe("F-2: session-replacing operations serialize", () => {
   test("two concurrent forks do not overlap and the second sees the re-keyed id", async () => {
     const { host, runtime, setSessionId } = makeHost("s1");
-    let release: () => void = () => {};
+    let release: (() => void) | undefined;
     const gate = new Promise<ForkResult>((resolve) => {
-      release = () => resolve({ cancelled: false });
+      release = () => {
+        resolve({ cancelled: false });
+      };
     });
     // The rebind fires when the first fork's task consumes the gate, not
     // when release() is called (the test releases before the task runs).
@@ -125,7 +128,7 @@ describe("F-2: session-replacing operations serialize", () => {
       });
     const first = host.fork("s1", "e1", "at");
     const second = host.fork("s1", "e1", "at"); // stale id, queued behind the first
-    release();
+    release?.();
     const firstResult = await first;
     expect(firstResult.previousThreadId).toBe("s1");
     expect(firstResult.thread.session.sessionId).toBe("forked-id");
@@ -135,14 +138,16 @@ describe("F-2: session-replacing operations serialize", () => {
 
   test("stop waits for an in-flight fork instead of interleaving", async () => {
     const { host, runtime } = makeHost("s1");
-    let release: () => void = () => {};
+    let release: (() => void) | undefined;
     const gate = new Promise<ForkResult>((resolve) => {
-      release = () => resolve({ cancelled: false });
+      release = () => {
+        resolve({ cancelled: false });
+      };
     });
     runtime.forkImpl = () => gate;
     const forkP = host.fork("s1", "e1", "at");
     const stopP = host.stop();
-    release();
+    release?.();
     await forkP;
     await stopP;
     expect(host.get()).toBeUndefined();

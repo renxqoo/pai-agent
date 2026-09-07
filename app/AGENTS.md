@@ -8,12 +8,12 @@ pai-cli 是 pi coding agent 的多会话宿主 CLI：**host 进程 + 每个活�
 
 ## 工具链（全部最新，锁死精确版本）
 
-| 用途                 | 工具              | 说明                                                                                                |
-| -------------------- | ----------------- | --------------------------------------------------------------------------------------------------- |
-| 运行时 / 测试 / 打包 | bun               | `bun test` 跑单测；`bun build --target=bun` 打包 CLI                                                |
-| lint                 | oxlint            | 零基线配置：默认 correctness 规则集，0 警告 0 错误才算过                                            |
-| 格式化               | oxfmt             | `.oxfmtrc.json` 全默认；`oxfmt .` 写入，`--check` 校验                                              |
-| 类型                 | TypeScript（tsc） | `tsconfig.json` 自足，strict + noUncheckedIndexedAccess + verbatimModuleSyntax + erasableSyntaxOnly |
+| 用途                 | 工具              | 说明                                                                                                     |
+| -------------------- | ----------------- | -------------------------------------------------------------------------------------------------------- |
+| 运行时 / 测试 / 打包 | bun               | `bun test` 跑单测；`bun build --target=bun` 打包 CLI                                                     |
+| lint                 | oxlint            | `.oxlintrc.json` 严格规则集（规模上限/类型严格/结构统一），0 警告 0 错误才算过；规模类限制对测试文件豁免 |
+| 格式化               | oxfmt             | `.oxfmtrc.json` 全默认；`oxfmt .` 写入，`--check` 校验                                                   |
+| 类型                 | TypeScript（tsc） | `tsconfig.json` 自足，strict + noUncheckedIndexedAccess + verbatimModuleSyntax + erasableSyntaxOnly      |
 
 依赖：`@earendil-works/pi-coding-agent` 用 `file:../packages/coding-agent`（本地开发对源构建）；要切 npm 发布版就改成精确版本号并重装。devDependencies 全部精确版本；安装用 `bun install --exact --ignore-scripts`。
 

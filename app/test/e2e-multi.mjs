@@ -103,13 +103,13 @@ pai.stdout.on("data", (c) => {
 
 const send = (cmd) =>
   new Promise((resolve, reject) => {
-    pai.stdin.write(JSON.stringify(cmd) + "\n");
+    pai.stdin.write(`${JSON.stringify(cmd)}\n`);
     const t0 = Date.now();
     const t = setInterval(() => {
-      const f = allFrames.find((f) => f.type === "response" && f.id === cmd.id);
-      if (f) {
+      const fr = allFrames.find((x) => x.type === "response" && x.id === cmd.id);
+      if (fr) {
         clearInterval(t);
-        resolve(f);
+        resolve(fr);
       } else if (Date.now() - t0 > 150_000) {
         clearInterval(t);
         reject(new Error(`response timeout ${cmd.id} (${cmd.type})`));
@@ -123,11 +123,11 @@ const waitSettled = (threadId, afterIndex, ms = 150_000) =>
     const t0 = Date.now();
     const t = setInterval(() => {
       const found = allFrames.findIndex(
-        (f, i) =>
+        (fr, i) =>
           i > afterIndex &&
-          f.type === "event" &&
-          f.threadId === threadId &&
-          f.event.type === "agent_settled",
+          fr.type === "event" &&
+          fr.threadId === threadId &&
+          fr.event.type === "agent_settled",
       );
       if (found !== -1) {
         clearInterval(t);
@@ -255,9 +255,9 @@ for (let i = 0; i < THREADS; i++) {
 {
   const list = (await send({ id: "cwds", type: "thread/list" })).data.threads;
   for (let i = 0; i < THREADS; i++) {
-    const t = list.find((t) => t.threadId === tids[i]);
-    assert(t?.cwd === projects[i], `thread ${i}: cwd isolated`);
-    assert(t?.state === "live", `thread ${i}: thread/list state is live`);
+    const entry = list.find((item) => item.threadId === tids[i]);
+    assert(entry?.cwd === projects[i], `thread ${i}: cwd isolated`);
+    assert(entry?.state === "live", `thread ${i}: thread/list state is live`);
   }
 }
 
@@ -363,7 +363,7 @@ assert(true, "interleaved stream + bash both completed");
 // monotonic within a test run).
 {
   const longIndex = allFrames.length;
-  const longPrompt = send({
+  const victimStream = send({
     id: "p4-0",
     type: "prompt",
     threadId: tids[0],
@@ -393,10 +393,10 @@ assert(true, "interleaved stream + bash both completed");
   const died = await new Promise((resolve, reject) => {
     const t0 = Date.now();
     const t = setInterval(() => {
-      const f = allFrames.find((f, i) => i > longIndex && f.type === "thread_died");
-      if (f) {
+      const diedFrame = allFrames.find((fr, i) => i > longIndex && fr.type === "thread_died");
+      if (diedFrame) {
         clearInterval(t);
-        resolve(f);
+        resolve(diedFrame);
       } else if (Date.now() - t0 > 20_000) {
         clearInterval(t);
         reject(new Error("victim-test: thread_died never arrived"));
@@ -413,7 +413,7 @@ assert(true, "interleaved stream + bash both completed");
     "exactly one thread_died for the whole kill",
   );
   // The streaming conversation must complete normally despite the kill.
-  await longPrompt.catch(() => {});
+  await victimStream.catch(() => {});
   await waitSettled(tids[0], longIndex);
   assert(true, "unrelated stream completed after the worker kill");
   for (const other of tids.filter((t) => t !== tids[0] && t !== victimTid)) {
@@ -430,7 +430,9 @@ assert(true, "interleaved stream + bash both completed");
 }
 
 // --- 6. resource + integrity report -------------------------------------------------
-await new Promise((r) => setTimeout(r, 1000));
+await new Promise((r) => {
+  setTimeout(r, 1000);
+});
 const finalRss = await treeRss();
 console.log(
   `INFO final process-tree RSS: ${finalRss.toFixed(0)} MB | peak during concurrency: ${peakRss.toFixed(0)} MB`,
@@ -450,7 +452,9 @@ assert(!stderrText.includes(apiKey), "API key never on stderr");
 }
 
 pai.stdin.end();
-const exitCode = await new Promise((r) => pai.on("exit", r));
+const exitCode = await new Promise((r) => {
+  pai.on("exit", r);
+});
 clearInterval(sampler);
 clearTimeout(watchdog);
 assert(exitCode === 0, `stdin EOF: exit 0 (got ${exitCode})`);

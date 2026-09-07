@@ -64,7 +64,7 @@ export const permissionGate: InlineExtension = (pi: ExtensionAPI): void => {
   pi.on("tool_call", async (event, ctx) => {
     const tool = event.toolName as GatedTool;
     const valueKey = TOOL_VALUE_KEYS[tool];
-    if (valueKey === undefined) return undefined;
+    if (valueKey === undefined) return;
 
     const input = event.input as Record<string, unknown>;
     const value = String(input[valueKey] ?? "");

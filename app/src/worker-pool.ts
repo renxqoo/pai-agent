@@ -1,10 +1,10 @@
 /**
- * Worker process pool: one worker process per live conversation
- * (design.md migration §1/§6). Owns the routing table (external threadId =
- * worker sessionId), cross-process session-path occupancy (spawning counts
- * as occupied), the retire/wake/death state machine, and worker frame
- * forwarding. The pool never imports pi runtime APIs — it manages processes
- * and frames only.
+ * Worker pool orchestration: one worker process per live conversation
+ * (design.md migration §1/§6). Owns the retire/wake/death state machine,
+ * the internal-id registry, and worker frame forwarding. The routing table
+ * (entries / live workers / path occupancy) lives in thread-table.ts,
+ * process mechanics in worker-process.ts, frame classification in
+ * frame-classify.ts.
  *
  * Termination contract (design §6): every worker termination is processed
  * from the child `close` event (stdio drained), never from `exit`; pending
@@ -12,73 +12,26 @@
  * the missing ones get a synthesized failure.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { createJsonlSplitter, WORKER_LINE_BYTES } from "./jsonl.ts";
-import {
-  type HubFrame,
-  INTERNAL_ID_PREFIX,
-  type SessionModel,
-  type ThreadListEntry,
-  type UiResponseCmd,
-  WORKER_FLAG,
-  type WorkerHeartbeatFrame,
-} from "./protocol.ts";
+import { resolve as resolvePath } from "node:path";
+import type { HubFrame, SessionModel, ThreadListEntry, UiResponseCmd } from "./protocol.ts";
+import { INTERNAL_ID_PREFIX } from "./protocol.ts";
+import { type RetireIntent, type WorkerHandle, spawnWorkerProcess } from "./worker-process.ts";
+import { ThreadTable } from "./thread-table.ts";
+import { type FrameRelayDeps, type InternalWaiter, onWorkerLine } from "./worker-frames.ts";
 
 export const MAX_THREADS_DEFAULT = 32;
 export const IDLE_RETIRE_MS_DEFAULT = 900_000;
 export const WORKER_STALE_MS_DEFAULT = 30_000;
 export const WORKER_EXIT_TIMEOUT_MS_DEFAULT = 10_000;
-const NON_LIVE_ENTRY_CAP = 1024;
 const STALE_SIGKILL_GRACE_MS = 2_000;
 const SWEEP_INTERVAL_MS = 1_000;
 
-type RetireIntent = "none" | "retire" | "stop" | "shutdown";
-
-interface ThreadEntry {
+/** Minimum entry shape the wake paths need (the table holds the full entry). */
+interface WakeEntry {
   threadId: string;
+  sessionPath: string | null;
+  trusted: boolean;
   cwd: string;
-  sessionPath: string | null;
-  trusted: boolean;
-  state: "live" | "parked" | "dead";
-  /** In-progress respawn (parked/dead -> live); concurrent senders share it. */
-  wake: Promise<void> | undefined;
-  /** thread/stop arrived while a wake was in flight; the wake must not
-   * resurrect the entry (design §6 spawning -thread/stop-> cancelled). */
-  stopRequested: boolean;
-}
-
-interface InternalWaiter {
-  onResponse: (frame: Record<string, unknown>) => void;
-  onClosed: () => void;
-}
-
-interface WorkerHandle {
-  child: ChildProcess;
-  stdin: {
-    end: () => void;
-    write: (chunk: string, cb?: (error?: Error | null) => void) => boolean;
-  };
-  /** Current session id; changes on fork/clone. Empty before first response. */
-  threadId: string;
-  trusted: boolean;
-  writeLine: (line: string) => Promise<void>;
-  closed: Promise<void>;
-  retireIntent: RetireIntent;
-  retiring: boolean;
-  /** True until the first start/resume response lands (spawn timeout window). */
-  awaitingStart: boolean;
-  spawnDeadline: number;
-  spawnError: string | undefined;
-  lastHeartbeatAt: number;
-  idleMs: number;
-  streaming: boolean;
-  sessionPath: string | null;
-  /** Routed command ids awaiting a response (id -> command), reconciled at close. */
-  readonly pendingIds: Map<string, string>;
-  /** Internal ids issued to this worker (broadcast acks, wake resumes). */
-  readonly internalIds: Set<string>;
 }
 
 export interface WorkerPoolOptions {
@@ -93,75 +46,6 @@ export interface WorkerPoolOptions {
   workerExitTimeoutMs?: number;
 }
 
-/**
- * Response frames serialize as {"id":"…","type":"response","command":"…",…}
- * (id first when present). Giant data responses are classified by this
- * strict head match (no escapes inside the id) instead of a full parse;
- * anything the regex cannot match exactly falls back to JSON.parse. The
- * key order is asserted by unit test to match the worker's literals.
- */
-const RESPONSE_HEAD_WITH_ID = /^\{"id":"([^"\\]*)","type":"response","command":"([^"\\]*)"/;
-const RESPONSE_HEAD_NO_ID = /^\{"type":"response","command":"([^"\\]*)"/;
-
-export interface ResponseHead {
-  id: string | undefined;
-  command: string;
-}
-
-/** Returns undefined for lines that are not response frames, null for
- * response frames the strict head match cannot classify. */
-export function matchResponseHead(line: string): ResponseHead | undefined | null {
-  if (line.startsWith('{"id":"')) {
-    const match = RESPONSE_HEAD_WITH_ID.exec(line);
-    if (match) return { id: match[1] ?? "", command: match[2] ?? "" };
-    return null;
-  }
-  if (line.startsWith('{"type":"response"')) {
-    const match = RESPONSE_HEAD_NO_ID.exec(line);
-    if (match) return { id: undefined, command: match[1] ?? "" };
-    return null;
-  }
-  return undefined;
-}
-
-const CONTROL_COMMANDS: ReadonlySet<string> = new Set([
-  "thread/start",
-  "thread/resume",
-  "thread/stop",
-  "fork",
-  "clone",
-]);
-
-interface SpawnArgsResult {
-  command: string;
-  args: string[];
-}
-
-/**
- * Worker self-arguments for the three launch forms (design §7, bun 1.4.2
- * measured): script form (argv[1] exists on disk) re-invokes the runtime
- * with the script; compiled form (argv[1] is a /$bunfs virtual path) runs
- * the binary itself.
- */
-export function workerSpawnArgs(argv1: string | undefined, execPath: string): SpawnArgsResult {
-  if (argv1 !== undefined && argv1 !== execPath && existsSync(argv1)) {
-    return { command: execPath, args: [argv1, WORKER_FLAG] };
-  }
-  return { command: execPath, args: [WORKER_FLAG] };
-}
-
-interface StartResponseData {
-  threadId: string;
-  cwd: string;
-  sessionPath: string | null;
-}
-
-interface ForkResponseData {
-  threadId: string;
-  previousThreadId: string;
-  sessionPath: string | null;
-}
-
 function readIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
@@ -170,9 +54,7 @@ function readIntEnv(name: string, fallback: number): number {
 }
 
 export class WorkerPool {
-  private readonly entries = new Map<string, ThreadEntry>();
-  private readonly workers = new Map<string, WorkerHandle>(); // live threadId -> worker
-  private readonly occupiedPaths = new Map<string, WorkerHandle>(); // resolved path -> worker
+  private readonly table = new ThreadTable();
   private readonly internalIds = new Map<string, InternalWaiter>();
   private readonly allWorkers = new Set<WorkerHandle>();
   private internalSeq = 0;
@@ -202,22 +84,15 @@ export class WorkerPool {
   }
 
   listEntries(): ThreadListEntry[] {
-    return [...this.entries.values()].map((entry) => ({
-      threadId: entry.threadId,
-      cwd: entry.cwd,
-      sessionPath: entry.sessionPath,
-      isStreaming:
-        entry.state === "live" ? (this.workers.get(entry.threadId)?.streaming ?? false) : false,
-      state: entry.state,
-    }));
+    return this.table.list((threadId) => this.table.liveWorker(threadId)?.streaming ?? false);
   }
 
   hasThread(threadId: string): boolean {
-    return this.entries.has(threadId);
+    return this.table.has(threadId);
   }
 
   liveCount(): number {
-    return this.workers.size;
+    return this.table.liveCount();
   }
 
   /** thread/start: spawn a worker and send the internal start (model resolved by the host). */
@@ -225,27 +100,15 @@ export class WorkerPool {
     cmd: { id?: string; cwd?: string; trusted?: boolean },
     model: SessionModel | undefined,
   ): Promise<void> {
-    if (this.liveBudgetExceeded()) {
-      this.failure(
-        cmd.id,
-        "thread/start",
-        `Too many concurrent conversations (limit ${this.maxThreads})`,
-      );
-      return;
-    }
-    const worker = await this.spawnWorker(cmd.trusted === true);
+    if (this.rejectOverBudget(cmd.id, "thread/start")) return;
+    const worker = this.spawnWorker(cmd.trusted === true);
     if (this.overBudget()) {
       // A concurrent start took the last slot while this worker spawned
       // (this spawn now counts itself). Exactly maxThreads survive.
       await this.killWorker(worker, "stop");
-      this.failure(
-        cmd.id,
-        "thread/start",
-        `Too many concurrent conversations (limit ${this.maxThreads})`,
-      );
+      this.rejectOverBudget(cmd.id, "thread/start");
       return;
     }
-    this.trackPending(worker, cmd.id, "thread/start");
     const line = JSON.stringify({
       type: "thread/start",
       cwd: cmd.cwd ?? process.cwd(),
@@ -253,12 +116,7 @@ export class WorkerPool {
       ...(model !== undefined ? { model } : {}),
       ...(cmd.id !== undefined ? { id: cmd.id } : {}),
     });
-    try {
-      await worker.writeLine(line);
-    } catch (error) {
-      this.untrackPending(worker, cmd.id);
-      this.failure(cmd.id, "thread/start", this.deliveryErrorMessage(error));
-    }
+    await this.deliverCommand({ worker, id: cmd.id, command: "thread/start", line });
   }
 
   /** thread/resume: claim the session path (spawning counts as occupied), then spawn. */
@@ -268,8 +126,8 @@ export class WorkerPool {
     cwd?: string;
     trusted?: boolean;
   }): Promise<void> {
-    const sessionPath = resolve(cmd.sessionPath);
-    const holder = this.pathHolder(sessionPath);
+    const sessionPath = resolvePath(cmd.sessionPath);
+    const holder = this.table.holder(sessionPath, this.allWorkers);
     if (holder !== undefined) {
       this.failure(
         cmd.id,
@@ -278,18 +136,10 @@ export class WorkerPool {
       );
       return;
     }
-    if (this.liveBudgetExceeded()) {
-      this.failure(
-        cmd.id,
-        "thread/resume",
-        `Too many concurrent conversations (limit ${this.maxThreads})`,
-      );
-      return;
-    }
-    // A parked/dead entry for the same file is being replaced, not duplicated.
-    this.dropNonLiveEntryByPath(sessionPath);
-    const worker = await this.spawnWorker(cmd.trusted === true);
-    if (this.pathHolder(sessionPath) !== undefined || this.overBudget()) {
+    if (this.rejectOverBudget(cmd.id, "thread/resume")) return;
+    this.table.deleteNonLiveByPath(sessionPath);
+    const worker = this.spawnWorker(cmd.trusted === true);
+    if (this.table.holder(sessionPath, this.allWorkers) !== undefined || this.overBudget()) {
       await this.killWorker(worker, "stop");
       this.failure(
         cmd.id,
@@ -298,8 +148,7 @@ export class WorkerPool {
       );
       return;
     }
-    this.occupy(worker, sessionPath);
-    this.trackPending(worker, cmd.id, "thread/resume");
+    this.table.occupy(worker, sessionPath);
     const line = JSON.stringify({
       type: "thread/resume",
       sessionPath,
@@ -307,12 +156,7 @@ export class WorkerPool {
       trusted: cmd.trusted === true,
       ...(cmd.id !== undefined ? { id: cmd.id } : {}),
     });
-    try {
-      await worker.writeLine(line);
-    } catch (error) {
-      this.untrackPending(worker, cmd.id);
-      this.failure(cmd.id, "thread/resume", this.deliveryErrorMessage(error));
-    }
+    await this.deliverCommand({ worker, id: cmd.id, command: "thread/resume", line });
   }
 
   /**
@@ -329,7 +173,7 @@ export class WorkerPool {
         this.failure(cmd.id, cmd.type, "pai-cli is shutting down");
         return;
       }
-      const entry = this.entries.get(cmd.threadId);
+      const entry = this.table.entry(cmd.threadId);
       if (entry === undefined) {
         this.failure(cmd.id, cmd.type, `Unknown threadId: ${cmd.threadId}`);
         return;
@@ -343,7 +187,7 @@ export class WorkerPool {
         }
         continue;
       }
-      const worker = this.workers.get(cmd.threadId);
+      const worker = this.table.liveWorker(cmd.threadId);
       if (worker === undefined) {
         // ensureAwake raced a death; its close handling already re-marked
         // the entry — re-evaluate.
@@ -353,65 +197,42 @@ export class WorkerPool {
         await worker.closed;
         continue;
       }
-      this.trackPending(worker, cmd.id, cmd.type);
-      try {
-        await worker.writeLine(line);
-      } catch {
-        // Never delivered; close reconciliation will not see it.
-        this.untrackPending(worker, cmd.id);
-        this.failure(cmd.id, cmd.type, "worker died: command could not be delivered");
-      }
+      void this.deliverCommand({ worker, id: cmd.id, command: cmd.type, line });
       return;
     }
   }
 
   async stopThread(threadId: string, cmdId: string | undefined, cmdType: string): Promise<void> {
-    const entry = this.entries.get(threadId);
+    const entry = this.table.entry(threadId);
     if (entry === undefined) {
       // Idempotent: stopping an unknown thread succeeds silently (v0.3).
-      this.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
+      this.ackStop(cmdId, cmdType);
       return;
     }
     if (entry.state !== "live") {
-      if (entry.wake !== undefined) {
-        // A wake is respawning this thread right now (design §6 spawning -
-        // thread/stop edge): mark it so the wake lands on a stopped thread,
-        // tears its worker down, and drops the re-registered entry instead
-        // of resurrecting it.
-        entry.stopRequested = true;
-        void entry.wake.catch(() => {}).finally(() => this.entries.delete(entry.threadId));
-      } else {
-        this.entries.delete(threadId);
-      }
-      this.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
+      this.stopNonLiveEntry(entry);
+      this.ackStop(cmdId, cmdType);
       return;
     }
-    const worker = this.workers.get(threadId);
+    const worker = this.table.liveWorker(threadId);
     if (worker === undefined) {
-      this.entries.delete(threadId);
-      this.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
+      this.table.delete(threadId);
+      this.ackStop(cmdId, cmdType);
       return;
     }
     if (worker.retiring) {
       // Retirement in flight: repurpose it — close will drop the entry.
       worker.retireIntent = "stop";
-      this.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
+      this.ackStop(cmdId, cmdType);
       return;
     }
     worker.retireIntent = "stop";
-    this.trackPending(worker, cmdId, "thread/stop");
-    try {
-      await worker.writeLine(
-        JSON.stringify({
-          type: "thread/stop",
-          threadId,
-          ...(cmdId !== undefined ? { id: cmdId } : {}),
-        }),
-      );
-    } catch {
-      this.untrackPending(worker, cmdId);
-      this.failure(cmdId, cmdType, "worker died: command could not be delivered");
-    }
+    const line = JSON.stringify({
+      type: "thread/stop",
+      threadId,
+      ...(cmdId !== undefined ? { id: cmdId } : {}),
+    });
+    void this.deliverCommand({ worker, id: cmdId, command: "thread/stop", line });
   }
 
   /** ui_response: ack once in the host, broadcast to every live worker (the
@@ -422,8 +243,7 @@ export class WorkerPool {
       requestId: cmd.requestId,
       payload: cmd.payload,
     });
-    for (const worker of this.workers.values()) {
-      if (worker.retiring) continue;
+    for (const worker of this.liveWorkers()) {
       const id = this.registerInternal(worker, {
         onResponse: () => {},
         onClosed: () => {},
@@ -447,22 +267,79 @@ export class WorkerPool {
       worker.retiring = true;
       worker.stdin.end();
     }
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, this.workerExitTimeoutMs));
-    await Promise.race([Promise.allSettled(workers.map((w) => w.closed)), timeout]);
+    await this.awaitCloses(workers);
     for (const worker of this.allWorkers) {
       if (!worker.child.killed) worker.child.kill("SIGKILL");
     }
-    await Promise.allSettled([...this.allWorkers].map((w) => w.closed));
+    await Promise.allSettled([...this.allWorkers].map((worker) => worker.closed));
   }
 
   // --- internals ------------------------------------------------------------
+
+  private liveWorkers(): WorkerHandle[] {
+    const live: WorkerHandle[] = [];
+    for (const worker of this.allWorkers) {
+      if (!worker.retiring && this.table.liveWorker(worker.threadId) === worker) live.push(worker);
+    }
+    return live;
+  }
+
+  private async awaitCloses(workers: WorkerHandle[]): Promise<void> {
+    const timeout = new Promise<void>((done) => {
+      setTimeout(done, this.workerExitTimeoutMs);
+    });
+    await Promise.race([Promise.allSettled(workers.map((worker) => worker.closed)), timeout]);
+  }
+
+  private ackStop(cmdId: string | undefined, cmdType: string): void {
+    this.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
+  }
+
+  private stopNonLiveEntry(entry: {
+    threadId: string;
+    wake: Promise<void> | undefined;
+    stopRequested: boolean;
+  }): void {
+    if (entry.wake === undefined) {
+      this.table.delete(entry.threadId);
+      return;
+    }
+    // A wake is respawning this thread right now (design §6 spawning -
+    // thread/stop edge): mark it so the wake lands on a stopped thread,
+    // tears its worker down, and drops the re-registered entry instead
+    // of resurrecting it.
+    entry.stopRequested = true;
+    void entry.wake.catch(() => {}).finally(() => this.table.delete(entry.threadId));
+  }
+
+  private rejectOverBudget(id: string | undefined, command: string): boolean {
+    if (!this.liveBudgetExceeded()) return false;
+    this.failure(id, command, `Too many concurrent conversations (limit ${this.maxThreads})`);
+    return true;
+  }
+
+  /** Track the command id, deliver the line, and self-report a failure for
+   * a delivery error (close reconciliation never sees undelivered writes). */
+  private deliverCommand(deps: {
+    worker: WorkerHandle;
+    id: string | undefined;
+    command: string;
+    line: string;
+  }): Promise<void> {
+    const { worker, id, command, line } = deps;
+    if (id !== undefined) worker.pendingIds.set(id, command);
+    return worker.writeLine(line).catch((error: unknown) => {
+      worker.pendingIds.delete(id ?? "");
+      this.failure(id, command, this.deliveryErrorMessage(error));
+    });
+  }
 
   private liveBudgetExceeded(): boolean {
     let spawning = 0;
     for (const worker of this.allWorkers) {
       if (worker.awaitingStart) spawning++;
     }
-    return this.workers.size + spawning >= this.maxThreads;
+    return this.table.liveCount() + spawning >= this.maxThreads;
   }
 
   /** Post-spawn check: the caller's own spawn now counts itself, so the
@@ -474,23 +351,7 @@ export class WorkerPool {
     for (const worker of this.allWorkers) {
       if (worker.awaitingStart) spawning++;
     }
-    return this.workers.size + spawning > this.maxThreads;
-  }
-
-  /**
-   * Path occupancy check with a belt beyond the occupiedPaths registry: a
-   * spawning worker whose session file just appeared (persist → response
-   * window, design §6 blind window) may only be known via its heartbeat.
-   */
-  private pathHolder(sessionPath: string): WorkerHandle | undefined {
-    const direct = this.occupiedPaths.get(sessionPath);
-    if (direct !== undefined) return direct;
-    for (const worker of this.allWorkers) {
-      if (worker.sessionPath !== null && resolve(worker.sessionPath) === sessionPath) {
-        return worker;
-      }
-    }
-    return undefined;
+    return this.table.liveCount() + spawning > this.maxThreads;
   }
 
   private failure(id: string | undefined, command: string, error: string): void {
@@ -501,14 +362,6 @@ export class WorkerPool {
     return `worker died: command could not be delivered (${error instanceof Error ? error.message : String(error)})`;
   }
 
-  private trackPending(worker: WorkerHandle, id: string | undefined, command: string): void {
-    if (id !== undefined) worker.pendingIds.set(id, command);
-  }
-
-  private untrackPending(worker: WorkerHandle, id: string | undefined): void {
-    if (id !== undefined) worker.pendingIds.delete(id);
-  }
-
   private registerInternal(worker: WorkerHandle, waiter: InternalWaiter): string {
     this.internalSeq += 1;
     const id = `${INTERNAL_ID_PREFIX}${this.internalSeq}`;
@@ -517,94 +370,72 @@ export class WorkerPool {
     return id;
   }
 
-  private dropNonLiveEntryByPath(sessionPath: string): void {
-    for (const entry of this.entries.values()) {
-      if (
-        entry.state !== "live" &&
-        entry.sessionPath !== null &&
-        resolve(entry.sessionPath) === sessionPath
-      ) {
-        this.entries.delete(entry.threadId);
-      }
-    }
-  }
-
-  private occupy(worker: WorkerHandle, path: string): void {
-    worker.sessionPath = path;
-    this.occupiedPaths.set(resolve(path), worker);
-  }
-
-  /** Move the worker's path occupancy to `path` (null = release only). */
-  private reoccupy(worker: WorkerHandle, path: string | null): void {
-    if (worker.sessionPath !== null) {
-      const resolved = resolve(worker.sessionPath);
-      if (this.occupiedPaths.get(resolved) === worker) this.occupiedPaths.delete(resolved);
-    }
-    if (path !== null) this.occupy(worker, path);
-    else worker.sessionPath = null;
-  }
-
-  private enforceNonLiveCap(): void {
-    let nonLive = 0;
-    for (const entry of this.entries.values()) {
-      if (entry.state !== "live") nonLive++;
-    }
-    while (nonLive > NON_LIVE_ENTRY_CAP) {
-      let evicted = false;
-      for (const entry of this.entries.values()) {
-        if (entry.state !== "live") {
-          this.entries.delete(entry.threadId);
-          nonLive--;
-          evicted = true;
-          break;
-        }
-      }
-      if (!evicted) break;
-    }
-  }
-
-  private ensureAwake(entry: ThreadEntry): Promise<void> {
+  private ensureAwake(entry: WakeEntry & { wake: Promise<void> | undefined }): Promise<void> {
     if (entry.wake !== undefined) return entry.wake;
     const wake = this.doWake(entry).finally(() => {
-      entry.wake = undefined;
+      const current = this.table.entry(entry.threadId);
+      if (current !== undefined) current.wake = undefined;
     });
-    entry.wake = wake;
+    const current = this.table.entry(entry.threadId);
+    if (current !== undefined) current.wake = wake;
     return wake;
   }
 
-  private async doWake(entry: ThreadEntry): Promise<void> {
+  private async doWake(entry: WakeEntry): Promise<void> {
     if (entry.sessionPath === null) {
       throw new Error("Cannot wake thread: session was never persisted");
     }
     if (this.liveBudgetExceeded()) {
       throw new Error(`Too many concurrent conversations (limit ${this.maxThreads})`);
     }
-    const sessionPath = resolve(entry.sessionPath);
-    const holder = this.pathHolder(sessionPath);
+    const sessionPath = resolvePath(entry.sessionPath);
+    const holder = this.table.holder(sessionPath, this.allWorkers);
     if (holder !== undefined) {
       throw new Error(
         `Session already open (threadId: ${holder.threadId}); two writers would corrupt the session file`,
       );
     }
-    const worker = await this.spawnWorker(entry.trusted);
-    if (this.pathHolder(sessionPath) !== undefined || this.overBudget()) {
+    const worker = this.spawnWorker(entry.trusted);
+    if (this.table.holder(sessionPath, this.allWorkers) !== undefined || this.overBudget()) {
       await this.killWorker(worker, "stop");
       throw new Error("Session already open in another conversation");
     }
-    this.occupy(worker, sessionPath);
+    this.table.occupy(worker, sessionPath);
+    await this.resumeAndWait(worker, entry, sessionPath);
+    // The absorbed resume response already registered the live entry —
+    // unless thread/stop raced the wake (design §6 spawning -thread/stop
+    // edge): tear the respawned worker down and drop the entry instead of
+    // resurrecting a stopped conversation.
+    const settled = this.table.entry(entry.threadId);
+    if (settled !== undefined && settled.stopRequested) {
+      const spawned = this.table.liveWorker(settled.threadId);
+      this.table.delete(settled.threadId);
+      if (spawned !== undefined) await this.killWorker(spawned, "stop");
+    }
+  }
+
+  /** Send the internal resume and settle when the absorbed response lands
+   * (or the worker dies / the write fails). */
+  private async resumeAndWait(
+    worker: WorkerHandle,
+    entry: WakeEntry,
+    sessionPath: string,
+  ): Promise<void> {
+    const forget = (id: string): void => {
+      this.internalIds.delete(id);
+      worker.internalIds.delete(id);
+    };
     try {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((done, refuse) => {
         const id = this.registerInternal(worker, {
           onResponse: (frame) => {
-            this.internalIds.delete(id);
-            worker.internalIds.delete(id);
-            if (frame["success"] === true) resolve();
-            else reject(new Error(String(frame["error"] ?? "resume failed")));
+            forget(id);
+            if (frame["success"] === true) done();
+            else refuse(new Error(String(frame["error"] ?? "resume failed")));
           },
           onClosed: () => {
-            this.internalIds.delete(id);
-            worker.internalIds.delete(id);
-            reject(new Error("worker died while resuming"));
+            forget(id);
+            refuse(new Error("worker died while resuming"));
           },
         });
         void worker
@@ -618,28 +449,30 @@ export class WorkerPool {
             }),
           )
           .catch((error: unknown) => {
-            this.internalIds.delete(id);
-            worker.internalIds.delete(id);
-            reject(error instanceof Error ? error : new Error(String(error)));
+            forget(id);
+            refuse(error instanceof Error ? error : new Error(String(error)));
           });
       });
     } catch (error) {
-      if (this.occupiedPaths.get(sessionPath) === worker) this.occupiedPaths.delete(sessionPath);
-      entry.state = "dead";
+      this.releaseOccupancy(worker, sessionPath);
+      this.markDead(entry.threadId);
       // Idempotent cleanup: the response handler (failed resume) or close
       // (death) already did most of this; make sure no worker survives.
       await this.killWorker(worker, "stop").catch(() => {});
       throw error instanceof Error ? error : new Error(String(error));
     }
-    // The absorbed resume response already registered the live entry —
-    // unless thread/stop raced the wake (design §6 spawning -thread/stop
-    // edge): tear the respawned worker down and drop the entry instead of
-    // resurrecting a stopped conversation.
-    if (entry.stopRequested) {
-      const spawned = this.workers.get(entry.threadId);
-      this.entries.delete(entry.threadId);
-      if (spawned !== undefined) await this.killWorker(spawned, "stop");
-    }
+  }
+
+  private releaseOccupancy(worker: WorkerHandle, sessionPath: string): void {
+    const holder = this.table.holder(sessionPath, this.allWorkers);
+    if (holder === worker) this.table.reoccupy(worker, null);
+  }
+
+  private markDead(threadId: string): void {
+    const entry = this.table.entry(threadId);
+    if (entry === undefined) return;
+    entry.state = "dead";
+    this.table.enforceNonLiveCap();
   }
 
   private async killWorker(worker: WorkerHandle, intent: RetireIntent): Promise<void> {
@@ -663,7 +496,7 @@ export class WorkerPool {
         void this.killWorker(worker, "none");
         continue;
       }
-      if (!this.workers.has(worker.threadId)) continue; // not live yet
+      if (this.table.liveWorker(worker.threadId) !== worker) continue; // not live yet
       if (now - worker.lastHeartbeatAt > this.workerStaleMs) {
         void this.killWorker(worker, "none");
         continue;
@@ -674,336 +507,61 @@ export class WorkerPool {
     }
   }
 
-  private spawnWorker(trusted: boolean): Promise<WorkerHandle> {
-    return new Promise((resolve) => {
-      const { command, args } = workerSpawnArgs(process.argv[1], process.execPath);
-      const child = spawn(command, args, {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: process.env,
-        cwd: process.cwd(),
-      });
-      const stdin = child.stdin;
-      const stdout = child.stdout;
-      const stderr = child.stderr;
-      if (stdin === null || stdout === null || stderr === null) {
-        child.kill("SIGKILL");
-        resolve(this.makeFailedSpawnHandle(child, "worker stdio pipes unavailable"));
-        return;
-      }
-
-      let stdinTail: Promise<void> = Promise.resolve();
-      const writeLine = (line: string): Promise<void> => {
-        const attempt = (): Promise<void> =>
-          new Promise<void>((writeResolve, writeReject) => {
-            stdin.write(`${line}\n`, (error) => {
-              if (error) writeReject(error);
-              else writeResolve();
-            });
-          });
-        const previous = stdinTail;
-        stdinTail = previous.then(attempt, attempt);
-        return stdinTail;
-      };
-
-      const worker: WorkerHandle = {
-        child,
-        stdin,
-        threadId: "",
-        trusted,
-        writeLine,
-        closed: Promise.resolve(),
-        retireIntent: "none",
-        retiring: false,
-        awaitingStart: true,
-        spawnDeadline: Date.now() + this.workerExitTimeoutMs,
-        spawnError: undefined,
-        lastHeartbeatAt: Date.now(),
-        idleMs: 0,
-        streaming: false,
-        sessionPath: null,
-        pendingIds: new Map<string, string>(),
-        internalIds: new Set<string>(),
-      };
-      this.allWorkers.add(worker);
-      worker.closed = new Promise<void>((closeResolve) => {
-        child.on("close", (code, signal) => {
-          this.onWorkerClosed(worker, code, signal);
-          closeResolve();
-        });
-      });
-      child.on("error", (error) => {
-        worker.spawnError = error instanceof Error ? error.message : String(error);
-      });
-      stdin.on("error", () => {});
-      stdout.on("error", () => {});
-      stderr.on("error", () => {});
-
-      const stdoutSplitter = createJsonlSplitter(
-        (line) => {
-          try {
-            this.onWorkerLine(worker, line);
-          } catch {
-            this.writeStderr(
-              `pai-cli worker sent a malformed frame (threadId: ${worker.threadId || "unassigned"}); killing worker\n`,
-            );
-            void this.killWorker(worker, "none");
-          }
-        },
-        (limit) => {
-          this.writeStderr(
-            `pai-cli worker frame exceeded ${limit} bytes (threadId: ${worker.threadId || "unassigned"}); killing worker\n`,
-          );
-          void this.killWorker(worker, "none");
-        },
-        WORKER_LINE_BYTES,
-      );
-      stdout.setEncoding("utf8");
-      stdout.on("data", (chunk: string) => stdoutSplitter.push(chunk));
-
-      const stderrSplitter = createJsonlSplitter(
-        (line) => {
-          const name = worker.threadId !== "" ? worker.threadId : String(child.pid ?? "?");
-          this.writeStderr(`[pai:worker:${name}] ${line}\n`);
-        },
-        (limit) => {
-          const name = worker.threadId !== "" ? worker.threadId : String(child.pid ?? "?");
-          this.writeStderr(
-            `[pai:worker:${name}] stderr line exceeded ${limit} bytes and was dropped\n`,
-          );
-        },
-        WORKER_LINE_BYTES,
-      );
-      stderr.setEncoding("utf8");
-      stderr.on("data", (chunk: string) => stderrSplitter.push(chunk));
-
-      resolve(worker);
-    });
-  }
-
-  /** Handle for a spawn whose pipes could not be set up: it can only close. */
-  private makeFailedSpawnHandle(child: ChildProcess, reason: string): WorkerHandle {
-    const dead: WorkerHandle = {
-      child,
-      stdin: {
-        end: () => {},
-        write: (_chunk: string, cb?: (e?: Error | null) => void) => {
-          cb?.(new Error(reason));
-          return false;
-        },
-      },
-      threadId: "",
-      trusted: false,
-      writeLine: () => Promise.reject(new Error(reason)),
-      closed: Promise.resolve(),
-      retireIntent: "shutdown",
-      retiring: true,
-      awaitingStart: true,
-      spawnDeadline: 0,
-      spawnError: reason,
-      lastHeartbeatAt: Date.now(),
-      idleMs: 0,
-      streaming: false,
-      sessionPath: null,
-      pendingIds: new Map<string, string>(),
-      internalIds: new Set<string>(),
+  private frameRelayDeps(): FrameRelayDeps {
+    return {
+      table: this.table,
+      internalIds: this.internalIds,
+      emitFrame: this.emitFrame,
+      emitRaw: this.emitRaw,
+      writeStderr: this.writeStderr,
+      killWorker: (worker, intent) => this.killWorker(worker, intent),
     };
-    dead.closed = new Promise<void>((closeResolve) => {
-      child.on("close", () => closeResolve());
+  }
+
+  private spawnWorker(trusted: boolean): WorkerHandle {
+    const relay = this.frameRelayDeps();
+    const worker = spawnWorkerProcess({
+      trusted,
+      spawnTimeoutMs: this.workerExitTimeoutMs,
+      onLine: (line) => onWorkerLine(relay, worker, line),
+      onViolation: () => void this.killWorker(worker, "none"),
+      onClosed: (code, signal) => this.onWorkerClosed(worker, code, signal),
+      writeStderr: this.writeStderr,
     });
-    return dead;
-  }
-
-  private onWorkerLine(worker: WorkerHandle, line: string): void {
-    if (line.startsWith('{"type":"heartbeat"')) {
-      const frame = JSON.parse(line) as WorkerHeartbeatFrame;
-      worker.lastHeartbeatAt = Date.now();
-      worker.idleMs = frame.idleMs;
-      worker.streaming = frame.streaming;
-      if (frame.sessionPath !== worker.sessionPath) {
-        // First persist, or a fork/clone path change: keep occupancy exact.
-        this.reoccupy(worker, frame.sessionPath);
-      }
-      return;
-    }
-    if (line.startsWith('{"type":"event"') || line.startsWith('{"type":"ui_request"')) {
-      this.emitRaw(line);
-      return;
-    }
-    if (line.startsWith('{"type":"hub_error"')) {
-      const frame = JSON.parse(line) as { type: "hub_error"; scope: string; error: string };
-      this.emitFrame({
-        type: "hub_error",
-        ...(worker.threadId !== "" ? { threadId: worker.threadId } : {}),
-        scope: frame.scope,
-        error: frame.error,
-      });
-      return;
-    }
-    const head = matchResponseHead(line);
-    if (head !== undefined) {
-      this.onWorkerResponse(worker, line, head);
-      return;
-    }
-    // Parse fallback (design §3): numeric/non-string ids serialize outside
-    // the strict head prefixes and must still classify — dropping them would
-    // make a healthy worker look like a spawn timeout.
-    let parsed: { type?: unknown } | undefined;
-    try {
-      parsed = JSON.parse(line) as { type?: unknown };
-    } catch {
-      parsed = undefined;
-    }
-    if (parsed !== undefined && parsed.type === "response") {
-      this.onWorkerResponse(worker, line, null);
-      return;
-    }
-    if (
-      parsed !== undefined &&
-      (parsed.type === "event" || parsed.type === "ui_request" || parsed.type === "hub_error")
-    ) {
-      // Known shapes with unexpected key order still forward verbatim.
-      this.emitRaw(line);
-      return;
-    }
-    this.writeStderr(`pai-cli worker sent an unclassified frame; ignored: ${line.slice(0, 200)}\n`);
-  }
-
-  private onWorkerResponse(worker: WorkerHandle, line: string, head: ResponseHead | null): void {
-    let resolvedHead: ResponseHead;
-    let frame: { id?: string; command?: string; success?: boolean; data?: Record<string, unknown> };
-    if (head === null) {
-      // Strict head match failed (escaped id or unusual shape): parse fully.
-      frame = JSON.parse(line) as typeof frame;
-      resolvedHead = {
-        id: typeof frame.id === "string" ? frame.id : undefined,
-        command: typeof frame.command === "string" ? frame.command : "",
-      };
-    } else {
-      resolvedHead = head;
-      frame = { id: resolvedHead.id, command: resolvedHead.command };
-      if (CONTROL_COMMANDS.has(resolvedHead.command)) {
-        const parsed = JSON.parse(line) as typeof frame;
-        frame = parsed;
-      }
-    }
-    const id = resolvedHead.id;
-    const waiter = id !== undefined ? this.internalIds.get(id) : undefined;
-    const isInternal = waiter !== undefined;
-    if (id !== undefined && !isInternal) worker.pendingIds.delete(id);
-
-    if (CONTROL_COMMANDS.has(resolvedHead.command)) {
-      // Table updates run BEFORE the response is forwarded or the internal
-      // waiter resolves (design §4: routing must be ready for the next
-      // command the client sends against the response).
-      if (frame.success === true && frame.data !== undefined) {
-        this.applyControlResponse(worker, resolvedHead.command, frame.data);
-      } else if (
-        frame.success !== true &&
-        (resolvedHead.command === "thread/start" || resolvedHead.command === "thread/resume")
-      ) {
-        // Initial start/resume failed: no conversation exists; reclaim the worker.
-        void this.killWorker(worker, "stop");
-      }
-      if (resolvedHead.command === "thread/stop" && worker.retireIntent === "stop") {
-        worker.retiring = true;
-        worker.stdin.end();
-      }
-    }
-
-    if (isInternal && waiter !== undefined) {
-      this.internalIds.delete(id ?? "");
-      worker.internalIds.delete(id ?? "");
-      waiter.onResponse(frame as Record<string, unknown>);
-      return;
-    }
-    this.emitRaw(line);
-  }
-
-  private applyControlResponse(
-    worker: WorkerHandle,
-    command: string,
-    data: Record<string, unknown>,
-  ): void {
-    if (command === "thread/start" || command === "thread/resume") {
-      const start = data as unknown as StartResponseData;
-      if (typeof start.threadId !== "string" || typeof start.cwd !== "string") return;
-      if (worker.threadId !== "" && worker.threadId !== start.threadId) {
-        // Wake resumed to a different session id than parked: trust the response.
-        this.writeStderr(
-          `pai-cli worker resumed to a different session id (${worker.threadId} -> ${start.threadId})\n`,
-        );
-        this.entries.delete(worker.threadId);
-        this.workers.delete(worker.threadId);
-      }
-      const entry: ThreadEntry = this.entries.get(start.threadId) ?? {
-        threadId: start.threadId,
-        cwd: start.cwd,
-        sessionPath: start.sessionPath,
-        trusted: worker.trusted,
-        state: "live",
-        wake: undefined,
-        stopRequested: false,
-      };
-      entry.threadId = start.threadId;
-      entry.cwd = start.cwd;
-      entry.sessionPath = start.sessionPath;
-      entry.trusted = worker.trusted;
-      entry.state = "live";
-      entry.wake = undefined;
-      entry.stopRequested = false;
-      this.entries.set(start.threadId, entry);
-      worker.threadId = start.threadId;
-      this.workers.set(start.threadId, worker);
-      worker.awaitingStart = false;
-      this.reoccupy(worker, start.sessionPath);
-      return;
-    }
-    if (command === "fork" || command === "clone") {
-      const fork = data as unknown as ForkResponseData;
-      if (
-        typeof fork.threadId !== "string" ||
-        typeof fork.previousThreadId !== "string" ||
-        fork.threadId === fork.previousThreadId
-      ) {
-        return; // cancelled fork: ids equal, nothing re-keys
-      }
-      const entry = this.entries.get(fork.previousThreadId);
-      if (entry !== undefined) {
-        this.entries.delete(fork.previousThreadId);
-        entry.threadId = fork.threadId;
-        entry.sessionPath = fork.sessionPath;
-        this.entries.set(fork.threadId, entry);
-      }
-      if (this.workers.get(fork.previousThreadId) === worker) {
-        this.workers.delete(fork.previousThreadId);
-        this.workers.set(fork.threadId, worker);
-        worker.threadId = fork.threadId;
-      }
-      this.reoccupy(worker, fork.sessionPath);
-    }
+    this.allWorkers.add(worker);
+    return worker;
   }
 
   private onWorkerClosed(worker: WorkerHandle, code: number | null, signal: string | null): void {
     this.allWorkers.delete(worker);
-    if (worker.threadId !== "") this.workers.delete(worker.threadId);
-    this.reoccupy(worker, null);
+    if (worker.threadId !== "" && this.table.liveWorker(worker.threadId) === worker) {
+      this.table.removeLive(worker.threadId);
+    }
+    this.table.reoccupy(worker, null);
     for (const id of worker.internalIds) {
       const waiter = this.internalIds.get(id);
       this.internalIds.delete(id);
       waiter?.onClosed();
     }
     worker.internalIds.clear();
+    this.settleClosedWorker(worker, this.closeReason(worker, code, signal));
+  }
+
+  private closeReason(worker: WorkerHandle, code: number | null, signal: string | null): string {
+    if (worker.retireIntent === "none" && worker.awaitingStart) {
+      return worker.spawnError !== undefined
+        ? `Worker failed to start: ${worker.spawnError}`
+        : `Worker failed to start within ${this.workerExitTimeoutMs}ms`;
+    }
+    return `worker exited (code: ${String(code)}, signal: ${String(signal)})`;
+  }
+
+  private settleClosedWorker(worker: WorkerHandle, reason: string): void {
     const wasRetire = worker.retireIntent === "retire";
     const wasStop = worker.retireIntent === "stop";
     const wasShutdown = worker.retireIntent === "shutdown";
     const spawnTimeout =
       worker.retireIntent === "none" && worker.awaitingStart && worker.spawnError === undefined;
-    const reason =
-      worker.retireIntent === "none" && worker.awaitingStart
-        ? worker.spawnError !== undefined
-          ? `Worker failed to start: ${worker.spawnError}`
-          : `Worker failed to start within ${this.workerExitTimeoutMs}ms`
-        : `worker exited (code: ${String(code)}, signal: ${String(signal)})`;
     if (!wasShutdown) {
       for (const [id, command] of worker.pendingIds) {
         // Responses already seen were removed from pendingIds; what remains
@@ -1013,21 +571,17 @@ export class WorkerPool {
       }
     }
     worker.pendingIds.clear();
-    const entry = worker.threadId !== "" ? this.entries.get(worker.threadId) : undefined;
+    const entry = worker.threadId !== "" ? this.table.entry(worker.threadId) : undefined;
     if (wasStop || wasShutdown) {
-      if (entry !== undefined) this.entries.delete(worker.threadId);
-    } else if (wasRetire) {
-      if (entry !== undefined) {
-        entry.state = "parked";
-        entry.wake = undefined;
-        entry.sessionPath = worker.sessionPath ?? entry.sessionPath;
-        this.enforceNonLiveCap();
-      }
-    } else if (entry !== undefined) {
-      entry.state = "dead";
-      entry.wake = undefined;
-      entry.sessionPath = worker.sessionPath ?? entry.sessionPath;
-      this.enforceNonLiveCap();
+      if (entry !== undefined) this.table.delete(worker.threadId);
+      return;
+    }
+    if (entry === undefined) return;
+    entry.state = wasRetire ? "parked" : "dead";
+    entry.wake = undefined;
+    entry.sessionPath = worker.sessionPath ?? entry.sessionPath;
+    this.table.enforceNonLiveCap();
+    if (!wasRetire) {
       this.emitFrame({ type: "thread_died", threadId: worker.threadId, reason });
     }
   }
