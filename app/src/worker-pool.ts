@@ -127,7 +127,7 @@ export class WorkerPool {
     trusted?: boolean;
   }): Promise<void> {
     const sessionPath = resolvePath(cmd.sessionPath);
-    const holder = this.table.holder(sessionPath, this.allWorkers);
+    const holder = await this.settledHolder(sessionPath);
     if (holder !== undefined) {
       this.failure(
         cmd.id,
@@ -389,7 +389,7 @@ export class WorkerPool {
       throw new Error(`Too many concurrent conversations (limit ${this.maxThreads})`);
     }
     const sessionPath = resolvePath(entry.sessionPath);
-    const holder = this.table.holder(sessionPath, this.allWorkers);
+    const holder = await this.settledHolder(sessionPath);
     if (holder !== undefined) {
       throw new Error(
         `Session already open (threadId: ${holder.threadId}); two writers would corrupt the session file`,
@@ -473,6 +473,23 @@ export class WorkerPool {
     if (entry === undefined) return;
     entry.state = "dead";
     this.table.enforceNonLiveCap();
+  }
+
+  /**
+   * Path-occupancy lookup that first waits out a worker still releasing the
+   * path: thread/stop is acknowledged before the worker closes (the response
+   * rides ahead of the EOF), so an immediate resume of the same path must
+   * wait for that close instead of reporting the thread's own stopping
+   * worker as a conflict. Bounded: a wedged shutdown (worker alive but never
+   * exiting) is force-closed via killWorker — resume must never become a
+   * permanently unanswered command.
+   */
+  private async settledHolder(sessionPath: string): Promise<WorkerHandle | undefined> {
+    for (;;) {
+      const holder = this.table.holder(sessionPath, this.allWorkers);
+      if (holder === undefined || !holder.retiring) return holder;
+      await this.killWorker(holder, holder.retireIntent === "none" ? "stop" : holder.retireIntent);
+    }
   }
 
   private async killWorker(worker: WorkerHandle, intent: RetireIntent): Promise<void> {

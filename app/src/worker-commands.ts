@@ -496,10 +496,10 @@ async function confirmBashPermission(deps: {
   id: string | undefined;
 }): Promise<boolean> {
   const { ctx, bash, thread, id } = deps;
-  const check = await checkPermission(
-    "bash",
-    bash.command,
-    async (title: string, value: string) => {
+  const check = await checkPermission({
+    tool: "bash",
+    value: bash.command,
+    ask: async (title: string, value: string) => {
       const response = await ctx.broker.ask(
         thread.session.sessionId,
         { method: "confirm", title, message: value },
@@ -507,7 +507,8 @@ async function confirmBashPermission(deps: {
       );
       return response?.["confirmed"] === true;
     },
-  );
+    threadId: thread.session.sessionId,
+  });
   if (check.block) {
     ctx.failure(id, "bash", check.reason ?? "Blocked by permission rules");
     return false;

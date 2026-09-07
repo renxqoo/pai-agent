@@ -24,9 +24,10 @@ import {
   type ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { permissionGate } from "./permission-gate.ts";
+import { createPermissionGate } from "./permission-gate.ts";
 import type { HubFrame, SessionModel } from "./protocol.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";
+import { copySidecarRules } from "./sidecar-rules.ts";
 
 export interface Thread {
   runtime: AgentSessionRuntime;
@@ -44,6 +45,8 @@ export interface SessionHostOptions {
   emit: (frame: HubFrame) => void;
   createUi: UiContextFactory;
   onThreadDisposed?: (threadId: string) => void;
+  /** Diagnostics sink (worker stderr); used for best-effort degradation notes. */
+  writeStderr?: (text: string) => void;
 }
 
 /**
@@ -71,8 +74,9 @@ function makeRuntimeFactory(deps: {
   modelRuntime: ModelRuntime;
   trusted: boolean;
   model: SessionModel | undefined;
+  threadIdRef: ThreadIdRef;
 }): CreateAgentSessionRuntimeFactory {
-  const { modelRuntime, trusted, model } = deps;
+  const { modelRuntime, trusted, model, threadIdRef } = deps;
   return async (factoryOptions) => {
     const services = await createAgentSessionServices({
       cwd: factoryOptions.cwd,
@@ -83,7 +87,7 @@ function makeRuntimeFactory(deps: {
         // built-in permission gate; skills/prompts/context stay available
         // because they are data, not code.
         ...(trusted ? {} : { noExtensions: true }),
-        extensionFactories: [permissionGate],
+        extensionFactories: [createPermissionGate(() => threadIdRef.id)],
       },
     });
     const created = await createAgentSessionFromServices({
@@ -98,23 +102,49 @@ function makeRuntimeFactory(deps: {
   };
 }
 
+/**
+ * The session id is unknown while the runtime factory runs (it exists only
+ * after session creation) and changes on every session replacement, so the
+ * gate reads it through this mutable ref.
+ */
+export interface ThreadIdRef {
+  id: string;
+}
+
 /** Subscribe to session events and register the fork/clone rebind closure:
- * replacement swaps the subscription in place, and the thread's id becomes
- * the new session's id (the host updates its routing from the response). */
+ * replacement swaps the subscription in place, the thread's id becomes the
+ * new session's id (the host updates its routing from the response), and the
+ * permission-rule sidecar follows the conversation to the new id. */
 function bindThread(deps: {
   thread: Thread;
   emit: (frame: HubFrame) => void;
   createUi: UiContextFactory;
+  threadIdRef: ThreadIdRef;
+  writeStderr: (text: string) => void;
 }): Promise<void> {
-  const { thread, emit, createUi } = deps;
+  const { thread, emit, createUi, threadIdRef, writeStderr } = deps;
   const { runtime, session } = thread;
   runtime.setRebindSession(async (replacement) => {
+    const previousId = thread.session.sessionId;
     thread.unsubscribe();
     thread.session = replacement;
     thread.sessionPath = replacement.sessionFile;
     thread.unsubscribe = replacement.subscribe((event: AgentSessionEvent) => {
       emit({ type: "event", threadId: replacement.sessionId, event: toWireEvent(event) });
     });
+    threadIdRef.id = replacement.sessionId;
+    // fork/clone (and any other id-changing replacement): rules follow.
+    // Best-effort — the replacement is already applied inside pi, so a
+    // copy failure degrades to the global rules with a note, never
+    // aborts the rebind half-way.
+    if (
+      replacement.sessionId !== previousId &&
+      !copySidecarRules(previousId, replacement.sessionId)
+    ) {
+      writeStderr(
+        `pai-cli could not copy permission rules across the session replacement (${previousId} -> ${replacement.sessionId}); falling back to the global rules\n`,
+      );
+    }
     await replacement.bindExtensions({
       uiContext: createUi(replacement.sessionId),
       mode: "rpc",
@@ -123,12 +153,15 @@ function bindThread(deps: {
   thread.unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     emit({ type: "event", threadId: session.sessionId, event: toWireEvent(event) });
   });
+  threadIdRef.id = session.sessionId;
   return session.bindExtensions({ uiContext: createUi(session.sessionId), mode: "rpc" });
 }
 
 export class SessionHost {
   private thread: Thread | undefined;
   private readonly options: SessionHostOptions;
+  /** Current session id for the permission gate (set on bind/rebind). */
+  private readonly threadIdRef: ThreadIdRef = { id: "" };
   /** Serializes session-replacing operations (fork/clone/stop). */
   private replacementQueue: Promise<unknown> = Promise.resolve();
   /** Spawn in flight, so shutdown can wait for it and start can reject doubles. */
@@ -334,6 +367,7 @@ export class SessionHost {
         modelRuntime: this.options.modelRuntime,
         trusted: options.trusted,
         model: options.model,
+        threadIdRef: this.threadIdRef,
       }),
       {
         cwd: options.cwd,
@@ -357,7 +391,13 @@ export class SessionHost {
       sessionPath: session.sessionFile,
       unsubscribe: () => {},
     };
-    await bindThread({ thread, emit: this.options.emit, createUi: this.options.createUi });
+    await bindThread({
+      thread,
+      emit: this.options.emit,
+      createUi: this.options.createUi,
+      threadIdRef: this.threadIdRef,
+      writeStderr: this.options.writeStderr ?? (() => {}),
+    });
     this.thread = thread;
     return thread;
   }

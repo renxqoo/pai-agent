@@ -10,10 +10,12 @@ import type {
   AuthRemoveKeyCmd,
   AuthSetApiKeyCmd,
   GetModelsCmd,
+  GetPermissionRulesCmd,
   HubCommand,
   HubFrame,
   SessionModel,
   SetModelCmd,
+  SetPermissionRulesCmd,
   ThreadListCmd,
   ThreadListSavedCmd,
   ThreadResumeCmd,
@@ -26,6 +28,14 @@ import { responseFailure, responseSuccess } from "./frames.ts";
 import type { RegisterInflight } from "./inflight-registry.ts";
 import { handleAuthList, handleAuthRemoveKey, handleAuthSetApiKey } from "./host-auth.ts";
 import type { WorkerPool } from "./worker-pool.ts";
+import { rulesPath } from "./permission-gate.ts";
+import { loadRules, validateRules } from "./rules.ts";
+import {
+  clearSidecarRules,
+  isSafeThreadId,
+  readSidecarRules,
+  writeSidecarRules,
+} from "./sidecar-rules.ts";
 
 export interface HostDeps {
   pool: WorkerPool;
@@ -129,6 +139,60 @@ const handleUiResponse: HostHandler = async (deps, cmd, id) => {
   deps.emit(responseSuccess(id, cmd.type));
 };
 
+// --- v0.5: per-conversation permission rules (host-local, no worker) ----------
+
+const handleGetPermissionRules: HostHandler = (deps, cmd, id) => {
+  const get = cmd as GetPermissionRulesCmd;
+  const { threadId } = get;
+  if (typeof threadId !== "string" || !isSafeThreadId(threadId)) {
+    deps.emit(responseFailure(id, get.type, "Invalid threadId"));
+    return Promise.resolve();
+  }
+  const sidecar = readSidecarRules(threadId);
+  deps.emit(
+    responseSuccess(
+      id,
+      get.type,
+      sidecar !== undefined
+        ? { rules: sidecar, source: "thread" }
+        : { rules: loadRules(rulesPath()), source: "global" },
+    ),
+  );
+  return Promise.resolve();
+};
+
+const handleSetPermissionRules: HostHandler = async (deps, cmd, id) => {
+  const set = cmd as SetPermissionRulesCmd;
+  const { threadId } = set;
+  if (typeof threadId !== "string" || !isSafeThreadId(threadId)) {
+    deps.emit(responseFailure(id, set.type, "Invalid threadId"));
+    return;
+  }
+  if (set.rules === null) {
+    clearSidecarRules(threadId);
+    deps.emit(responseSuccess(id, set.type, { source: "global" }));
+    return;
+  }
+  if (set.rules === undefined) {
+    deps.emit(responseFailure(id, set.type, "rules must be an object or null"));
+    return;
+  }
+  const validated = validateRules(set.rules);
+  if (!validated.ok) {
+    deps.emit(responseFailure(id, set.type, validated.error));
+    return;
+  }
+  try {
+    writeSidecarRules(threadId, validated.rules);
+  } catch (error) {
+    deps.emit(
+      responseFailure(id, set.type, error instanceof Error ? error.message : String(error)),
+    );
+    return;
+  }
+  deps.emit(responseSuccess(id, set.type, { source: "thread" }));
+};
+
 const handleAuthListCommand: HostHandler = async (deps, cmd, id) => {
   await handleAuthList(
     { modelRuntime: deps.modelRuntime, emit: deps.emit, registerInflight: deps.registerInflight },
@@ -168,6 +232,8 @@ export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, Ho
     "auth/set_api_key": handleAuthSetApiKeyCommand,
     "auth/remove_key": handleAuthRemoveKeyCommand,
     ui_response: handleUiResponse,
+    get_permission_rules: handleGetPermissionRules,
+    set_permission_rules: handleSetPermissionRules,
   }),
 );
 

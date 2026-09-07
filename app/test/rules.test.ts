@@ -7,6 +7,7 @@ import {
   matches,
   type PermissionRules,
   parseRules,
+  validateRules,
 } from "../src/rules.ts";
 
 describe("parseRules", () => {
@@ -155,5 +156,71 @@ describe("parseRules: malformed shapes degrade instead of breaking tools", () =>
     const rules = parseRules('{"write":"yes"}');
     expect(rules.write).toBeUndefined();
     expect(decide(rules, "write", "/x")).toBe("ask");
+  });
+});
+
+describe("validateRules: strict shape for set_permission_rules (v0.5)", () => {
+  test("empty object is valid (all-ask)", () => {
+    expect(validateRules({})).toEqual({ ok: true, rules: {} });
+  });
+  test("full valid shape round-trips", () => {
+    const value = {
+      mode: "block-all",
+      bash: { allowPatterns: ["echo *"], blockPatterns: ["sudo *"] },
+      write: { allowPatterns: [] },
+      edit: { blockPatterns: ["*/.env"] },
+    };
+    const result = validateRules(value);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.rules).toEqual(value);
+  });
+  test("non-objects rejected", () => {
+    expect(validateRules(null).ok).toBe(false);
+    expect(validateRules("ask").ok).toBe(false);
+    expect(validateRules([]).ok).toBe(false);
+    expect(validateRules(42).ok).toBe(false);
+  });
+  test("unknown top-level field rejected", () => {
+    const result = validateRules({ mode: "ask", extra: 1 });
+    expect(result).toEqual({ ok: false, error: "unknown rules field: extra" });
+  });
+  test("invalid mode rejected", () => {
+    expect(validateRules({ mode: "yolo" })).toEqual({
+      ok: false,
+      error: "rules.mode must be one of: ask, allow-all, block-all",
+    });
+  });
+  test("non-string mode rejected", () => {
+    expect(validateRules({ mode: 1 }).ok).toBe(false);
+  });
+  test("unknown tool field rejected", () => {
+    const result = validateRules({ bash: { allowPatterns: ["x"], mode: "ask" } });
+    expect(result).toEqual({ ok: false, error: "unknown rules.bash field: mode" });
+  });
+  test("tool of wrong type rejected", () => {
+    expect(validateRules({ write: "yes" })).toEqual({
+      ok: false,
+      error: "rules.write must be an object",
+    });
+    expect(validateRules({ bash: ["ls"] }).ok).toBe(false);
+  });
+  test("non-array patterns rejected", () => {
+    expect(validateRules({ bash: { allowPatterns: "git *" } })).toEqual({
+      ok: false,
+      error: "rules.bash.allowPatterns must be an array of strings",
+    });
+  });
+  test("non-string pattern entries rejected", () => {
+    expect(validateRules({ bash: { blockPatterns: [1, null] } }).ok).toBe(false);
+  });
+  test("empty pattern arrays are accepted on set but read back as absent", () => {
+    // Set is strict-but-permissive for an explicit empty list (it is
+    // unambiguous); the tolerant read path normalizes it away — an empty
+    // pattern list never matches anything, same as no key at all.
+    expect(validateRules({ bash: { allowPatterns: [] } })).toEqual({
+      ok: true,
+      rules: { bash: { allowPatterns: [] } },
+    });
+    expect(parseRules('{"bash":{"allowPatterns":[]}}')).toEqual({});
   });
 });

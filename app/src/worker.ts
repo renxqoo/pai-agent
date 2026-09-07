@@ -219,6 +219,7 @@ async function setupWorkerServices(deps: {
     emit: deps.emit,
     createUi: (threadId) => createUiContext(threadId, broker, deps.emit),
     onThreadDisposed: (threadId) => broker.settleThread(threadId),
+    writeStderr,
   });
   return buildContext({
     refs: deps.refs,

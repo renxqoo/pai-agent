@@ -659,6 +659,340 @@ await expectResponse(
   "navigate_tree on clone",
 );
 
+// --- v0.5: per-conversation permission rules (C5 matrix) ----------------------
+
+const sidecarDir = join(agentDir, "permission-rules");
+const sidecarPathOf = (id) => join(sidecarDir, `${id}.json`);
+function clearSidecarFileQuiet(id) {
+  try {
+    rmSync(sidecarPathOf(id), { force: true });
+  } catch {
+    // best effort only: the agent dir is removed at teardown anyway
+  }
+}
+
+// Fresh conversation for the matrix (earlier threads carry global-rule history).
+let permId = null;
+await expectResponse(
+  { id: "p0", type: "thread/start", cwd: "/tmp" },
+  (r) => {
+    assert(r.success, `permission matrix thread started (${r.error ?? "ok"})`);
+    permId = r.data.threadId;
+  },
+  "perm thread/start",
+);
+
+await expectResponse(
+  { id: "p1", type: "get_permission_rules", threadId: permId },
+  (r) => {
+    // No sidecar yet: reads the global file (written earlier: echo * allow).
+    assert(r.success && r.data.source === "global", "get_permission_rules: global source");
+    assert(Array.isArray(r.data.rules?.bash?.allowPatterns), "get_permission_rules: global rules");
+  },
+  "get_permission_rules global",
+);
+
+await expectResponse(
+  { id: "p2", type: "set_permission_rules", threadId: permId, rules: { mode: "banana" } },
+  (r) => {
+    assert(!r.success && /rules\.mode/.test(r.error ?? ""), "set: invalid mode rejected");
+  },
+  "set invalid mode",
+);
+await expectResponse(
+  { id: "p3", type: "set_permission_rules", threadId: permId, rules: { unknownField: 1 } },
+  (r) => {
+    assert(!r.success && /unknown rules field/.test(r.error ?? ""), "set: unknown field rejected");
+  },
+  "set unknown field",
+);
+await expectResponse(
+  { id: "p4", type: "set_permission_rules", threadId: "../evil", rules: { mode: "ask" } },
+  (r) => {
+    assert(!r.success && /Invalid threadId/.test(r.error ?? ""), "set: unsafe threadId rejected");
+    assert(!existsSync(join(agentDir, "evil.json")), "set: unsafe threadId wrote no file");
+  },
+  "set unsafe threadId",
+);
+await expectResponse(
+  { id: "p4b", type: "get_permission_rules", threadId: "../evil" },
+  (r) => {
+    assert(!r.success && /Invalid threadId/.test(r.error ?? ""), "get: unsafe threadId rejected");
+  },
+  "get unsafe threadId",
+);
+await expectResponse(
+  { id: "p4c", type: "set_permission_rules", threadId: permId },
+  (r) => {
+    assert(!r.success && /rules must be/.test(r.error ?? ""), "set: missing rules rejected");
+  },
+  "set missing rules",
+);
+
+await expectResponse(
+  { id: "p5", type: "set_permission_rules", threadId: permId, rules: { mode: "block-all" } },
+  (r) => {
+    assert(r.success && r.data.source === "thread", "set: success reports thread source");
+    assert(existsSync(sidecarPathOf(permId)), "set: sidecar file created");
+  },
+  "set block-all",
+);
+await expectResponse(
+  { id: "p6", type: "get_permission_rules", threadId: permId },
+  (r) => {
+    assert(r.success && r.data.source === "thread", "get: thread source after set");
+    assert(r.data.rules?.mode === "block-all", "get: sidecar content");
+  },
+  "get after set",
+);
+await expectResponse(
+  { id: "p7", type: "bash", threadId: permId, command: "echo sidecar-blocked" },
+  (r) => {
+    // Sidecar block-all overrides the global allowPatterns ("echo *").
+    assert(!r.success && /Blocked by permission rules/.test(r.error ?? ""), "bash: sidecar wins");
+  },
+  "bash blocked by sidecar",
+);
+
+await expectResponse(
+  { id: "p8", type: "get_permission_rules", threadId: clonedId },
+  (r) => {
+    assert(r.success && r.data.source === "global", "isolation: other thread still global");
+  },
+  "isolation get",
+);
+await expectResponse(
+  { id: "p9", type: "bash", threadId: clonedId, command: "echo iso-marker" },
+  (r) => {
+    assert(
+      r.success && /iso-marker/.test(r.data.output ?? ""),
+      "isolation: other thread unaffected",
+    );
+  },
+  "isolation bash",
+);
+
+await expectResponse(
+  { id: "p10", type: "set_permission_rules", threadId: permId, rules: null },
+  (r) => {
+    assert(r.success && r.data.source === "global", "clear: reports global source");
+    assert(!existsSync(sidecarPathOf(permId)), "clear: sidecar file removed");
+  },
+  "clear sidecar",
+);
+await expectResponse(
+  { id: "p11", type: "bash", threadId: permId, command: "echo after-clear" },
+  (r) => {
+    assert(r.success && /after-clear/.test(r.data.output ?? ""), "clear: falls back to global");
+  },
+  "bash after clear",
+);
+
+// stop -> resume keeps the sidecar (cross-worker persistence). Uses the
+// hand-crafted fixture: pi persists a session file only after the first
+// assistant message (session-manager _persist), so a bash-only thread has
+// no file and resume would synthesize a new id (v1 boundary, plan §7).
+let persistId = null;
+await expectResponse(
+  { id: "p12", type: "thread/resume", sessionPath: fixturePath },
+  (r) => {
+    assert(r.success, `persistence: fixture resumed (${r.error ?? "ok"})`);
+    persistId = r.data.threadId;
+  },
+  "persistence resume fixture",
+);
+await expectResponse(
+  { id: "p12b", type: "set_permission_rules", threadId: persistId, rules: { mode: "block-all" } },
+  (r) => {
+    assert(r.success, "persistence: sidecar set");
+  },
+  "persistence set",
+);
+await expectResponse(
+  { id: "p12c", type: "get_state", threadId: persistId },
+  (r) => {
+    assert(r.data.sessionFile === fixturePath, "persistence: session file is the fixture");
+  },
+  "persistence session file",
+);
+await expectResponse(
+  { id: "p13", type: "thread/stop", threadId: persistId },
+  (r) => {
+    assert(r.success, "persistence: stopped");
+  },
+  "persistence stop",
+);
+await expectResponse(
+  { id: "p14", type: "thread/resume", sessionPath: fixturePath },
+  (r) => {
+    assert(
+      r.success && r.data.threadId === persistId,
+      "persistence: resumed same id (stop settled before resume)",
+    );
+  },
+  "persistence resume",
+);
+await expectResponse(
+  { id: "p15", type: "get_permission_rules", threadId: persistId },
+  (r) => {
+    assert(r.success && r.data.source === "thread", "persistence: sidecar survived the cycle");
+  },
+  "persistence get",
+);
+await expectResponse(
+  { id: "p16", type: "bash", threadId: persistId, command: "echo post-resume" },
+  (r) => {
+    assert(
+      !r.success && /Blocked by permission rules/.test(r.error ?? ""),
+      "persistence: still blocked",
+    );
+  },
+  "persistence bash blocked",
+);
+await expectResponse(
+  { id: "p16b", type: "set_permission_rules", threadId: persistId, rules: null },
+  (r) => {
+    assert(r.success, "persistence: cleanup clear");
+  },
+  "persistence clear",
+);
+
+// Session replacement copies the sidecar to the new id.
+const cloneRules = { bash: { allowPatterns: ["echo side-*"] } };
+await expectResponse(
+  { id: "p17", type: "set_permission_rules", threadId: clonedId, rules: cloneRules },
+  (r) => {
+    assert(r.success, "clone-copy: sidecar set on source");
+  },
+  "clone-copy set",
+);
+let reclonedId = null;
+await expectResponse(
+  { id: "p18", type: "clone", threadId: clonedId },
+  (r) => {
+    assert(r.success, "clone-copy: clone succeeded");
+    reclonedId = r.data.threadId;
+  },
+  "clone-copy clone",
+);
+await expectResponse(
+  { id: "p19", type: "get_permission_rules", threadId: reclonedId },
+  (r) => {
+    assert(r.success && r.data.source === "thread", "clone-copy: new id has sidecar");
+    assert(
+      JSON.stringify(r.data.rules) === JSON.stringify(cloneRules),
+      "clone-copy: content identical",
+    );
+  },
+  "clone-copy get",
+);
+await expectResponse(
+  { id: "p20", type: "get_permission_rules", threadId: clonedId },
+  (r) => {
+    assert(r.success && r.data.source === "thread", "clone-copy: source sidecar untouched");
+  },
+  "clone-copy source intact",
+);
+
+// Fork copies the sidecar too (§4-C5: fork/clone both named). Uses the
+// fixture-backed thread: pi requires the current session file to exist on
+// disk before forking (agent-session-runtime), and branched sessions from
+// clones are not necessarily flushed yet.
+await expectResponse(
+  { id: "p20a", type: "set_permission_rules", threadId: persistId, rules: cloneRules },
+  (r) => {
+    assert(r.success, "fork-copy: sidecar set");
+  },
+  "fork-copy set",
+);
+let forkEntryId = null;
+await expectResponse(
+  { id: "p20b", type: "get_entries", threadId: persistId },
+  (r) => {
+    assert(r.success && r.data.entries.length > 0, "fork-copy: entries available");
+    forkEntryId = r.data.entries.at(-1).id;
+  },
+  "fork-copy entries",
+);
+let reforkedId = null;
+await expectResponse(
+  { id: "p20c", type: "fork", threadId: persistId, entryId: forkEntryId, position: "at" },
+  (r) => {
+    assert(r.success, `fork-copy: fork succeeded (${r.error ?? "ok"})`);
+    reforkedId = r.data.threadId;
+  },
+  "fork-copy fork",
+);
+await expectResponse(
+  { id: "p20d", type: "get_permission_rules", threadId: reforkedId },
+  (r) => {
+    assert(r.success && r.data.source === "thread", "fork-copy: new id has sidecar");
+    assert(
+      JSON.stringify(r.data.rules) === JSON.stringify(cloneRules),
+      "fork-copy: content identical",
+    );
+  },
+  "fork-copy get",
+);
+
+// Concurrent sets: the file must be exactly one of the two payloads (atomic).
+{
+  const a = send({
+    id: "p21a",
+    type: "set_permission_rules",
+    threadId: permId,
+    rules: { mode: "ask" },
+  });
+  const b = send({
+    id: "p21b",
+    type: "set_permission_rules",
+    threadId: permId,
+    rules: { mode: "block-all" },
+  });
+  const [ra, rb] = await Promise.all([a, b]);
+  assert(ra.success && rb.success, "concurrent set: both succeed");
+  let parsed = null;
+  try {
+    parsed = JSON.parse(readFileSync(sidecarPathOf(permId), "utf8"));
+  } catch {
+    assert(false, "concurrent set: file is valid JSON (no tearing)");
+  }
+  assert(
+    parsed?.mode === "ask" || parsed?.mode === "block-all",
+    "concurrent set: file is one of the two writes",
+  );
+}
+
+// Non-live threads never wake a worker for rule access (host-local).
+{
+  const before = await send({ id: "p22a", type: "thread/list" });
+  const liveBefore = before.data.threads.filter((t) => t.state === "live").length;
+  await expectResponse(
+    { id: "p22b", type: "get_permission_rules", threadId: "ghost-thread-1" },
+    (r) => {
+      assert(r.success && r.data.source === "global", "ghost get: global, no error");
+    },
+    "ghost get",
+  );
+  await expectResponse(
+    {
+      id: "p22c",
+      type: "set_permission_rules",
+      threadId: "ghost-thread-1",
+      rules: { mode: "ask" },
+    },
+    (r) => {
+      assert(r.success, "ghost set: accepted without spawning a worker");
+    },
+    "ghost set",
+  );
+  const after = await send({ id: "p22d", type: "thread/list" });
+  const liveAfter = after.data.threads.filter((t) => t.state === "live").length;
+  assert(liveAfter === liveBefore, "ghost access: live worker count unchanged (no wake)");
+  assert(existsSync(sidecarPathOf("ghost-thread-1")), "ghost set: file written");
+  clearSidecarFileQuiet("ghost-thread-1");
+}
+
 // --- lifecycle --------------------------------------------------------------
 
 await new Promise((r) => {

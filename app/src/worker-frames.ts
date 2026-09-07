@@ -9,6 +9,7 @@ import { CONTROL_COMMANDS, type ResponseHead, matchResponseHead } from "./frame-
 import type { HubFrame, WorkerHeartbeatFrame } from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle } from "./worker-process.ts";
 import type { ThreadTable } from "./thread-table.ts";
+import { copySidecarRules } from "./sidecar-rules.ts";
 
 export interface InternalWaiter {
   onResponse: (frame: Record<string, unknown>) => void;
@@ -160,9 +161,15 @@ function applyControlEffects(
   const { command, frame } = control;
   if (frame.success === true && frame.data !== undefined) {
     if (command === "thread/start" || command === "thread/resume") {
-      deps.table.registerLive(worker, frame.data, (from, to) =>
-        deps.writeStderr(`pai-cli worker resumed to a different session id (${from} -> ${to})\n`),
-      );
+      deps.table.registerLive(worker, frame.data, (from, to) => {
+        deps.writeStderr(`pai-cli worker resumed to a different session id (${from} -> ${to})\n`);
+        // Wake re-key (unpersisted empty session): rules follow the id.
+        if (!copySidecarRules(from, to)) {
+          deps.writeStderr(
+            `pai-cli could not copy permission rules across the id change (${from} -> ${to}); the thread falls back to the global rules\n`,
+          );
+        }
+      });
     } else {
       deps.table.rekeyFork(worker, frame.data);
     }

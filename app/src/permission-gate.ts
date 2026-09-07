@@ -5,9 +5,11 @@
  *   user-bash path does not emit tool_call, and user_bash results cannot
  *   block — see docs/design.md).
  *
- * Rules are hot-reloaded from <agentDir>/permission-rules.json per call
- * (design.md "Permission rules v2"); decide() in rules.ts owns the order.
- * The path follows the effective agent dir (respects PI_CODING_AGENT_DIR).
+ * Rule resolution per call (plan ui-completeness §2): the conversation's
+ * sidecar file when one exists, else the global `<agentDir>/permission-rules.json`
+ * hot-read (design.md "Permission rules v2"). The file IS the truth — there is
+ * no in-memory box. Paths follow the effective agent dir (respects
+ * PI_CODING_AGENT_DIR).
  */
 
 import { join } from "node:path";
@@ -16,7 +18,8 @@ import {
   getAgentDir,
   type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
-import { decide, type GatedTool, loadRules } from "./rules.ts";
+import { decide, type GatedTool, loadRules, type PermissionRules } from "./rules.ts";
+import { readSidecarRules } from "./sidecar-rules.ts";
 
 const CONFIRM_TIMEOUT_MS = 300_000;
 
@@ -32,9 +35,18 @@ const CONFIRM_TITLES: Record<GatedTool, string> = {
   edit: "Allow file edit?",
 };
 
-/** Rules live under the effective agent dir. */
+/** Global rules live under the effective agent dir. */
 export function rulesPath(): string {
   return join(getAgentDir(), "permission-rules.json");
+}
+
+/** Sidecar wins; without one the conversation follows the global file hot. */
+export function effectiveRules(threadId: string | undefined): PermissionRules {
+  if (threadId !== undefined) {
+    const sidecar = readSidecarRules(threadId);
+    if (sidecar !== undefined) return sidecar;
+  }
+  return loadRules(rulesPath());
 }
 
 export interface PermissionCheck {
@@ -46,12 +58,14 @@ export interface PermissionCheck {
  * Single permission decision shared by the tool_call gate and the hub's
  * direct bash command. `ask` resolves true to allow, false to deny.
  */
-export async function checkPermission(
-  tool: GatedTool,
-  value: string,
-  ask: (title: string, value: string) => Promise<boolean>,
-): Promise<PermissionCheck> {
-  const decision = decide(loadRules(rulesPath()), tool, value);
+export async function checkPermission(deps: {
+  tool: GatedTool;
+  value: string;
+  ask: (title: string, value: string) => Promise<boolean>;
+  threadId?: string;
+}): Promise<PermissionCheck> {
+  const { tool, value, ask, threadId } = deps;
+  const decision = decide(effectiveRules(threadId), tool, value);
   if (decision === "allow") return { block: false };
   if (decision === "block") {
     return { block: true, reason: `Blocked by permission rules: ${tool} ${value}` };
@@ -60,31 +74,48 @@ export async function checkPermission(
   return allowed ? { block: false } : { block: true, reason: `User denied: ${tool} ${value}` };
 }
 
-export const permissionGate: InlineExtension = (pi: ExtensionAPI): void => {
-  pi.on("tool_call", async (event, ctx) => {
-    const tool = event.toolName as GatedTool;
-    const valueKey = TOOL_VALUE_KEYS[tool];
-    if (valueKey === undefined) return;
+/**
+ * Gate extension bound to one conversation: the session id is only known
+ * after the session exists (and changes on fork/clone), so the factory
+ * closes over a mutable ref owned by the SessionHost.
+ */
+export function createPermissionGate(getThreadId: () => string): InlineExtension {
+  return (pi: ExtensionAPI): void => {
+    pi.on("tool_call", async (event, ctx) => {
+      const tool = event.toolName as GatedTool;
+      const valueKey = TOOL_VALUE_KEYS[tool];
+      if (valueKey === undefined) return;
 
-    const input = event.input as Record<string, unknown>;
-    const value = String(input[valueKey] ?? "");
+      const input = event.input as Record<string, unknown>;
+      const value = String(input[valueKey] ?? "");
 
-    if (!ctx.hasUI) {
-      // Fail closed only at the ask stage: allow-all/allowPatterns still
-      // pass (decide() first), unmatched commands block without a dialog.
-      const check = await checkPermission(tool, value, async () => false);
-      return check.block ? { block: true, reason: check.reason } : undefined;
-    }
+      if (!ctx.hasUI) {
+        // Fail closed only at the ask stage: allow-all/allowPatterns still
+        // pass (decide() first), unmatched commands block without a dialog.
+        const check = await checkPermission({
+          tool,
+          value,
+          ask: async () => false,
+          threadId: getThreadId(),
+        });
+        return check.block ? { block: true, reason: check.reason } : undefined;
+      }
 
-    const check = await checkPermission(tool, value, async (title, value2) => {
-      // Wire the turn's abort signal so an `abort` command settles the
-      // dialog immediately instead of waiting out the timeout.
-      const allowed = await ctx.ui.confirm(title, value2, {
-        timeout: CONFIRM_TIMEOUT_MS,
-        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      const check = await checkPermission({
+        tool,
+        value,
+        ask: async (title, value2) => {
+          // Wire the turn's abort signal so an `abort` command settles the
+          // dialog immediately instead of waiting out the timeout.
+          const allowed = await ctx.ui.confirm(title, value2, {
+            timeout: CONFIRM_TIMEOUT_MS,
+            ...(ctx.signal ? { signal: ctx.signal } : {}),
+          });
+          return allowed;
+        },
+        threadId: getThreadId(),
       });
-      return allowed;
+      return check.block ? { block: true, reason: check.reason } : undefined;
     });
-    return check.block ? { block: true, reason: check.reason } : undefined;
-  });
-};
+  };
+}

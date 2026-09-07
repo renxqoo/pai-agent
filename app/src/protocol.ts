@@ -12,6 +12,7 @@
  */
 
 import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { PermissionRules } from "./rules.ts";
 
 export interface ImagePayload {
   type: "image";
@@ -237,6 +238,22 @@ export interface UiResponseCmd {
   payload: Record<string, unknown>;
 }
 
+/**
+ * v0.5: per-conversation permission rules. Both are host-local commands
+ * (pure file operations — never routed to a worker, never wake one).
+ */
+export interface GetPermissionRulesCmd {
+  type: "get_permission_rules";
+  threadId: string;
+}
+
+/** `rules: null` deletes the sidecar (the thread falls back to the global file). */
+export interface SetPermissionRulesCmd {
+  type: "set_permission_rules";
+  threadId: string;
+  rules: PermissionRules | null;
+}
+
 export type HubCommand =
   | (ThreadStartCmd & { id?: string })
   | (ThreadResumeCmd & { id?: string })
@@ -269,7 +286,9 @@ export type HubCommand =
   | (GetCommandsCmd & { id?: string })
   | (BashCmd & { id?: string })
   | (AbortBashCmd & { id?: string })
-  | (UiResponseCmd & { id?: string });
+  | (UiResponseCmd & { id?: string })
+  | (GetPermissionRulesCmd & { id?: string })
+  | (SetPermissionRulesCmd & { id?: string });
 
 // ============================================================================
 // Frames (stdout, host -> Electron)
