@@ -61,7 +61,8 @@ function startHeartbeat(deps: {
       session?.isCompacting === true ||
       (refs.broker?.pendingCount() ?? 0) > 0 ||
       registry.size() > 0 ||
-      subagents.inFlight() > 0
+      subagents.inFlight() > 0 ||
+      subagents.pendingCount() > 0
     );
   };
   const heartbeat = setInterval(() => {
@@ -198,12 +199,14 @@ function createLifecycle(deps: {
   registry: ReturnType<typeof createInflightRegistry>;
   refs: WorkerRefs;
   subagents: SubagentRegistry;
+  shutdownProbe: { active: boolean };
 }): { shutdown: (reason: string) => Promise<void>; isShuttingDown: () => boolean } {
   let shuttingDown = false;
   return {
     async shutdown(reason: string): Promise<void> {
       if (shuttingDown) return;
       shuttingDown = true;
+      deps.shutdownProbe.active = true;
       writeStderr(`pai-cli worker shutting down: ${reason}\n`);
       deps.subagents.killAll();
       await deps.registry.abortAll();
@@ -258,28 +261,13 @@ async function setupWorkerServices(deps: {
   });
 }
 
-export async function runWorker(): Promise<void> {
-  takeOverStdout();
-  const writer = createFrameWriter(getRawStdoutWrite());
-  const refs: WorkerRefs = {};
-  const status: WorkerStatus = { lastBusyAt: Date.now() };
-  const registry = createInflightRegistry();
-  const subagents = new SubagentRegistry();
-  const lifecycle = createLifecycle({ writer, registry, refs, subagents });
-  const { shutdown } = lifecycle;
-
-  const emit = (frame: HubFrame | WorkerHeartbeatFrame): void => {
-    writer.write(`${JSON.stringify(frame)}\n`).catch((error: unknown) => {
-      // stdout is gone (host closed the pipe): frames can no longer be
-      // delivered. Contract: report to stderr and exit via the normal path.
-      writeStderr(`pai-cli worker stdout write failed: ${String(error)}\n`);
-      void shutdown("stdout write failed");
-    });
-  };
-  startHeartbeat({ emit, refs, registry, status, subagents });
-  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown, subagents });
-
-  const handleCommand = async (cmd: WorkerCommand): Promise<void> => {
+function createCommandDispatcher(deps: {
+  ctx: WorkerContext;
+  lifecycle: { isShuttingDown: () => boolean };
+  status: WorkerStatus;
+}): (cmd: WorkerCommand) => Promise<void> {
+  const { ctx, lifecycle, status } = deps;
+  return async (cmd: WorkerCommand): Promise<void> => {
     const { id } = cmd;
     if (lifecycle.isShuttingDown()) {
       responseFailure(id, String(cmd.type ?? "unknown"), "pai-cli worker is shutting down");
@@ -295,6 +283,38 @@ export async function runWorker(): Promise<void> {
     }
     await handler(ctx, cmd, id);
   };
+}
+
+export async function runWorker(): Promise<void> {
+  takeOverStdout();
+  const writer = createFrameWriter(getRawStdoutWrite());
+  const refs: WorkerRefs = {};
+  const status: WorkerStatus = { lastBusyAt: Date.now() };
+  const registry = createInflightRegistry();
+  const shutdownProbe = { active: false };
+  const subagents = new SubagentRegistry({
+    getSession: () => refs.sessions?.get()?.session,
+    isShuttingDown: () => shutdownProbe.active,
+    writeStderr,
+  });
+  const lifecycle = createLifecycle({ writer, registry, refs, subagents, shutdownProbe });
+  const { shutdown } = lifecycle;
+
+  const emit = (frame: HubFrame | WorkerHeartbeatFrame): void => {
+    // Turn-boundary trigger (plan stage 3): the run that just settled may
+    // free the session for a queued subagent notification.
+    if (frame.type === "event" && frame.event.type === "agent_settled") subagents.onTurnSettled();
+    writer.write(`${JSON.stringify(frame)}\n`).catch((error: unknown) => {
+      // stdout is gone (host closed the pipe): frames can no longer be
+      // delivered. Contract: report to stderr and exit via the normal path.
+      writeStderr(`pai-cli worker stdout write failed: ${String(error)}\n`);
+      void shutdown("stdout write failed");
+    });
+  };
+  startHeartbeat({ emit, refs, registry, status, subagents });
+  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown, subagents });
+
+  const handleCommand = createCommandDispatcher({ ctx, lifecycle, status });
 
   attachStdinLoop({ emit, handleCommand, onEnd: () => void shutdown("stdin end") });
   attachProcessGuards({ emit, onSignal: (signal) => void shutdown(signal) });

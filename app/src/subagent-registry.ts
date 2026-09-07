@@ -25,6 +25,23 @@ export const MAX_TASKS_PER_CALL = 8;
 export const MAX_CONCURRENT_SUBAGENTS = 4;
 export const MAX_INFLIGHT_PER_CONVERSATION = 8;
 export const RETAINED_CAP = 16;
+/** Notification output excerpt cap (plan budget section). */
+export const NOTIFY_OUTPUT_CAP_BYTES = 8 * 1024;
+/** Per-notification delivery retries before stderr-drop (review P1-2). */
+export const NOTIFY_RETRY_CAP = 3;
+
+/** The session-facing surface the notification delivery needs. The worker
+ * supplies this; the registry never imports SessionHost (deps direction). */
+export interface NotifySession {
+  isStreaming: boolean;
+  isCompacting: boolean;
+  prompt(text: string): Promise<void>;
+}
+
+interface PendingNotification {
+  text: string;
+  retries: number;
+}
 
 export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "stopped";
 
@@ -51,15 +68,67 @@ export interface LaunchHandle {
 export interface RegistryDeps {
   /** Test seam: grandchild launcher (defaults to the real driver). */
   startTask?: typeof startGrandchildTask;
+  /** Notification target (stage 3): current session, dynamic per call. */
+  getSession?: () => NotifySession | undefined;
+  isShuttingDown?: () => boolean;
+  writeStderr?: (text: string) => void;
+}
+
+function noSession(): NotifySession | undefined {
+  return undefined;
 }
 
 export class SubagentRegistry {
   private readonly entries = new Map<string, RegistryEntry>();
   private readonly queue: string[] = [];
   private readonly startTask: typeof startGrandchildTask;
+  private readonly getSession: () => NotifySession | undefined;
+  private readonly isShuttingDown: () => boolean;
+  private readonly writeStderr: (text: string) => void;
+  private readonly pendingNotifications: PendingNotification[] = [];
+  /** ids whose notifications task_wait suppresses (results come from wait). */
+  private readonly suppressedIds = new Set<string>();
+  private delivering = false;
 
   constructor(deps?: RegistryDeps) {
     this.startTask = deps?.startTask ?? startGrandchildTask;
+    this.getSession = deps?.getSession ?? noSession;
+    this.isShuttingDown = deps?.isShuttingDown ?? (() => false);
+    this.writeStderr = deps?.writeStderr ?? (() => {});
+  }
+
+  /** Turn-boundary trigger: the main session's run fully settled. */
+  onTurnSettled(): void {
+    this.tryDeliver();
+  }
+
+  pendingCount(): number {
+    return this.pendingNotifications.length;
+  }
+
+  suppressNotifications(ids: string[]): void {
+    for (const id of ids) this.suppressedIds.add(id);
+  }
+
+  releaseNotifications(ids: string[]): void {
+    for (const id of ids) this.suppressedIds.delete(id);
+  }
+
+  /**
+   * Deliver at most one queued notification as a new user-role turn (plan
+   * stage 3): guards shut down / no session / streaming / compacting; any
+   * prompt failure requeues (cap 3 then stderr-drop); serial single-flight
+   * — the next notification waits for this run's agent_settled trigger.
+   */
+  private tryDeliver(): void {
+    if (this.delivering) return;
+    if (this.isShuttingDown()) return;
+    const session = this.getSession();
+    if (session === undefined || session.isStreaming || session.isCompacting) return;
+    const next = this.pendingNotifications.shift();
+    if (next === undefined) return;
+    this.delivering = true;
+    void this.deliverOne(session, next);
   }
 
   /** In-flight = queued + running (the heartbeat `subagents` figure). */
@@ -182,6 +251,24 @@ export class SubagentRegistry {
     void driver.result.then((result) => this.settleEntry(entry, result));
   }
 
+  private async deliverOne(session: NotifySession, next: PendingNotification): Promise<void> {
+    try {
+      await session.prompt(next.text);
+    } catch {
+      next.retries += 1;
+      if (next.retries < NOTIFY_RETRY_CAP) {
+        this.pendingNotifications.unshift(next);
+      } else {
+        const message = `pai-cli dropped a subagent notification after ${NOTIFY_RETRY_CAP} failed deliveries\n`;
+        this.writeStderr(message);
+      }
+    } finally {
+      this.delivering = false;
+      // Do NOT chain-deliver here: the just-started run's agent_settled
+      // is the next trigger (serial single-flight contract).
+    }
+  }
+
   private settleEntry(entry: RegistryEntry, result: GrandchildResult): void {
     entry.result = result;
     entry.driver = undefined;
@@ -189,6 +276,15 @@ export class SubagentRegistry {
     entry.resolveSettle(result);
     this.evictOverflow();
     this.scheduleQueued();
+    // Stage 3: killed-by-killAll → silent (the user declined the work);
+    // task_stop (stopRequested) and genuine settles DO notify.
+    if (!entry.killedByKillAll && !this.suppressedIds.has(entry.spec.subagentId)) {
+      this.pendingNotifications.push({
+        text: formatNotification(entry.spec, result),
+        retries: 0,
+      });
+      this.tryDeliver();
+    }
   }
 
   private scheduleQueued(): void {
@@ -211,6 +307,24 @@ export class SubagentRegistry {
       if (evicted !== undefined) this.entries.delete(evicted);
     }
   }
+}
+
+function formatNotification(spec: GrandchildTaskSpec, result: GrandchildResult): string {
+  let statusWord = "completed";
+  if (result.aborted) statusWord = "stopped";
+  else if (result.isError) statusWord = "failed";
+  let { output } = result;
+  if (Buffer.byteLength(output, "utf8") > NOTIFY_OUTPUT_CAP_BYTES) {
+    while (Buffer.byteLength(output, "utf8") > NOTIFY_OUTPUT_CAP_BYTES) {
+      output = output.slice(0, -1);
+    }
+    output = `${output}\n[output truncated to 8KB]`;
+  }
+  return [
+    `[task-notification] subagent ${spec.subagentId} (${spec.agent}) ${statusWord}.`,
+    output,
+    `(full output: task_out {"subagentId":"${spec.subagentId}"}; wait for others: task_wait)`,
+  ].join("\n");
 }
 
 function terminalStatus(entry: RegistryEntry, result: GrandchildResult): SubagentStatus {

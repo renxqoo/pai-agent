@@ -183,3 +183,199 @@ describe("stopOne and killAll (stage 1)", () => {
     expect(fake.launches[0]?.signal?.aborted).toBe(true);
   });
 });
+
+function tick(ms = 10): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(() => {
+      resolve();
+    }, ms);
+  });
+}
+
+/** Fake NotifySession for delivery-timing tests. */
+function makeSession(options?: {
+  streaming?: () => boolean;
+  compacting?: () => boolean;
+  fail?: () => boolean;
+}) {
+  const prompts: string[] = [];
+  const session = {
+    isStreaming: false,
+    isCompacting: false,
+    prompt: async (text: string): Promise<void> => {
+      if (options?.fail?.() === true) throw new Error("already processing");
+      prompts.push(text);
+      // A accepted prompt starts a run: the streaming guard is what makes
+      // delivery serial in production.
+      session.isStreaming = true;
+    },
+  };
+  return {
+    session,
+    prompts,
+    setStreaming(v: boolean): void {
+      session.isStreaming = v;
+    },
+    setCompacting(v: boolean): void {
+      session.isCompacting = v;
+    },
+  };
+}
+
+describe("notification delivery (stage 3)", () => {
+  test("idle settle delivers one notification as a prompt with id + output", async () => {
+    const fake = makeFakeLauncher();
+    const target = makeSession();
+    const stderr: string[] = [];
+    const registry = new SubagentRegistry({
+      startTask: fake.start,
+      getSession: () => target.session,
+      writeStderr: (t) => stderr.push(t),
+    });
+    const handle = registry.launch({ spec: makeSpec("sub_n100"), hooks: HOOKS });
+    const [first] = fake.launches;
+    if (first === undefined) throw new Error("no launch");
+    first.settle({ ...okResult(first.spec), output: "the-answer-42" });
+    await handle.result;
+    await tick();
+    expect(target.prompts.length).toBe(1);
+    expect(target.prompts[0]).toContain(
+      "[task-notification] subagent sub_n100 (echoer) completed.",
+    );
+    expect(target.prompts[0]).toContain("the-answer-42");
+    expect(target.prompts[0]).toContain('task_out {"subagentId":"sub_n100"}');
+  });
+
+  test("streaming settle queues; agent_settled delivers", async () => {
+    const fake = makeFakeLauncher();
+    const target = makeSession();
+    const registry = new SubagentRegistry({
+      startTask: fake.start,
+      getSession: () => target.session,
+    });
+    target.setStreaming(true);
+    const handle = registry.launch({ spec: makeSpec("sub_n200"), hooks: HOOKS });
+    const [launch] = fake.launches;
+    if (launch === undefined) throw new Error("no launch");
+    launch.settle(okResult(launch.spec));
+    await handle.result;
+    await tick();
+    expect(target.prompts.length).toBe(0); // queued behind the streaming run
+    expect(registry.pendingCount()).toBe(1);
+    target.setStreaming(false);
+    registry.onTurnSettled();
+    await tick();
+    expect(target.prompts.length).toBe(1);
+  });
+
+  test("prompt failure requeues; cap 3 then stderr-drop", async () => {
+    const fake = makeFakeLauncher();
+    const target = makeSession({ fail: () => true });
+    const stderr: string[] = [];
+    const registry = new SubagentRegistry({
+      startTask: fake.start,
+      getSession: () => target.session,
+      writeStderr: (t) => stderr.push(t),
+    });
+    const handle = registry.launch({ spec: makeSpec("sub_n300"), hooks: HOOKS });
+    const [launch] = fake.launches;
+    if (launch === undefined) throw new Error("no launch");
+    launch.settle(okResult(launch.spec));
+    await handle.result;
+    for (let i = 0; i < 3; i++) {
+      await tick();
+      registry.onTurnSettled();
+    }
+    await tick();
+    expect(target.prompts.length).toBe(0);
+    expect(registry.pendingCount()).toBe(0); // dropped after cap
+    expect(stderr.some((t) => t.includes("dropped"))).toBe(true);
+  });
+
+  test("killAll settles are silent; task_stop settles notify", async () => {
+    const fake = makeFakeLauncher();
+    const target = makeSession();
+    const registry = new SubagentRegistry({
+      startTask: fake.start,
+      getSession: () => target.session,
+    });
+    const killed = registry.launch({ spec: makeSpec("sub_n400"), hooks: HOOKS });
+    registry.killAll();
+    const [killedLaunch] = fake.launches;
+    if (killedLaunch === undefined) throw new Error("no launch");
+    killedLaunch.settle({ ...okResult(killedLaunch.spec), aborted: true, isError: true });
+    await killed.result;
+    const stopped = registry.launch({ spec: makeSpec("sub_n401"), hooks: HOOKS });
+    registry.stopOne("sub_n401");
+    const [second] = fake.launches.slice(1);
+    if (second === undefined) throw new Error("no second launch");
+    second.settle({ ...okResult(second.spec), aborted: true, isError: true });
+    await stopped.result;
+    await tick();
+    expect(target.prompts.length).toBe(1); // only the task_stop one
+    expect(target.prompts[0]).toContain("stopped");
+  });
+
+  test("compacting defers delivery to the next trigger", async () => {
+    const fake = makeFakeLauncher();
+    const target = makeSession();
+    const registry = new SubagentRegistry({
+      startTask: fake.start,
+      getSession: () => target.session,
+    });
+    target.setCompacting(true);
+    const handle = registry.launch({ spec: makeSpec("sub_n500"), hooks: HOOKS });
+    const [launch] = fake.launches;
+    if (launch === undefined) throw new Error("no launch");
+    launch.settle(okResult(launch.spec));
+    await handle.result;
+    await tick();
+    expect(target.prompts.length).toBe(0);
+    target.setCompacting(false);
+    registry.onTurnSettled();
+    await tick();
+    expect(target.prompts.length).toBe(1);
+  });
+
+  test("two settles deliver serially: one now, one after the next turn settles", async () => {
+    const fake = makeFakeLauncher();
+    const target = makeSession();
+    const registry = new SubagentRegistry({
+      startTask: fake.start,
+      getSession: () => target.session,
+    });
+    for (let i = 0; i < 2; i++) {
+      const handle = registry.launch({ spec: makeSpec(`sub_n6${i}${i}`), hooks: HOOKS });
+      const launch = fake.launches[i];
+      if (launch === undefined) throw new Error("missing launch");
+      launch.settle({ ...okResult(launch.spec), output: `out-${i}` });
+      await handle.result;
+    }
+    await tick();
+    expect(target.prompts.length).toBe(1); // serial single-flight
+    expect(registry.pendingCount()).toBe(1);
+    target.setStreaming(false); // the first notification run ended
+    registry.onTurnSettled();
+    await tick();
+    expect(target.prompts.length).toBe(2);
+    expect(target.prompts[1]).toContain("out-1");
+  });
+
+  test("suppressed ids never notify", async () => {
+    const fake = makeFakeLauncher();
+    const target = makeSession();
+    const registry = new SubagentRegistry({
+      startTask: fake.start,
+      getSession: () => target.session,
+    });
+    registry.suppressNotifications(["sub_n700"]);
+    const handle = registry.launch({ spec: makeSpec("sub_n700"), hooks: HOOKS });
+    const [launch] = fake.launches;
+    if (launch === undefined) throw new Error("no launch");
+    launch.settle(okResult(launch.spec));
+    await handle.result;
+    await tick();
+    expect(target.prompts.length).toBe(0);
+    expect(registry.pendingCount()).toBe(0);
+  });
+});
