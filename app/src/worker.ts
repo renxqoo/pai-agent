@@ -14,12 +14,8 @@ import { createJsonlSplitter } from "./jsonl.ts";
 import type { HubFrame, WorkerCommand, WorkerHeartbeatFrame } from "./protocol.ts";
 import { OBSERVER_COMMANDS } from "./protocol.ts";
 import { SessionHost } from "./session-host.ts";
-import {
-  createSubagentRelay,
-  type SubagentCounter,
-  type SubagentRelay,
-  createTaskTool,
-} from "./subagent-tool.ts";
+import { createTaskTool } from "./subagent-tool.ts";
+import { SubagentRegistry } from "./subagent-registry.ts";
 import {
   createFrameWriter,
   getRawStdoutWrite,
@@ -55,9 +51,9 @@ function startHeartbeat(deps: {
   refs: WorkerRefs;
   registry: InflightRegistry;
   status: WorkerStatus;
-  counter: SubagentCounter;
+  subagents: SubagentRegistry;
 }): void {
-  const { emit, refs, registry, status, counter } = deps;
+  const { emit, refs, registry, status, subagents } = deps;
   const isBusy = (): boolean => {
     const session = refs.sessions?.get()?.session;
     return (
@@ -65,7 +61,7 @@ function startHeartbeat(deps: {
       session?.isCompacting === true ||
       (refs.broker?.pendingCount() ?? 0) > 0 ||
       registry.size() > 0 ||
-      counter.inFlight > 0
+      subagents.inFlight() > 0
     );
   };
   const heartbeat = setInterval(() => {
@@ -76,7 +72,7 @@ function startHeartbeat(deps: {
       idleMs: Date.now() - status.lastBusyAt,
       streaming: session?.isStreaming === true,
       sessionPath: session?.sessionFile ?? null,
-      ...(counter.inFlight > 0 ? { subagents: counter.inFlight } : {}),
+      ...(subagents.inFlight() > 0 ? { subagents: subagents.inFlight() } : {}),
     });
   }, HEARTBEAT_INTERVAL_MS);
   process.on("exit", () => clearInterval(heartbeat));
@@ -87,8 +83,7 @@ function buildContext(deps: {
   registry: InflightRegistry;
   emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
   triggerShutdown: (reason: string) => void;
-  counter: SubagentCounter;
-  relay: SubagentRelay;
+  subagents: SubagentRegistry;
 }): WorkerContext {
   const { sessions } = deps.refs;
   const { broker } = deps.refs;
@@ -101,7 +96,7 @@ function buildContext(deps: {
     emit: deps.emit,
     registerInflight: deps.registry.register,
     triggerShutdown: deps.triggerShutdown,
-    routeSubagentUi: (requestId, payload) => deps.relay.route(requestId, payload),
+    routeSubagentUi: (requestId, payload) => deps.subagents.route(requestId, payload),
     success: (id, command, data) => {
       deps.emit(responseSuccess(id, command, data));
     },
@@ -201,6 +196,7 @@ function createLifecycle(deps: {
   writer: ReturnType<typeof createFrameWriter>;
   registry: ReturnType<typeof createInflightRegistry>;
   refs: WorkerRefs;
+  subagents: SubagentRegistry;
 }): { shutdown: (reason: string) => Promise<void>; isShuttingDown: () => boolean } {
   let shuttingDown = false;
   return {
@@ -208,6 +204,7 @@ function createLifecycle(deps: {
       if (shuttingDown) return;
       shuttingDown = true;
       writeStderr(`pai-cli worker shutting down: ${reason}\n`);
+      deps.subagents.killAll();
       await deps.registry.abortAll();
       deps.refs.broker?.settleAll();
       await deps.refs.sessions?.dispose();
@@ -224,12 +221,11 @@ async function setupWorkerServices(deps: {
   registry: ReturnType<typeof createInflightRegistry>;
   emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
   shutdown: (reason: string) => Promise<void>;
-  counter: SubagentCounter;
+  subagents: SubagentRegistry;
 }): Promise<WorkerContext> {
   const modelRuntime = await ModelRuntime.create();
   const broker = new DialogBroker((frame) => deps.emit(frame));
-  const relay = createSubagentRelay();
-  const { counter } = deps;
+  const { subagents } = deps;
   deps.refs.broker = broker;
   deps.refs.sessions = new SessionHost({
     modelRuntime,
@@ -244,8 +240,7 @@ async function setupWorkerServices(deps: {
         {
           emit: deps.emit,
           modelRuntime,
-          counter,
-          relay,
+          registry: subagents,
           writeStderr,
           getThreadId: () => deps.refs.sessions?.threadId() ?? "",
         },
@@ -258,8 +253,7 @@ async function setupWorkerServices(deps: {
     registry: deps.registry,
     emit: deps.emit,
     triggerShutdown: (reason) => void deps.shutdown(reason),
-    counter,
-    relay,
+    subagents,
   });
 }
 
@@ -269,8 +263,8 @@ export async function runWorker(): Promise<void> {
   const refs: WorkerRefs = {};
   const status: WorkerStatus = { lastBusyAt: Date.now() };
   const registry = createInflightRegistry();
-  const counter: SubagentCounter = { inFlight: 0 };
-  const lifecycle = createLifecycle({ writer, registry, refs });
+  const subagents = new SubagentRegistry();
+  const lifecycle = createLifecycle({ writer, registry, refs, subagents });
   const { shutdown } = lifecycle;
 
   const emit = (frame: HubFrame | WorkerHeartbeatFrame): void => {
@@ -281,8 +275,8 @@ export async function runWorker(): Promise<void> {
       void shutdown("stdout write failed");
     });
   };
-  startHeartbeat({ emit, refs, registry, status, counter });
-  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown, counter });
+  startHeartbeat({ emit, refs, registry, status, subagents });
+  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown, subagents });
 
   const handleCommand = async (cmd: WorkerCommand): Promise<void> => {
     const { id } = cmd;

@@ -3,15 +3,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createTaskTool, type TaskToolDeps } from "../src/subagent-tool.ts";
 import {
   MAX_CONCURRENT_SUBAGENTS,
   MAX_INFLIGHT_PER_CONVERSATION,
   MAX_TASKS_PER_CALL,
-  createSubagentRelay,
-  createTaskTool,
-  type SubagentCounter,
-  type TaskToolDeps,
-} from "../src/subagent-tool.ts";
+  SubagentRegistry,
+} from "../src/subagent-registry.ts";
 import type {
   GrandchildDriver,
   GrandchildResult,
@@ -72,7 +70,7 @@ interface RegisteredTool {
 
 interface ToolHarness {
   tool: RegisteredTool;
-  counter: SubagentCounter;
+  registry: SubagentRegistry;
   launches: GrandchildTaskSpec[];
   maxConcurrent: () => number;
 }
@@ -99,8 +97,18 @@ function makeOkResult(): (spec: GrandchildTaskSpec) => GrandchildResult {
   });
 }
 
-function makeHarness(): ToolHarness {
-  const counter: SubagentCounter = { inFlight: 0 };
+function specTemplate(): GrandchildTaskSpec {
+  return {
+    subagentId: "sub_fill",
+    agent: "echoer",
+    task: "fill",
+    cwd: tmpdir(),
+    systemPrompt: "p",
+    permissionRules: { mode: "ask" },
+  };
+}
+
+function makeHarness(options?: { hold?: boolean }): ToolHarness {
   const launches: GrandchildTaskSpec[] = [];
   let inFlightNow = 0;
   let maxSeen = 0;
@@ -109,23 +117,25 @@ function makeHarness(): ToolHarness {
     launches.push(deps.spec);
     inFlightNow += 1;
     maxSeen = Math.max(maxSeen, inFlightNow);
-    const result = Promise.resolve(okResult(deps.spec)).finally(() => {
-      inFlightNow -= 1;
-    });
+    const result =
+      options?.hold === true
+        ? new Promise<GrandchildResult>(() => {}) // never settles (budget test)
+        : Promise.resolve(okResult(deps.spec)).finally(() => {
+            inFlightNow -= 1;
+          });
     return { result, resolveUi: () => false };
   };
   const modelRuntime = {
     getAvailableSnapshot: () => [],
     refresh: async () => {},
   } as unknown as ModelRuntime;
+  const registry = new SubagentRegistry({ startTask });
   const deps: TaskToolDeps = {
     emit: () => {},
     modelRuntime,
-    counter,
-    relay: createSubagentRelay(),
+    registry,
     writeStderr: () => {},
     getThreadId: () => "tid-1",
-    startTask: startTask as TaskToolDeps["startTask"],
   };
   let registered: RegisteredTool | undefined;
   const pi = {
@@ -135,7 +145,7 @@ function makeHarness(): ToolHarness {
   } as unknown as ExtensionAPI;
   createTaskTool(deps, false)(pi);
   if (registered === undefined) throw new Error("task tool was not registered");
-  return { tool: registered, counter, launches, maxConcurrent: () => maxSeen };
+  return { tool: registered, registry, launches, maxConcurrent: () => maxSeen };
 }
 
 async function runTool(
@@ -179,7 +189,7 @@ describe("task tool parameter validation (plan §6)", () => {
     expect(r.text).toContain('Unknown agent: "ghost"');
     expect(r.text).toContain('"echoer"');
     expect(h.launches.length).toBe(0);
-    expect(h.counter.inFlight).toBe(0);
+    expect(h.registry.inFlight()).toBe(0);
   });
 
   test("cwd must stay inside the conversation directory", async () => {
@@ -209,12 +219,18 @@ describe("task tool parameter validation (plan §6)", () => {
   });
 
   test("conversation-level in-flight budget rejected before spawning", async () => {
-    const h = makeHarness();
-    h.counter.inFlight = MAX_INFLIGHT_PER_CONVERSATION;
+    const h = makeHarness({ hold: true });
+    // Fill the registry with never-settling tasks (queued+running all count).
+    for (let i = 0; i < MAX_INFLIGHT_PER_CONVERSATION; i++) {
+      h.registry.launch({
+        spec: { ...specTemplate(), subagentId: `sub_fill${i}${i}` },
+        hooks: { onEvent: () => {}, onUiRequest: () => {}, writeStderr: () => {} },
+      });
+    }
     const r = await runTool(h, { agent: "echoer", task: "x" });
     expect(r.text).toContain("Too many subagents in flight");
-    expect(h.launches.length).toBe(0);
-    expect(h.counter.inFlight).toBe(MAX_INFLIGHT_PER_CONVERSATION); // untouched
+    expect(h.launches.length).toBe(MAX_CONCURRENT_SUBAGENTS); // gate spawned only 4
+    expect(h.registry.inFlight()).toBe(MAX_INFLIGHT_PER_CONVERSATION); // untouched
   });
 });
 
@@ -224,7 +240,7 @@ describe("task tool execution semantics", () => {
     const r = await runTool(h, { agent: "echoer", task: "echo hi" });
     expect(r.text).toContain("done:echo hi");
     expect(r.isError).toBeUndefined();
-    expect(h.counter.inFlight).toBe(0); // released exactly once
+    expect(h.registry.inFlight()).toBe(0); // released on settle
     expect(h.launches.length).toBe(1);
     expect(h.launches[0]?.cwd).toBe(tmpdir());
     expect(h.launches[0]?.permissionRules).toBeDefined();
@@ -239,7 +255,7 @@ describe("task tool execution semantics", () => {
         { agent: "ghost", task: "b" },
       ],
     });
-    expect(h.counter.inFlight).toBe(0);
+    expect(h.registry.inFlight()).toBe(0);
     expect(h.launches.length).toBe(0); // nothing spawned for the failed batch
   });
 
@@ -250,7 +266,7 @@ describe("task tool execution semantics", () => {
     expect(r.text).toContain("6/6 succeeded");
     expect(h.launches.length).toBe(6);
     expect(h.maxConcurrent()).toBeLessThanOrEqual(MAX_CONCURRENT_SUBAGENTS);
-    expect(h.counter.inFlight).toBe(0);
+    expect(h.registry.inFlight()).toBe(0);
   });
 
   test("chain substitutes {previous} and runs sequentially", async () => {
@@ -272,6 +288,6 @@ describe("task tool execution semantics", () => {
     const r = await runTool(h, { agent: "modelagent", task: "x" }, fallbackModel);
     expect(h.launches[0]?.model).toBe(fallbackModel); // inherited the conversation model
     expect(r.text).toContain("model not found; ran with the conversation model");
-    expect(h.counter.inFlight).toBe(0);
+    expect(h.registry.inFlight()).toBe(0);
   });
 });

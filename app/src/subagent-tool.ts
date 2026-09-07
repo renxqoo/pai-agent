@@ -17,56 +17,24 @@ import { effectiveRules } from "./permission-gate.ts";
 import type { HubFrame, SessionModel } from "./protocol.ts";
 import { toWireEvent } from "./session-host.ts";
 import {
-  type GrandchildDriver,
   type GrandchildResult,
   type GrandchildTaskSpec,
   type GrandchildUsage,
   newSubagentId,
-  startGrandchildTask,
 } from "./subagent-process.ts";
-
-export const MAX_TASKS_PER_CALL = 8;
-export const MAX_CONCURRENT_SUBAGENTS = 4;
-export const MAX_INFLIGHT_PER_CONVERSATION = 8;
-
-export interface SubagentCounter {
-  inFlight: number;
-}
-
-/** Live grandchild drivers of this worker; routes ui_response broadcasts. */
-export interface SubagentRelay {
-  register: (driver: GrandchildDriver) => void;
-  unregister: (driver: GrandchildDriver) => void;
-  route: (requestId: string, payload: Record<string, unknown>) => boolean;
-}
-
-export function createSubagentRelay(): SubagentRelay {
-  const drivers = new Set<GrandchildDriver>();
-  return {
-    register: (driver) => {
-      drivers.add(driver);
-    },
-    unregister: (driver) => {
-      drivers.delete(driver);
-    },
-    route: (requestId, payload) => {
-      for (const driver of drivers) {
-        if (driver.resolveUi(requestId, payload)) return true;
-      }
-      return false;
-    },
-  };
-}
+import {
+  MAX_CONCURRENT_SUBAGENTS,
+  MAX_INFLIGHT_PER_CONVERSATION,
+  MAX_TASKS_PER_CALL,
+  type SubagentRegistry,
+} from "./subagent-registry.ts";
 
 export interface TaskToolDeps {
   emit: (frame: HubFrame) => void;
   modelRuntime: ModelRuntime;
-  counter: SubagentCounter;
-  relay: SubagentRelay;
+  registry: SubagentRegistry;
   writeStderr: (text: string) => void;
   getThreadId: () => string;
-  /** Test seam: grandchild launcher (defaults to the real driver). */
-  startTask?: typeof startGrandchildTask;
 }
 
 interface TaskItemInput {
@@ -155,30 +123,32 @@ async function runTaskTool(deps: {
   const batch = prepareBatch(deps.params);
   if (typeof batch === "string") return textResult(batch, true);
 
-  // Sync reservation before the first await (plan §3.1 counting discipline).
-  if (tool.counter.inFlight + batch.items.length > MAX_INFLIGHT_PER_CONVERSATION) {
+  // Sync reservation before the first await (plan stage 1): the in-flight
+  // budget is checked against the registry (queued+running, single truth).
+  const inFlight = tool.registry.inFlight();
+  if (inFlight + batch.items.length > MAX_INFLIGHT_PER_CONVERSATION) {
     return textResult(
-      `Too many subagents in flight (${tool.counter.inFlight} + ${batch.items.length} > ${MAX_INFLIGHT_PER_CONVERSATION}); wait for running tasks to finish`,
+      `Too many subagents in flight (${inFlight} + ${batch.items.length} > ${MAX_INFLIGHT_PER_CONVERSATION}); wait for running tasks to finish`,
       true,
     );
   }
-  tool.counter.inFlight += batch.items.length;
   try {
     const specsResult = await buildSpecs({ tool, trusted, batch, ctx: deps.ctx });
     if (specsResult instanceof Error) return textResult(specsResult.message, true);
     const { specs, notes } = specsResult;
     const runOne = (spec: GrandchildTaskSpec): Promise<GrandchildResult> =>
       runGrandchild(tool, spec, deps.signal);
-    // await inside the try: the finally (budget release) must run at actual
-    // completion, not when the pending promise is produced.
+    // await inside the try (batch-B lesson); budget release lives on the
+    // registry settle hook, not a tool-level finally.
     const outcome =
       batch.mode === "chain"
         ? await runChain({ specs, items: batch.items, runOne, onUpdate: deps.onUpdate })
         : await runParallel({ specs, runOne, onUpdate: deps.onUpdate });
     if (notes.length > 0) appendNotes(outcome, notes);
     return outcome;
-  } finally {
-    tool.counter.inFlight -= batch.items.length;
+  } catch (error) {
+    // Defensive: the registry/driver never reject, but a hook could throw.
+    return textResult(error instanceof Error ? error.message : String(error), true);
   }
 }
 
@@ -235,15 +205,17 @@ async function buildSpecs(deps: {
   return { specs, notes };
 }
 
+/** Launch one grandchild through the registry (global gate + queueing) and
+ * await its result. The turn signal is chained onto the entry's controller
+ * by the registry; killAll/task_stop reach it the same way. */
 async function runGrandchild(
   tool: TaskToolDeps,
   spec: GrandchildTaskSpec,
   signal: AbortSignal | undefined,
 ): Promise<GrandchildResult> {
-  const startTask = tool.startTask ?? startGrandchildTask;
-  const driver = startTask({
+  const handle = tool.registry.launch({
     spec,
-    signal,
+    ...(signal !== undefined ? { outerSignal: signal } : {}),
     hooks: {
       onEvent: (event) => {
         tool.emit({
@@ -269,12 +241,7 @@ async function runGrandchild(
       writeStderr: tool.writeStderr,
     },
   });
-  tool.relay.register(driver);
-  try {
-    return await driver.result;
-  } finally {
-    tool.relay.unregister(driver);
-  }
+  return handle.result;
 }
 
 /** Envelope task cap (review P2-10): chain steps can embed a 50KB {previous}
