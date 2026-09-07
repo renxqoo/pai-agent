@@ -52,6 +52,9 @@
 
 Multiple pi sessions may be running in this cwd at the same time, each modifying different files. Git operations that touch unstaged, staged, or untracked files outside your own changes will stomp on other sessions' work. Follow these rules:
 
+Pushing (origin = github.com): direct HTTPS often cannot connect from this network. The remote is therefore set to SSH (`git@github.com:renxqoo/pai-agent.git`, key auth verified). If SSH ever fails too, fall back to the local proxy for one command without changing config:
+`git -c http.proxy=http://127.0.0.1:7890 push <remote> <branch>` (proxy ports seen live: 7890, 7897).
+
 Committing:
 
 - Only commit files YOU changed in THIS session.
