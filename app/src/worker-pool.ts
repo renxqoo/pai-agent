@@ -17,7 +17,12 @@ import type { HubFrame, SessionModel, ThreadListEntry, UiResponseCmd } from "./p
 import { INTERNAL_ID_PREFIX } from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle, spawnWorkerProcess } from "./worker-process.ts";
 import { ThreadTable } from "./thread-table.ts";
-import { type FrameRelayDeps, type InternalWaiter, onWorkerLine } from "./worker-frames.ts";
+import {
+  type FrameRelayDeps,
+  type InternalWaiter,
+  broadcastUiResponseToWorkers,
+  onWorkerLine,
+} from "./worker-frames.ts";
 
 export const MAX_THREADS_DEFAULT = 32;
 export const IDLE_RETIRE_MS_DEFAULT = 900_000;
@@ -91,8 +96,18 @@ export class WorkerPool {
     return this.table.has(threadId);
   }
 
+  /** Entry facts for host-local commands (agents/list). */
+  entryFor(threadId: string): { cwd: string; trusted: boolean } | undefined {
+    const entry = this.table.entry(threadId);
+    return entry === undefined ? undefined : { cwd: entry.cwd, trusted: entry.trusted };
+  }
   liveCount(): number {
     return this.table.liveCount();
+  }
+
+  /** Aggregate in-flight subagent (grandchild) count over live workers. */
+  inFlightSubagents(): number {
+    return this.liveWorkers().reduce((total, worker) => total + worker.subagents, 0);
   }
 
   /** thread/start: spawn a worker and send the internal start (model resolved by the host). */
@@ -238,21 +253,15 @@ export class WorkerPool {
   /** ui_response: ack once in the host, broadcast to every live worker (the
    * owner resolves by requestId; the rest ignore it). No per-dialog state. */
   broadcastUiResponse(cmd: UiResponseCmd): void {
-    const payload = JSON.stringify({
-      type: "ui_response",
-      requestId: cmd.requestId,
-      payload: cmd.payload,
-    });
-    for (const worker of this.liveWorkers()) {
-      const id = this.registerInternal(worker, {
-        onResponse: () => {},
-        onClosed: () => {},
-      });
-      void worker.writeLine(payload.replace(/^\{/, `{"id":"${id}",`)).catch(() => {
+    broadcastUiResponseToWorkers({
+      cmd,
+      workers: this.liveWorkers(),
+      registerInternal: (worker, waiter) => this.registerInternal(worker, waiter),
+      forgetInternal: (worker, id) => {
         this.internalIds.delete(id);
         worker.internalIds.delete(id);
-      });
-    }
+      },
+    });
   }
 
   /** Graceful shutdown: EOF every worker, wait for close, force after timeout.
@@ -300,10 +309,7 @@ export class WorkerPool {
     wake: Promise<void> | undefined;
     stopRequested: boolean;
   }): void {
-    if (entry.wake === undefined) {
-      this.table.delete(entry.threadId);
-      return;
-    }
+    if (entry.wake === undefined) return void this.table.delete(entry.threadId);
     // A wake is respawning this thread right now (design §6 spawning -
     // thread/stop edge): mark it so the wake lands on a stopped thread,
     // tears its worker down, and drops the re-registered entry instead
@@ -334,12 +340,16 @@ export class WorkerPool {
     });
   }
 
-  private liveBudgetExceeded(): boolean {
+  private liveAndSpawning(): number {
     let spawning = 0;
     for (const worker of this.allWorkers) {
       if (worker.awaitingStart) spawning++;
     }
-    return this.table.liveCount() + spawning >= this.maxThreads;
+    return this.table.liveCount() + spawning;
+  }
+
+  private liveBudgetExceeded(): boolean {
+    return this.liveAndSpawning() >= this.maxThreads;
   }
 
   /** Post-spawn check: the caller's own spawn now counts itself, so the
@@ -347,11 +357,7 @@ export class WorkerPool {
    * the exact last slot is legitimate — the off-by-one would otherwise make
    * PAI_MAX_THREADS=N an effective N-1, and N=1 unusable). */
   private overBudget(): boolean {
-    let spawning = 0;
-    for (const worker of this.allWorkers) {
-      if (worker.awaitingStart) spawning++;
-    }
-    return this.table.liveCount() + spawning > this.maxThreads;
+    return this.liveAndSpawning() > this.maxThreads;
   }
 
   private failure(id: string | undefined, command: string, error: string): void {

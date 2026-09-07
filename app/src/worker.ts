@@ -15,6 +15,12 @@ import type { HubFrame, WorkerCommand, WorkerHeartbeatFrame } from "./protocol.t
 import { OBSERVER_COMMANDS } from "./protocol.ts";
 import { SessionHost } from "./session-host.ts";
 import {
+  createSubagentRelay,
+  type SubagentCounter,
+  type SubagentRelay,
+  createTaskTool,
+} from "./subagent-tool.ts";
+import {
   createFrameWriter,
   getRawStdoutWrite,
   takeOverStdout,
@@ -49,23 +55,28 @@ function startHeartbeat(deps: {
   refs: WorkerRefs;
   registry: InflightRegistry;
   status: WorkerStatus;
+  counter: SubagentCounter;
 }): void {
-  const { emit, refs, registry, status } = deps;
-  const heartbeat = setInterval(() => {
+  const { emit, refs, registry, status, counter } = deps;
+  const isBusy = (): boolean => {
     const session = refs.sessions?.get()?.session;
-    if (
+    return (
       session?.isStreaming === true ||
       session?.isCompacting === true ||
       (refs.broker?.pendingCount() ?? 0) > 0 ||
-      registry.size() > 0
-    ) {
-      status.lastBusyAt = Date.now();
-    }
+      registry.size() > 0 ||
+      counter.inFlight > 0
+    );
+  };
+  const heartbeat = setInterval(() => {
+    if (isBusy()) status.lastBusyAt = Date.now();
+    const session = refs.sessions?.get()?.session;
     emit({
       type: "heartbeat",
       idleMs: Date.now() - status.lastBusyAt,
       streaming: session?.isStreaming === true,
       sessionPath: session?.sessionFile ?? null,
+      ...(counter.inFlight > 0 ? { subagents: counter.inFlight } : {}),
     });
   }, HEARTBEAT_INTERVAL_MS);
   process.on("exit", () => clearInterval(heartbeat));
@@ -76,6 +87,8 @@ function buildContext(deps: {
   registry: InflightRegistry;
   emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
   triggerShutdown: (reason: string) => void;
+  counter: SubagentCounter;
+  relay: SubagentRelay;
 }): WorkerContext {
   const { sessions } = deps.refs;
   const { broker } = deps.refs;
@@ -88,6 +101,7 @@ function buildContext(deps: {
     emit: deps.emit,
     registerInflight: deps.registry.register,
     triggerShutdown: deps.triggerShutdown,
+    routeSubagentUi: (requestId, payload) => deps.relay.route(requestId, payload),
     success: (id, command, data) => {
       deps.emit(responseSuccess(id, command, data));
     },
@@ -210,9 +224,12 @@ async function setupWorkerServices(deps: {
   registry: ReturnType<typeof createInflightRegistry>;
   emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
   shutdown: (reason: string) => Promise<void>;
+  counter: SubagentCounter;
 }): Promise<WorkerContext> {
   const modelRuntime = await ModelRuntime.create();
   const broker = new DialogBroker((frame) => deps.emit(frame));
+  const relay = createSubagentRelay();
+  const { counter } = deps;
   deps.refs.broker = broker;
   deps.refs.sessions = new SessionHost({
     modelRuntime,
@@ -220,12 +237,29 @@ async function setupWorkerServices(deps: {
     createUi: (threadId) => createUiContext(threadId, broker, deps.emit),
     onThreadDisposed: (threadId) => broker.settleThread(threadId),
     writeStderr,
+    // The task tool is built-in (not an extension): untrusted conversations
+    // get it too, project-level agent definitions stay trust-gated inside.
+    createExtensions: (spawn) => [
+      createTaskTool(
+        {
+          emit: deps.emit,
+          modelRuntime,
+          counter,
+          relay,
+          writeStderr,
+          getThreadId: () => deps.refs.sessions?.threadId() ?? "",
+        },
+        spawn.trusted,
+      ),
+    ],
   });
   return buildContext({
     refs: deps.refs,
     registry: deps.registry,
     emit: deps.emit,
     triggerShutdown: (reason) => void deps.shutdown(reason),
+    counter,
+    relay,
   });
 }
 
@@ -235,6 +269,7 @@ export async function runWorker(): Promise<void> {
   const refs: WorkerRefs = {};
   const status: WorkerStatus = { lastBusyAt: Date.now() };
   const registry = createInflightRegistry();
+  const counter: SubagentCounter = { inFlight: 0 };
   const lifecycle = createLifecycle({ writer, registry, refs });
   const { shutdown } = lifecycle;
 
@@ -246,8 +281,8 @@ export async function runWorker(): Promise<void> {
       void shutdown("stdout write failed");
     });
   };
-  startHeartbeat({ emit, refs, registry, status });
-  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown });
+  startHeartbeat({ emit, refs, registry, status, counter });
+  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown, counter });
 
   const handleCommand = async (cmd: WorkerCommand): Promise<void> => {
     const { id } = cmd;

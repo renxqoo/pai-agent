@@ -72,8 +72,14 @@ function createEmitters(
 /** Parse + dispatch one stdin line; parse failures become parse responses. */
 /** Contract: heartbeat runs for the whole process lifetime, so it starts
  * before the (potentially slow) model runtime setup. */
-function startHeartbeat(emitters: HostEmitters): void {
-  const heartbeat = setInterval(() => emitters.emit({ type: "heartbeat" }), HEARTBEAT_INTERVAL_MS);
+function startHeartbeat(emitters: HostEmitters, poolRef: { pool?: WorkerPool }): void {
+  const heartbeat = setInterval(() => {
+    const subagents = poolRef.pool?.inFlightSubagents() ?? 0;
+    emitters.emit({
+      type: "heartbeat",
+      ...(subagents > 0 ? { subagents } : {}),
+    });
+  }, HEARTBEAT_INTERVAL_MS);
   process.on("exit", () => clearInterval(heartbeat));
 }
 
@@ -192,7 +198,7 @@ export async function runHost(argv: string[]): Promise<void> {
       void shutdown("stdout write failed");
     },
   );
-  startHeartbeat(emitters);
+  startHeartbeat(emitters, poolRef);
   const { deps } = await setupHostServices({ emitters, registry, poolRef });
 
   const handleCommand = async (cmd: HubCommand, line: string): Promise<void> => {

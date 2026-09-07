@@ -5,7 +5,9 @@
  */
 
 import { type ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { discoverAgents } from "./agent-definitions.ts";
 import type {
+  AgentsListCmd,
   AuthListCmd,
   AuthRemoveKeyCmd,
   AuthSetApiKeyCmd,
@@ -217,6 +219,39 @@ const handleAuthRemoveKeyCommand: HostHandler = async (deps, cmd, id) => {
   );
 };
 
+// --- v0.5: agent definitions (host-local) --------------------------------------
+
+/** agents/list {threadId?}: with a threadId, project-level agents of that
+ * thread's cwd are included when the thread is trusted; without one only
+ * user-level agents are visible (no cwd context, no trust decision). */
+const handleAgentsList: HostHandler = (deps, cmd, id) => {
+  const list = cmd as AgentsListCmd;
+  const { threadId } = list;
+  if (threadId !== undefined && typeof threadId !== "string") {
+    deps.emit(responseFailure(id, list.type, "Invalid threadId"));
+    return Promise.resolve();
+  }
+  let cwd = process.cwd();
+  let trusted = false;
+  if (threadId !== undefined) {
+    const entry = deps.pool.entryFor(threadId);
+    if (entry === undefined) {
+      deps.emit(responseFailure(id, list.type, `Unknown threadId: ${threadId}`));
+      return Promise.resolve();
+    }
+    ({ cwd, trusted } = entry);
+  }
+  const agents = discoverAgents({ cwd, trusted }).map((agent) => ({
+    name: agent.name,
+    description: agent.description,
+    source: agent.source,
+    ...(agent.tools !== undefined ? { tools: agent.tools } : {}),
+    ...(agent.model !== undefined ? { model: agent.model } : {}),
+  }));
+  deps.emit(responseSuccess(id, list.type, { agents }));
+  return Promise.resolve();
+};
+
 /** Registry of commands the host answers itself; everything else either
  * routes to a worker (thread-scoped) or is an unknown command. */
 export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, HostHandler>(
@@ -234,6 +269,7 @@ export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, Ho
     ui_response: handleUiResponse,
     get_permission_rules: handleGetPermissionRules,
     set_permission_rules: handleSetPermissionRules,
+    "agents/list": handleAgentsList,
   }),
 );
 

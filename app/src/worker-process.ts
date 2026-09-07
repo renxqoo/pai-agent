@@ -10,6 +10,9 @@ import { existsSync } from "node:fs";
 import { createJsonlSplitter, WORKER_LINE_BYTES } from "./jsonl.ts";
 import { WORKER_FLAG } from "./protocol.ts";
 
+/** The spawn seam shared with the grandchild driver (tests inject a fake). */
+export type SpawnWorkerFn = typeof spawnWorkerProcess;
+
 export type RetireIntent = "none" | "retire" | "stop" | "shutdown";
 
 export interface WorkerStdin {
@@ -35,6 +38,8 @@ export interface WorkerHandle {
   idleMs: number;
   streaming: boolean;
   sessionPath: string | null;
+  /** Live grandchild processes of this worker (last heartbeat, v0.5). */
+  subagents: number;
   /** Routed command ids awaiting a response (id -> command), reconciled at close. */
   readonly pendingIds: Map<string, string>;
   /** Internal ids issued to this worker (broadcast acks, wake resumes). */
@@ -100,6 +105,7 @@ function makeFailedSpawnHandle(child: ChildProcess, reason: string): WorkerHandl
     idleMs: 0,
     streaming: false,
     sessionPath: null,
+    subagents: 0,
     pendingIds: new Map<string, string>(),
     internalIds: new Set<string>(),
   };
@@ -238,6 +244,7 @@ function makeWorkerHandle(deps: {
     idleMs: 0,
     streaming: false,
     sessionPath: null,
+    subagents: 0,
     pendingIds: new Map<string, string>(),
     internalIds: new Set<string>(),
   };

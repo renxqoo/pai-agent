@@ -13,7 +13,7 @@
 // wake, host SIGKILL -> workers self-exit via stdin EOF.
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,7 +32,7 @@ const watchdog = setTimeout(() => {
       .join(","),
   );
   process.exit(1);
-}, 360_000);
+}, 900_000);
 
 // --- environment -------------------------------------------------------------
 const env = {};
@@ -123,11 +123,16 @@ const send = (cmd) =>
       }
     }, 30);
   });
-const waitEvent = (pred, label, ms = 120_000) =>
-  new Promise((resolve, reject) => {
+// Cursor-based: scans only frames that arrived after the call, so later
+// journeys' "settled" waits cannot be satisfied by earlier journeys' frames.
+// An explicit `since` is used when the trigger (e.g. abort) is sent before
+// the wait starts — the settled event can beat the command response.
+// eslint-disable-next-line max-params -- (pred, label, timeout, cursor)
+function waitEvent(pred, label, ms = 120_000, since = allFrames.length) {
+  return new Promise((resolve, reject) => {
     const t0 = Date.now();
     const t = setInterval(() => {
-      const fr = allFrames.find((x) => x.type === "event" && pred(x.event));
+      const fr = allFrames.slice(since).find((x) => x.type === "event" && pred(x.event));
       if (fr) {
         clearInterval(t);
         resolve(fr.event);
@@ -137,6 +142,7 @@ const waitEvent = (pred, label, ms = 120_000) =>
       }
     }, 100);
   });
+}
 const nextRequestId = (() => {
   const ids = new Set();
   return () => {
@@ -507,9 +513,10 @@ writeFileSync(
     (e) => e.type === "message_update" && e.assistantMessageEvent?.type === "text_delta",
     "first delta",
   );
+  const beforeAbort = allFrames.length;
   const abort = await send({ id: "e41", type: "abort", threadId: tid });
   assert(abort.success, "abort accepted");
-  await waitEvent((e) => e.type === "agent_settled", "aborted run settled");
+  await waitEvent((e) => e.type === "agent_settled", "aborted run settled", 120_000, beforeAbort);
 }
 
 // --- 11. compact -------------------------------------------------------------------
@@ -771,6 +778,245 @@ writeFileSync(
   assert(gone, "workers self-exit within 20s after host SIGKILL (stdin EOF)");
   rmSync(agentDir2, { recursive: true, force: true });
   rmSync(proj2, { recursive: true, force: true });
+}
+
+// --- 12f. v0.5 subagents: task tool, grandchild relay, ephemeral, tree ---------
+{
+  mkdirSync(join(agentDir, "agents"), { recursive: true });
+  writeFileSync(
+    join(agentDir, "agents", "echoer.md"),
+    "---\nname: echoer\ndescription: runs one echo command and reports its output\ntools: bash\n---\nYou are a subagent. Run exactly the requested echo command with the bash tool, then reply with its exact output and nothing else.\n",
+  );
+  mkdirSync(join(projectDir, ".pi", "agents"), { recursive: true });
+  writeFileSync(
+    join(projectDir, ".pi", "agents", "proj-agent.md"),
+    "---\nname: proj-agent\ndescription: project-level test agent\ntools: bash\n---\nProject agent.\n",
+  );
+
+  const al1 = await send({ id: "sa1", type: "agents/list" });
+  assert(
+    al1.success && al1.data.agents.some((a) => a.name === "echoer"),
+    "agents/list (no thread): user agent visible",
+  );
+  assert(
+    !al1.data.agents.some((a) => a.name === "proj-agent"),
+    "agents/list (no thread): project agent hidden",
+  );
+
+  const t3 = await send({
+    id: "sa2",
+    type: "thread/start",
+    cwd: projectDir,
+    trusted: true,
+    provider: "glm",
+    modelId,
+  });
+  assert(t3.success, `trusted thread for subagents (${t3.error ?? "ok"})`);
+  const tid3 = t3.data.threadId;
+  const al2 = await send({ id: "sa3", type: "agents/list", threadId: tid3 });
+  assert(
+    al2.success && al2.data.agents.some((a) => a.name === "proj-agent" && a.source === "project"),
+    "agents/list (trusted thread): project agent visible",
+  );
+  const al3 = await send({ id: "sa4", type: "agents/list", threadId: "ghost" });
+  assert(
+    !al3.success && /Unknown threadId/.test(al3.error ?? ""),
+    "agents/list ghost thread fails",
+  );
+
+  // Allow-list the grandchild's bash so the happy path is deterministic;
+  // the dialog relay gets its own journey below.
+  await send({
+    id: "sa5",
+    type: "set_permission_rules",
+    threadId: tid3,
+    rules: { bash: { allowPatterns: ["echo *"] } },
+  });
+  const pr = await send({
+    id: "sa6",
+    type: "prompt",
+    threadId: tid3,
+    message:
+      'Use the task tool now with agent "echoer" and task "echo sub-relay-7741". Do not run the echo yourself: delegate it via the task tool, then report what the agent returned.',
+  });
+  assert(pr.success, `delegation prompt accepted (${pr.error ?? "ok"})`);
+  await waitEvent(
+    (e) => e.type === "tool_execution_end" && e.toolName === "task",
+    "task tool_execution_end",
+    240_000,
+  );
+  await waitEvent((e) => e.type === "agent_settled", "father settled after delegation", 240_000);
+  await waitIdle(tid3, 240_000);
+  assert(seen.includes("subagent_event"), "subagent_event frames relayed to the client");
+  const subFrames = allFrames.filter((f) => f.type === "subagent_event");
+  assert(
+    subFrames.length > 0 &&
+      subFrames.every((f) => f.threadId === tid3 && (f.subagentId ?? "").startsWith("sub_")),
+    "subagent_event shape (father threadId + sub_ id)",
+  );
+  assert(
+    allFrames.some((f) => f.type === "heartbeat" && (f.subagents ?? 0) > 0),
+    "heartbeat exposed the in-flight subagent count",
+  );
+  await waitAssistantContains(tid3, "sub-relay-7741", 240_000);
+  // Baseline AFTER the father's own session file exists (pi persists lazily);
+  // from here any new file can only come from a non-ephemeral grandchild.
+  const sessionsBefore = sessionTree(join(agentDir, "sessions"));
+  await assertNoGrandchildren(hub.pid, "grandchild processes gone after the task");
+
+  // Dialog relay: grandchild bash hits "ask" -> ui_request carries the
+  // subagent fields -> answer routes back into the grandchild.
+  await send({
+    id: "sa7",
+    type: "set_permission_rules",
+    threadId: tid3,
+    rules: { mode: "ask" },
+  });
+  const pr2 = await send({
+    id: "sa8",
+    type: "prompt",
+    threadId: tid3,
+    message:
+      'Use the task tool again: agent "echoer", task "echo sub-dialog-8899". Delegate via the task tool, then report the result.',
+  });
+  assert(pr2.success, "dialog-relay prompt accepted");
+  const subConfirm = await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(() => {
+      const fr = allFrames.find(
+        (x) => x.type === "ui_request" && x.subagentId !== undefined && x.agent === "echoer",
+      );
+      if (fr) {
+        clearInterval(t);
+        resolve(fr);
+      } else if (Date.now() - t0 > 240_000) {
+        clearInterval(t);
+        reject(new Error("timeout waiting for subagent dialog"));
+      }
+    }, 100);
+  });
+  assert(typeof subConfirm.subagentId === "string", "subagent dialog carries subagentId");
+  const dlg = await send({
+    id: "sa9",
+    type: "ui_response",
+    requestId: subConfirm.requestId,
+    payload: { confirmed: true },
+  });
+  assert(dlg.success, "subagent dialog answer acked");
+  await waitEvent((e) => e.type === "agent_settled", "father settled after dialog relay", 240_000);
+  await waitAssistantContains(tid3, "sub-dialog-8899", 240_000);
+  assert(
+    sessionTree(join(agentDir, "sessions")) === sessionsBefore,
+    "ephemeral grandchild wrote no session file",
+  );
+  await assertNoGrandchildren(hub.pid, "grandchild processes gone after dialog relay");
+
+  // Parallel delegation: two tasks in one call, two distinct subagent ids.
+  await send({
+    id: "sa9b",
+    type: "set_permission_rules",
+    threadId: tid3,
+    rules: { bash: { allowPatterns: ["echo *"] } },
+  });
+  const prPar = await send({
+    id: "sa9c",
+    type: "prompt",
+    threadId: tid3,
+    message:
+      'Use the task tool with tasks: [{agent "echoer", task "echo par-one-555"}, {agent "echoer", task "echo par-two-666"}]. Delegate both in one call, then report both results.',
+  });
+  assert(prPar.success, "parallel delegation prompt accepted");
+  await waitEvent(
+    (e) => e.type === "tool_execution_end" && e.toolName === "task",
+    "parallel task end",
+    240_000,
+  );
+  await waitEvent((e) => e.type === "agent_settled", "father settled after parallel", 240_000);
+  await waitAssistantContains(tid3, "par-one-555", 240_000);
+  await waitAssistantContains(tid3, "par-two-666", 240_000);
+  {
+    const parIds = new Set(
+      allFrames
+        .filter((f) => f.type === "subagent_event" && f.threadId === tid3)
+        .map((f) => f.subagentId),
+    );
+    assert(parIds.size >= 3, `distinct subagentIds across journeys (got ${parIds.size})`);
+  }
+  await assertNoGrandchildren(hub.pid, "grandchild processes gone after parallel");
+
+  // Abort cascade: delegate a long task, abort the father turn mid-flight.
+  await send({
+    id: "sa10",
+    type: "set_permission_rules",
+    threadId: tid3,
+    rules: { bash: { allowPatterns: ["sleep *", "echo *"] } },
+  });
+  const pr3 = await send({
+    id: "sa11",
+    type: "prompt",
+    threadId: tid3,
+    message:
+      'Use the task tool: agent "echoer", task "echo before-sleep && sleep 30 && echo after-sleep". Delegate it, then report the result.',
+  });
+  assert(pr3.success, "abort-cascade prompt accepted");
+  await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(() => {
+      if (allFrames.some((f) => f.type === "subagent_event")) {
+        clearInterval(t);
+        resolve();
+      } else if (Date.now() - t0 > 240_000) {
+        clearInterval(t);
+        reject(new Error("timeout waiting for subagent start"));
+      }
+    }, 100);
+  });
+  const beforeAbort = allFrames.length;
+  const ab = await send({ id: "sa12", type: "abort", threadId: tid3 });
+  assert(ab.success, "abort accepted mid-subagent");
+  await waitEvent(
+    (e) => e.type === "agent_settled",
+    "father settled after abort",
+    240_000,
+    beforeAbort,
+  );
+  await waitIdle(tid3, 240_000);
+  await assertNoGrandchildren(hub.pid, "abort cascaded: grandchild killed");
+
+  await send({ id: "sa13", type: "thread/stop", threadId: tid3 });
+}
+
+function sessionTree(dir) {
+  try {
+    return readdirSync(dir, { recursive: true }).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Two-level process-tree check: host -> workers -> grandchildren (review
+ * finding B16: one-level pgrep would miss orphaned grandchildren). */
+async function assertNoGrandchildren(hostPid, label) {
+  let clean = false;
+  for (let i = 0; i < 30 && !clean; i++) {
+    await new Promise((r) => {
+      setTimeout(r, 1000);
+    });
+    const workers = String(
+      spawnSync("pgrep", ["-P", String(hostPid)], { encoding: "utf8" }).stdout ?? "",
+    )
+      .split("\n")
+      .filter(Boolean);
+    const grandchildren = [];
+    for (const w of workers) {
+      const kids = String(spawnSync("pgrep", ["-P", w], { encoding: "utf8" }).stdout ?? "")
+        .split("\n")
+        .filter(Boolean);
+      grandchildren.push(...kids);
+    }
+    clean = grandchildren.length === 0;
+  }
+  assert(clean, `${label}: no grandchild processes remain (two-level sweep)`);
 }
 
 // --- 13. leak scan + lifecycle ------------------------------------------------------

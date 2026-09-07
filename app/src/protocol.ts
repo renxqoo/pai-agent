@@ -254,6 +254,16 @@ export interface SetPermissionRulesCmd {
   rules: PermissionRules | null;
 }
 
+/**
+ * v0.5: enumerate agent definitions (host-local). With a threadId the
+ * project-level directory of that thread's cwd is included when the thread
+ * is trusted; without one only user-level agents are listed.
+ */
+export interface AgentsListCmd {
+  type: "agents/list";
+  threadId?: string;
+}
+
 export type HubCommand =
   | (ThreadStartCmd & { id?: string })
   | (ThreadResumeCmd & { id?: string })
@@ -288,7 +298,8 @@ export type HubCommand =
   | (AbortBashCmd & { id?: string })
   | (UiResponseCmd & { id?: string })
   | (GetPermissionRulesCmd & { id?: string })
-  | (SetPermissionRulesCmd & { id?: string });
+  | (SetPermissionRulesCmd & { id?: string })
+  | (AgentsListCmd & { id?: string });
 
 // ============================================================================
 // Frames (stdout, host -> Electron)
@@ -315,11 +326,17 @@ export interface UiRequestFrame {
   threadId: string;
   /** Dialog method: "confirm" | "select" | "input" | "editor" | "notify" | "setStatus" */
   method?: string;
+  /** v0.5: set when the dialog was relayed from a subagent of this thread. */
+  subagentId?: string;
+  /** v0.5: agent name of the relaying subagent. */
+  agent?: string;
   [key: string]: unknown;
 }
 
+/** Host heartbeat; v0.5 adds the aggregate in-flight subagent count. */
 export interface HeartbeatFrame {
   type: "heartbeat";
+  subagents?: number;
 }
 
 export interface HubErrorFrame {
@@ -337,6 +354,20 @@ export interface ThreadDiedFrame {
   reason: string;
 }
 
+/**
+ * v0.5: a subagent (grandchild worker) event relayed by the conversation's
+ * worker. The event is the grandchild's AgentSessionEvent verbatim; frame
+ * fields are additive so older consumers can ignore them.
+ */
+export interface SubagentEventFrame {
+  type: "subagent_event";
+  threadId: string;
+  subagentId: string;
+  agent: string;
+  task: string;
+  event: AgentSessionEvent;
+}
+
 export interface ThreadListEntry {
   threadId: string;
   cwd: string;
@@ -351,7 +382,8 @@ export type HubFrame =
   | UiRequestFrame
   | HeartbeatFrame
   | HubErrorFrame
-  | ThreadDiedFrame;
+  | ThreadDiedFrame
+  | SubagentEventFrame;
 
 // ============================================================================
 // INTERNAL: host <-> worker protocol (never on the Electron wire)
@@ -367,18 +399,31 @@ export const INTERNAL_ID_PREFIX = "pai-internal-";
 
 /** Worker heartbeat carries the worker-side truth: how long the session has
  * been idle (observer commands do not reset it), whether it is streaming,
- * and the current session file path (null until first persist; the host
- * needs it to park a retired conversation). */
+ * the current session file path (null until first persist; the host needs
+ * it to park a retired conversation), and — v0.5 — the number of live
+ * subagent (grandchild) processes (observability; no host quota). */
 export interface WorkerHeartbeatFrame {
   type: "heartbeat";
   idleMs: number;
   streaming: boolean;
   sessionPath: string | null;
+  subagents?: number;
 }
 
-/** INTERNAL thread/start: host injects the resolved model object. */
+/** INTERNAL thread/start: host injects the resolved model object. v0.5 adds
+ * the subagent extension fields (used by the task tool's grandchild spawns):
+ * systemPrompt/tools/thinkingLevel shape the grandchild session, permissionRules
+ * is a memory-only injection (never persisted), subagent disables the task
+ * tool inside the grandchild (depth 1), ephemeral runs an in-memory session
+ * (the pi --no-session equivalent). */
 export interface WorkerThreadStartCmd extends Omit<ThreadStartCmd, "provider" | "modelId"> {
   model?: SessionModel;
+  systemPrompt?: string;
+  tools?: string[];
+  thinkingLevel?: SetThinkingLevelCmd["level"];
+  permissionRules?: PermissionRules;
+  subagent?: boolean;
+  ephemeral?: boolean;
 }
 
 /** INTERNAL set_model: host injects the resolved model object. */

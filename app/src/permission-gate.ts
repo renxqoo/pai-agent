@@ -40,8 +40,15 @@ export function rulesPath(): string {
   return join(getAgentDir(), "permission-rules.json");
 }
 
-/** Sidecar wins; without one the conversation follows the global file hot. */
-export function effectiveRules(threadId: string | undefined): PermissionRules {
+/**
+ * Memory-injected rules (grandchild permission snapshot) win over the
+ * sidecar; then sidecar; then the global hot read.
+ */
+export function effectiveRules(
+  threadId: string | undefined,
+  injected: PermissionRules | undefined = undefined,
+): PermissionRules {
+  if (injected !== undefined) return injected;
   if (threadId !== undefined) {
     const sidecar = readSidecarRules(threadId);
     if (sidecar !== undefined) return sidecar;
@@ -63,9 +70,10 @@ export async function checkPermission(deps: {
   value: string;
   ask: (title: string, value: string) => Promise<boolean>;
   threadId?: string;
+  injectedRules?: PermissionRules;
 }): Promise<PermissionCheck> {
-  const { tool, value, ask, threadId } = deps;
-  const decision = decide(effectiveRules(threadId), tool, value);
+  const { tool, value, ask, threadId, injectedRules } = deps;
+  const decision = decide(effectiveRules(threadId, injectedRules), tool, value);
   if (decision === "allow") return { block: false };
   if (decision === "block") {
     return { block: true, reason: `Blocked by permission rules: ${tool} ${value}` };
@@ -77,9 +85,14 @@ export async function checkPermission(deps: {
 /**
  * Gate extension bound to one conversation: the session id is only known
  * after the session exists (and changes on fork/clone), so the factory
- * closes over a mutable ref owned by the SessionHost.
+ * closes over a mutable ref owned by the SessionHost. The optional injected
+ * rules getter carries the grandchild permission snapshot (memory-only,
+ * never persisted — plan §3.5).
  */
-export function createPermissionGate(getThreadId: () => string): InlineExtension {
+export function createPermissionGate(
+  getThreadId: () => string,
+  getInjectedRules?: () => PermissionRules | undefined,
+): InlineExtension {
   return (pi: ExtensionAPI): void => {
     pi.on("tool_call", async (event, ctx) => {
       const tool = event.toolName as GatedTool;
@@ -97,6 +110,7 @@ export function createPermissionGate(getThreadId: () => string): InlineExtension
           value,
           ask: async () => false,
           threadId: getThreadId(),
+          injectedRules: getInjectedRules?.(),
         });
         return check.block ? { block: true, reason: check.reason } : undefined;
       }
@@ -114,6 +128,7 @@ export function createPermissionGate(getThreadId: () => string): InlineExtension
           return allowed;
         },
         threadId: getThreadId(),
+        injectedRules: getInjectedRules?.(),
       });
       return check.block ? { block: true, reason: check.reason } : undefined;
     });

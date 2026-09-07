@@ -993,6 +993,82 @@ await expectResponse(
   clearSidecarFileQuiet("ghost-thread-1");
 }
 
+// --- v0.5: agents/list (host-local, keyless) -----------------------------------
+
+{
+  mkdirSync(join(agentDir, "agents"), { recursive: true });
+  writeFileSync(
+    join(agentDir, "agents", "user-agent.md"),
+    "---\nname: user-agent\ndescription: smoke user agent\ntools: bash\n---\nUser prompt.\n",
+  );
+  const smokeProject = mkdtempSync(join(tmpdir(), "pai-cli-smoke-agents-"));
+  mkdirSync(join(smokeProject, ".pi", "agents"), { recursive: true });
+  writeFileSync(
+    join(smokeProject, ".pi", "agents", "proj-agent.md"),
+    "---\nname: proj-agent\ndescription: smoke project agent\n---\nProject prompt.\n",
+  );
+
+  await expectResponse(
+    { id: "q1", type: "agents/list" },
+    (r) => {
+      assert(r.success && Array.isArray(r.data.agents), "agents/list: array");
+      assert(
+        r.data.agents.some((a) => a.name === "user-agent"),
+        "agents/list: user agent",
+      );
+      assert(!r.data.agents.some((a) => a.name === "proj-agent"), "agents/list: project hidden");
+    },
+    "agents/list no thread",
+  );
+  let trustedId = null;
+  await expectResponse(
+    { id: "q2", type: "thread/start", cwd: smokeProject, trusted: true },
+    (r) => {
+      assert(r.success, `trusted thread started (${r.error ?? "ok"})`);
+      trustedId = r.data.threadId;
+    },
+    "agents/list trusted thread start",
+  );
+  await expectResponse(
+    { id: "q3", type: "agents/list", threadId: trustedId },
+    (r) => {
+      const proj = r.data.agents?.find((a) => a.name === "proj-agent");
+      assert(r.success && proj?.source === "project", "agents/list trusted: project visible");
+    },
+    "agents/list trusted",
+  );
+  let untrustedId = null;
+  await expectResponse(
+    { id: "q4", type: "thread/start", cwd: smokeProject },
+    (r) => {
+      assert(r.success, `untrusted thread started (${r.error ?? "ok"})`);
+      untrustedId = r.data.threadId;
+    },
+    "agents/list untrusted thread start",
+  );
+  await expectResponse(
+    { id: "q5", type: "agents/list", threadId: untrustedId },
+    (r) => {
+      assert(r.success, "agents/list untrusted: success");
+      assert(
+        !r.data.agents?.some((a) => a.name === "proj-agent"),
+        "agents/list untrusted: project hidden",
+      );
+    },
+    "agents/list untrusted",
+  );
+  await expectResponse(
+    { id: "q6", type: "agents/list", threadId: "ghost-thread-2" },
+    (r) => {
+      assert(!r.success && /Unknown threadId/.test(r.error ?? ""), "agents/list ghost: failure");
+    },
+    "agents/list ghost",
+  );
+  await send({ id: "q7", type: "thread/stop", threadId: trustedId });
+  await send({ id: "q8", type: "thread/stop", threadId: untrustedId });
+  rmSync(smokeProject, { recursive: true, force: true });
+}
+
 // --- lifecycle --------------------------------------------------------------
 
 await new Promise((r) => {

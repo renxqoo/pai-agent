@@ -35,6 +35,8 @@ import type {
   WorkerThreadStartCmd,
 } from "./protocol.ts";
 import type { Thread } from "./session-host.ts";
+import { startShaping } from "./session-host.ts";
+import { collectCommands } from "./command-listing.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";
 import type { WorkerContext } from "./worker-context.ts";
 
@@ -92,10 +94,12 @@ function emitStreamingBehaviorError(
 
 const handleStart: Handler = async (ctx, cmd, id) => {
   const start = cmd as WorkerThreadStartCmd & { id?: string };
+  const shaping = startShaping(start);
   const thread = await ctx.sessions.start({
     cwd: start.cwd ?? process.cwd(),
     trusted: start.trusted === true,
     ...(start.model !== undefined ? { model: start.model } : {}),
+    ...(shaping !== undefined ? { shaping } : {}),
   });
   emitThreadOpened({ ctx, id, command: "thread/start", thread });
 };
@@ -416,35 +420,6 @@ const handleGetCommands: Handler = (ctx, cmd, id) => {
   return Promise.resolve();
 };
 
-function collectCommands(
-  thread: Thread,
-): Array<{ name: string; description?: string; source: string }> {
-  const { session } = thread;
-  const collected: Array<{ name: string; description?: string; source: string }> = [];
-  for (const command of session.extensionRunner.getRegisteredCommands()) {
-    collected.push({
-      name: command.invocationName,
-      ...(command.description !== undefined ? { description: command.description } : {}),
-      source: "extension",
-    });
-  }
-  for (const template of session.promptTemplates) {
-    collected.push({
-      name: template.name,
-      ...(template.description !== undefined ? { description: template.description } : {}),
-      source: "prompt",
-    });
-  }
-  for (const skill of session.resourceLoader.getSkills().skills) {
-    collected.push({
-      name: `skill:${skill.name}`,
-      ...(skill.description !== undefined ? { description: skill.description } : {}),
-      source: "skill",
-    });
-  }
-  return collected;
-}
-
 // --- direct bash ----------------------------------------------------------------
 
 const handleBash: Handler = async (ctx, cmd, id) => {
@@ -508,6 +483,7 @@ async function confirmBashPermission(deps: {
       return response?.["confirmed"] === true;
     },
     threadId: thread.session.sessionId,
+    injectedRules: ctx.sessions.getInjectedRules(),
   });
   if (check.block) {
     ctx.failure(id, "bash", check.reason ?? "Blocked by permission rules");
@@ -527,8 +503,11 @@ const handleAbortBash: Handler = (ctx, cmd, id) => {
 
 const handleUiResponse: Handler = (ctx, cmd, id) => {
   const uiResponse = cmd as UiResponseCmd & { id?: string };
-  // Exactly one ack regardless of hit or late/unknown requestId.
-  ctx.broker.resolve(uiResponse.requestId, uiResponse.payload);
+  // Subagent-relayed dialogs first (their requestIds never collide with the
+  // broker's): routed into the grandchild, one ack either way.
+  if (!ctx.routeSubagentUi(uiResponse.requestId, uiResponse.payload)) {
+    ctx.broker.resolve(uiResponse.requestId, uiResponse.payload);
+  }
   ctx.success(id, "ui_response");
   return Promise.resolve();
 };

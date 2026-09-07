@@ -6,7 +6,7 @@
  */
 
 import { CONTROL_COMMANDS, type ResponseHead, matchResponseHead } from "./frame-classify.ts";
-import type { HubFrame, WorkerHeartbeatFrame } from "./protocol.ts";
+import type { HubFrame, UiResponseCmd, WorkerHeartbeatFrame } from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle } from "./worker-process.ts";
 import type { ThreadTable } from "./thread-table.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
@@ -14,6 +14,31 @@ import { copySidecarRules } from "./sidecar-rules.ts";
 export interface InternalWaiter {
   onResponse: (frame: Record<string, unknown>) => void;
   onClosed: () => void;
+}
+
+/** Broadcast a ui_response to live workers, one internal ack id each: the
+ * owning worker resolves its dialog by requestId; the rest ignore it. */
+export function broadcastUiResponseToWorkers(deps: {
+  cmd: UiResponseCmd;
+  workers: WorkerHandle[];
+  registerInternal: (worker: WorkerHandle, waiter: InternalWaiter) => string;
+  forgetInternal: (worker: WorkerHandle, id: string) => void;
+}): void {
+  const { cmd, workers } = deps;
+  const payload = JSON.stringify({
+    type: "ui_response",
+    requestId: cmd.requestId,
+    payload: cmd.payload,
+  });
+  for (const worker of workers) {
+    const id = deps.registerInternal(worker, {
+      onResponse: () => {},
+      onClosed: () => {},
+    });
+    void worker.writeLine(payload.replace(/^\{/, `{"id":"${id}",`)).catch(() => {
+      deps.forgetInternal(worker, id);
+    });
+  }
 }
 
 export interface FrameRelayDeps {
@@ -30,7 +55,11 @@ export function onWorkerLine(deps: FrameRelayDeps, worker: WorkerHandle, line: s
     onHeartbeat(deps, worker, JSON.parse(line) as WorkerHeartbeatFrame);
     return;
   }
-  if (line.startsWith('{"type":"event"') || line.startsWith('{"type":"ui_request"')) {
+  if (
+    line.startsWith('{"type":"event"') ||
+    line.startsWith('{"type":"ui_request"') ||
+    line.startsWith('{"type":"subagent_event"')
+  ) {
     deps.emitRaw(line);
     return;
   }
@@ -54,6 +83,7 @@ function onHeartbeat(
   worker.lastHeartbeatAt = Date.now();
   worker.idleMs = frame.idleMs;
   worker.streaming = frame.streaming;
+  worker.subagents = frame.subagents ?? 0;
   if (frame.sessionPath !== worker.sessionPath) {
     // First persist, or a fork/clone path change: keep occupancy exact.
     deps.table.reoccupy(worker, frame.sessionPath);
@@ -86,7 +116,10 @@ function onUnclassifiedLine(deps: FrameRelayDeps, worker: WorkerHandle, line: st
   }
   if (
     parsed !== undefined &&
-    (parsed.type === "event" || parsed.type === "ui_request" || parsed.type === "hub_error")
+    (parsed.type === "event" ||
+      parsed.type === "ui_request" ||
+      parsed.type === "hub_error" ||
+      parsed.type === "subagent_event")
   ) {
     // Known shapes with unexpected key order still forward verbatim.
     deps.emitRaw(line);
