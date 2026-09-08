@@ -6,7 +6,7 @@ import {
   createSandboxGate,
   snapshotSandboxConfig,
   type SandboxSnapshot,
-} from "../src/sandbox-gate.ts";
+} from "../src/backend/pi-coding-agent/sandbox-gate.ts";
 
 /**
  * Sandbox gate unit tests (docs/plans/2026-09-09-sandbox.md §7): the inline

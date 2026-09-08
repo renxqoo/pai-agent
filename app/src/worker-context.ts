@@ -8,7 +8,7 @@ import type { WorkerCommand } from "./protocol.ts";
 import type { DialogBroker } from "./dialogs.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
 import type { HubFrame, WorkerGrantFrame, WorkerHeartbeatFrame } from "./protocol.ts";
-import type { SessionHost, Thread } from "./session-host.ts";
+import type { SessionHost, Thread } from "./backend/pi-coding-agent/session-adapter.ts";
 
 export interface WorkerContext {
   sessions: SessionHost;

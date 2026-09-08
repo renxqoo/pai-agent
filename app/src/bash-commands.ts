@@ -6,9 +6,9 @@
  * frames; the final BashResult lands in the response.
  */
 
-import { checkPermission } from "./permission-gate.ts";
+import { checkPermission } from "./backend/pi-coding-agent/permission-gate.ts";
 import type { AbortBashCmd, BashCmd } from "./protocol.ts";
-import type { Thread } from "./session-host.ts";
+import type { Thread } from "./backend/pi-coding-agent/session-adapter.ts";
 import type { WorkerContext, WorkerHandler } from "./worker-context.ts";
 
 const BASH_CONFIRM_TIMEOUT_MS = 300_000;

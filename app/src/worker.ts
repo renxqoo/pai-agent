@@ -19,9 +19,9 @@ import type {
   WorkerHeartbeatFrame,
 } from "./protocol.ts";
 import { OBSERVER_COMMANDS } from "./protocol.ts";
-import { SessionHost } from "./session-host.ts";
-import { createSubagentCommunicationExtension } from "./subagent-communication.ts";
-import { createTaskTool } from "./subagent-tool.ts";
+import { SessionHost } from "./backend/pi-coding-agent/session-adapter.ts";
+import { createSubagentCommunicationExtension } from "./backend/pi-coding-agent/subagent-communication.ts";
+import { createTaskTool } from "./backend/pi-coding-agent/subagent-tool.ts";
 import { SubagentRegistry } from "./subagent-registry.ts";
 import {
   createFrameWriter,
@@ -32,7 +32,7 @@ import {
 import { workerHandlers } from "./worker-commands.ts";
 import type { WorkerContext } from "./worker-context.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
-import { createUiContext } from "./ui-context.ts";
+import { createUiContext } from "./backend/pi-coding-agent/ui-context.ts";
 
 const HEARTBEAT_INTERVAL_MS = 1_000;
 /** v0.6 assembly defaults (env overrides parsed at use sites). */

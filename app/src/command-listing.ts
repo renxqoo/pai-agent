@@ -3,7 +3,7 @@
  * one session (autocomplete source for the UI).
  */
 
-import type { Thread } from "./session-host.ts";
+import type { Thread } from "./backend/pi-coding-agent/session-adapter.ts";
 
 export interface SessionCommand {
   name: string;

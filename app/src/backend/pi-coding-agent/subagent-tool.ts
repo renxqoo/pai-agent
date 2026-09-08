@@ -13,8 +13,8 @@ import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { ExtensionAPI, InlineExtension, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { discoverAgents } from "./agent-definitions.ts";
-import type { HubFrame, SessionModel } from "./protocol.ts";
-import { toWireEvent } from "./session-host.ts";
+import type { HubFrame, SessionModel } from "../../protocol.ts";
+import { toWireEvent } from "./session-adapter.ts";
 import {
   type GrandchildHooks,
   type GrandchildResult,
@@ -28,9 +28,9 @@ import {
   MAX_INFLIGHT_PER_CONVERSATION,
   MAX_TASKS_PER_CALL,
   type SubagentRegistry,
-} from "./subagent-registry.ts";
+} from "../../subagent-registry.ts";
 import { registerQueryTools } from "./subagent-query-tools.ts";
-import { truncateBytes } from "./truncate.ts";
+import { truncateBytes } from "../../truncate.ts";
 
 export interface TaskToolDeps {
   emit: (frame: HubFrame) => void;

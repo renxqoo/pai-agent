@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverAgents } from "../src/agent-definitions.ts";
+import { discoverAgents } from "../src/backend/pi-coding-agent/agent-definitions.ts";
 
 const agentDir = mkdtempSync(join(tmpdir(), "pai-cli-agents-agent-"));
 const projectDir = mkdtempSync(join(tmpdir(), "pai-cli-agents-proj-"));

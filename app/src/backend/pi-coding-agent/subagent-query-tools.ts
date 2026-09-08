@@ -10,7 +10,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { GrandchildResult } from "./subagent-process.ts";
-import type { SubagentRegistry } from "./subagent-registry.ts";
+import type { SubagentRegistry } from "../../subagent-registry.ts";
 import type { TaskToolDeps, ToolResult } from "./subagent-tool.ts";
 
 // --- query face: task_out / task_wait / task_stop (plan stage 4) ------------------

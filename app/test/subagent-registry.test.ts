@@ -5,7 +5,7 @@ import type {
   GrandchildResult,
   GrandchildTaskSpec,
   startGrandchildTask,
-} from "../src/subagent-process.ts";
+} from "../src/backend/pi-coding-agent/subagent-process.ts";
 import {
   ENVELOPE_TASK_CAP,
   MAX_CONCURRENT_SUBAGENTS,

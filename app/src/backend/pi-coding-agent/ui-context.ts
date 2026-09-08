@@ -7,8 +7,8 @@
 
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { DialogAskOptions, DialogBroker, DialogRequest } from "./dialogs.ts";
-import type { HubFrame, UiRequestFrame } from "./protocol.ts";
+import type { DialogAskOptions, DialogBroker, DialogRequest } from "../../dialogs.ts";
+import type { HubFrame, UiRequestFrame } from "../../protocol.ts";
 
 interface FireAndForget {
   method: "notify" | "setStatus";

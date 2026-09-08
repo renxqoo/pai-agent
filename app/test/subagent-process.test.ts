@@ -8,7 +8,7 @@ import {
   type GrandchildResult,
   type GrandchildTaskSpec,
   startGrandchildTask,
-} from "../src/subagent-process.ts";
+} from "../src/backend/pi-coding-agent/subagent-process.ts";
 import type { SpawnWorkerDeps, SpawnWorkerFn, WorkerHandle } from "../src/worker-process.ts";
 
 /**

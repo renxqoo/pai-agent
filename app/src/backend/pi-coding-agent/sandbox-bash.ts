@@ -16,7 +16,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
-import type { SandboxConfig } from "./sandbox-config.ts";
+import type { SandboxConfig } from "../../sandbox-config.ts";
 
 export interface SandboxRuntimeState {
   /** The OS layer is active: bash commands get wrapped. */

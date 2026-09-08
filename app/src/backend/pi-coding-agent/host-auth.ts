@@ -7,9 +7,9 @@
 
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import type { AuthListCmd, AuthRemoveKeyCmd, AuthSetApiKeyCmd, HubFrame } from "./protocol.ts";
-import { responseFailure, responseSuccess } from "./frames.ts";
-import type { RegisterInflight } from "./inflight-registry.ts";
+import type { AuthListCmd, AuthRemoveKeyCmd, AuthSetApiKeyCmd, HubFrame } from "../../protocol.ts";
+import { responseFailure, responseSuccess } from "../../frames.ts";
+import type { RegisterInflight } from "../../inflight-registry.ts";
 
 export interface HostAuthDeps {
   modelRuntime: ModelRuntime;

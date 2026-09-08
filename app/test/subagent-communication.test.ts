@@ -4,7 +4,7 @@ import {
   COMM_MESSAGE_CAP,
   COMM_TEXT_CAP_BYTES,
   createSubagentCommunicationExtension,
-} from "../src/subagent-communication.ts";
+} from "../src/backend/pi-coding-agent/subagent-communication.ts";
 import type { SubagentMessageFrame } from "../src/protocol.ts";
 
 /**

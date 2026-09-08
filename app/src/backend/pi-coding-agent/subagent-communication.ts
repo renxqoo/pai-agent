@@ -11,7 +11,7 @@
 
 import type { ExtensionAPI, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { SubagentMessageFrame } from "./protocol.ts";
+import type { SubagentMessageFrame } from "../../protocol.ts";
 
 /** Combined per-task cap; must match MAX_MESSAGES_PER_TASK in the registry. */
 export const COMM_MESSAGE_CAP = 10;

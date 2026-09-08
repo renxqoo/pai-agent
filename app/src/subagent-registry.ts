@@ -20,7 +20,7 @@ import {
   type GrandchildTaskSpec,
   type GrandchildUsage,
   startGrandchildTask,
-} from "./subagent-process.ts";
+} from "./backend/pi-coding-agent/subagent-process.ts";
 import {
   chainOuterSignal,
   formatMessage,

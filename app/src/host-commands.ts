@@ -7,7 +7,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join as joinPath, resolve as resolvePath } from "node:path";
 import { type ModelRuntime, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "./agent-definitions.ts";
+import { discoverAgents } from "./backend/pi-coding-agent/agent-definitions.ts";
 import type {
   AgentsListCmd,
   AuthListCmd,
@@ -32,9 +32,13 @@ import { THREAD_SCOPED_COMMANDS } from "./protocol.ts";
 import { readNonNegativeIntEnv } from "./int-env.ts";
 import { responseFailure, responseSuccess } from "./frames.ts";
 import type { RegisterInflight } from "./inflight-registry.ts";
-import { handleAuthList, handleAuthRemoveKey, handleAuthSetApiKey } from "./host-auth.ts";
+import {
+  handleAuthList,
+  handleAuthRemoveKey,
+  handleAuthSetApiKey,
+} from "./backend/pi-coding-agent/host-auth.ts";
 import type { WorkerPool } from "./worker-pool.ts";
-import { rulesPath } from "./permission-gate.ts";
+import { rulesPath } from "./backend/pi-coding-agent/permission-gate.ts";
 import { loadRules, validateRules } from "./rules.ts";
 import {
   clearSidecarRules,

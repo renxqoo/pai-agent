@@ -26,15 +26,15 @@ import {
   SUBAGENT_KILL_GRACE_MS,
   SUBAGENT_START_TIMEOUT_MS_DEFAULT,
   SUBAGENT_STALE_MS_DEFAULT,
-} from "./subagent-contract.ts";
-import { truncateBytes } from "./truncate.ts";
-import { matchResponseId, sleep } from "./subagent-wire.ts";
-import { spawnWorkerProcess, type WorkerHandle } from "./worker-process.ts";
+} from "../../subagent-contract.ts";
+import { truncateBytes } from "../../truncate.ts";
+import { matchResponseId, sleep } from "../../subagent-wire.ts";
+import { spawnWorkerProcess, type WorkerHandle } from "../../worker-process.ts";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 // Re-export the contract surface (single import point for the registry,
 // tool, and tests — the contract lives in subagent-contract.ts).
-export * from "./subagent-contract.ts";
+export * from "../../subagent-contract.ts";
 
 class GrandchildRunner {
   private readonly spec: GrandchildTaskSpec;

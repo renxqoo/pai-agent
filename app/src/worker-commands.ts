@@ -35,7 +35,7 @@ import type {
   WorkerSetModelCmd,
   WorkerThreadStartCmd,
 } from "./protocol.ts";
-import type { Thread } from "./session-host.ts";
+import type { Thread } from "./backend/pi-coding-agent/session-adapter.ts";
 import { startShaping } from "./backend/ports/session.ts";
 import { collectCommands } from "./command-listing.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";

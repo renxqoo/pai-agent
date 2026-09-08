@@ -27,11 +27,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createPermissionGate, effectiveRules } from "./permission-gate.ts";
 import { type SandboxGateState, createSandboxGate, snapshotSandboxConfig } from "./sandbox-gate.ts";
-import type { SpawnShaping } from "./backend/ports/session.ts";
-import type { PermissionRules } from "./rules.ts";
-import type { HubFrame, SessionModel } from "./protocol.ts";
-import { SessionDestroyedError } from "./session-destroyed-error.ts";
-import { copySidecarRules } from "./sidecar-rules.ts";
+import type { SpawnShaping } from "../ports/session.ts";
+import type { PermissionRules } from "../../rules.ts";
+import type { HubFrame, SessionModel } from "../../protocol.ts";
+import { SessionDestroyedError } from "../../session-destroyed-error.ts";
+import { copySidecarRules } from "../../sidecar-rules.ts";
 
 export interface Thread {
   runtime: AgentSessionRuntime;

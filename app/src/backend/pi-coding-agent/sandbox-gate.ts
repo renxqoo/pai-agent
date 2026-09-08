@@ -30,7 +30,7 @@ import {
   resolveToolPath,
   sandboxDisabledByEnv,
   writeViolation,
-} from "./sandbox-config.ts";
+} from "../../sandbox-config.ts";
 import {
   type SandboxRuntimeState,
   createSandboxedBashOperations,

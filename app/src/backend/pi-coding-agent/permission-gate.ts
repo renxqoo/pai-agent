@@ -18,9 +18,9 @@ import {
   getAgentDir,
   type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
-import { resolveMatchPath } from "./gate-path.ts";
-import { decide, type GatedTool, loadRules, type PermissionRules } from "./rules.ts";
-import { readSidecarRules } from "./sidecar-rules.ts";
+import { resolveMatchPath } from "../../gate-path.ts";
+import { decide, type GatedTool, loadRules, type PermissionRules } from "../../rules.ts";
+import { readSidecarRules } from "../../sidecar-rules.ts";
 
 const CONFIRM_TIMEOUT_MS = 300_000;
 

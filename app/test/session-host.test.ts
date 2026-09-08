@@ -4,7 +4,7 @@ import type {
   AgentSessionRuntime,
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { SessionHost, type Thread } from "../src/session-host.ts";
+import { SessionHost, type Thread } from "../src/backend/pi-coding-agent/session-adapter.ts";
 import { SessionDestroyedError } from "../src/session-destroyed-error.ts";
 import { clearSidecarRules, writeSidecarRules } from "../src/sidecar-rules.ts";
 import type { PermissionRules } from "../src/rules.ts";
