@@ -10,6 +10,11 @@
 
 import { VERSION as CODING_AGENT_VERSION } from "@earendil-works/pi-coding-agent";
 import {
+  agentCoreVersion,
+  createAgentCoreHostBackend,
+  createAgentCoreWorkerBackend,
+} from "./pi-agent-core/index.ts";
+import {
   createCodingAgentHostBackend,
   createCodingAgentWorkerBackend,
 } from "./pi-coding-agent/index.ts";
@@ -18,6 +23,7 @@ import type { WorkerBackend } from "./ports/backend.ts";
 import { DEFAULT_BACKEND_ID } from "./registry.ts";
 
 export { DEFAULT_BACKEND_ID };
+export const AGENT_CORE_BACKEND_ID = "pi-agent-core";
 
 /** Sync backend-id parse (boot + --version path). */
 export function backendIdFromEnv(env: { PAI_BACKEND?: string } = process.env): string {
@@ -27,15 +33,19 @@ export function backendIdFromEnv(env: { PAI_BACKEND?: string } = process.env): s
 
 /** Sync SDK version for --version (static per backend). */
 export function backendSdkVersion(): string {
+  const id = backendIdFromEnv();
+  if (id === AGENT_CORE_BACKEND_ID) return agentCoreVersion();
   return CODING_AGENT_VERSION;
 }
 
 export async function createHostBackend(id: string = backendIdFromEnv()): Promise<HostBackend> {
   if (id === DEFAULT_BACKEND_ID) return createCodingAgentHostBackend();
+  if (id === AGENT_CORE_BACKEND_ID) return createAgentCoreHostBackend();
   throw new Error(`Unknown PAI_BACKEND: ${id}`);
 }
 
 export function createWorkerBackend(id: string = backendIdFromEnv()): WorkerBackend {
   if (id === DEFAULT_BACKEND_ID) return createCodingAgentWorkerBackend();
+  if (id === AGENT_CORE_BACKEND_ID) return createAgentCoreWorkerBackend();
   throw new Error(`Unknown PAI_BACKEND: ${id}`);
 }

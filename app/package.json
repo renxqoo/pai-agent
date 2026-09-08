@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.75",
+    "@earendil-works/pi-agent-core": "file:../packages/agent",
     "@earendil-works/pi-ai": "file:../packages/ai",
     "@earendil-works/pi-coding-agent": "file:../packages/coding-agent",
     "typebox": "1.3.7"
