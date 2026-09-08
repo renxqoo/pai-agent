@@ -12,15 +12,15 @@
  * enforced by the tool before reservation; retained <= RETAINED_CAP.
  */
 
-import {
-  type GrandchildDriver,
-  type GrandchildHooks,
-  type GrandchildMessage,
-  type GrandchildResult,
-  type GrandchildTaskSpec,
-  type GrandchildUsage,
-  startGrandchildTask,
-} from "./backend/pi-coding-agent/subagent-process.ts";
+import type { StartGrandchildTask } from "./backend/ports/subagent.ts";
+import type {
+  GrandchildDriver,
+  GrandchildHooks,
+  GrandchildMessage,
+  GrandchildResult,
+  GrandchildTaskSpec,
+  GrandchildUsage,
+} from "./subagent-contract.ts";
 import {
   chainOuterSignal,
   formatMessage,
@@ -94,8 +94,9 @@ export interface LaunchHandle {
 }
 
 export interface RegistryDeps {
-  /** Test seam: grandchild launcher (defaults to the real driver). */
-  startTask?: typeof startGrandchildTask;
+  /** Backend-owned grandchild launcher (P5 injection; never a default —
+   * the worker passes its bundle's driver, tests pass fakes). */
+  startTask: StartGrandchildTask;
   /** Notification target (stage 3): current session, dynamic per call. */
   getSession?: () => NotifySession | undefined;
   isShuttingDown?: () => boolean;
@@ -127,7 +128,7 @@ function noSession(): NotifySession | undefined {
 export class SubagentRegistry {
   private readonly entries = new Map<string, RegistryEntry>();
   private readonly queue: string[] = [];
-  private readonly startTask: typeof startGrandchildTask;
+  private readonly startTask: StartGrandchildTask;
   private readonly getSession: () => NotifySession | undefined;
   private readonly isShuttingDown: () => boolean;
   private readonly writeStderr: (text: string) => void;
@@ -140,9 +141,9 @@ export class SubagentRegistry {
   private readonly grants: RegistryDeps["grants"];
   private readonly deps: RegistryDeps;
 
-  constructor(deps?: RegistryDeps) {
-    this.deps = deps ?? {};
-    this.startTask = deps?.startTask ?? startGrandchildTask;
+  constructor(deps: RegistryDeps) {
+    this.deps = deps;
+    this.startTask = deps.startTask;
     this.getSession = deps?.getSession ?? noSession;
     this.isShuttingDown = deps?.isShuttingDown ?? (() => false);
     this.writeStderr = deps?.writeStderr ?? (() => {});

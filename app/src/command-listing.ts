@@ -3,7 +3,7 @@
  * one session (autocomplete source for the UI).
  */
 
-import type { Thread } from "./backend/pi-coding-agent/session-adapter.ts";
+import type { PaiThread } from "./backend/ports/session.ts";
 
 export interface SessionCommand {
   name: string;
@@ -11,7 +11,7 @@ export interface SessionCommand {
   source: string;
 }
 
-export function collectCommands(thread: Thread): SessionCommand[] {
+export function collectCommands(thread: PaiThread): SessionCommand[] {
   const { session } = thread;
   const collected: SessionCommand[] = [];
   for (const command of session.extensionRunner.getRegisteredCommands()) {

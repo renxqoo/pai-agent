@@ -396,6 +396,9 @@ export interface HostInfo {
     maxSubagents: number;
     bashTimeoutMs: number;
   };
+  /** v0.8: the selected backend and its capability bits (strings and
+   * enums only — no paths/env/credentials, v0.6 promise intact). */
+  backend: { id: string; capabilities: string[] };
 }
 
 export type HubCommand =

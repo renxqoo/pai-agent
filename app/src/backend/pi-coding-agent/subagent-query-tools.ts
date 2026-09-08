@@ -10,7 +10,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { GrandchildResult } from "./subagent-process.ts";
-import type { SubagentRegistry } from "../../subagent-registry.ts";
+import type { SubagentRegistryFace } from "../ports/subagent.ts";
 import type { TaskToolDeps, ToolResult } from "./subagent-tool.ts";
 
 // --- query face: task_out / task_wait / task_stop (plan stage 4) ------------------
@@ -186,7 +186,7 @@ function registerSend(pi: ExtensionAPI, tool: TaskToolDeps): void {
  * an error (U2 kills the targets via the abort command); timeout returns
  * an error WITHOUT killing. */
 async function waitForTasks(deps: {
-  registry: SubagentRegistry;
+  registry: SubagentRegistryFace;
   params: { subagentIds?: string[]; timeoutMs?: number };
   signal: AbortSignal | undefined;
 }): Promise<ToolResult> {
@@ -280,7 +280,7 @@ function aggregateWait(
   };
 }
 
-function allInFlightIds(registry: SubagentRegistry): string[] {
+function allInFlightIds(registry: SubagentRegistryFace): string[] {
   const all = registry.snapshot();
   if (!Array.isArray(all)) return [];
   return all

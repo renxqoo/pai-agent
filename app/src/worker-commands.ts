@@ -35,7 +35,7 @@ import type {
   WorkerSetModelCmd,
   WorkerThreadStartCmd,
 } from "./protocol.ts";
-import type { Thread } from "./backend/pi-coding-agent/session-adapter.ts";
+import type { PaiThread } from "./backend/ports/session.ts";
 import { startShaping } from "./backend/ports/session.ts";
 import { collectCommands } from "./command-listing.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";
@@ -47,7 +47,7 @@ function emitThreadOpened(deps: {
   ctx: WorkerContext;
   id: string | undefined;
   command: string;
-  thread: Thread;
+  thread: PaiThread;
 }): void {
   const { ctx, id, command, thread } = deps;
   ctx.success(id, command, {
@@ -64,7 +64,7 @@ function requireImagedThread(deps: {
   images: ImagePayload[] | undefined;
   command: string;
   id: string | undefined;
-}): Thread | undefined {
+}): PaiThread | undefined {
   const { ctx, threadId, images, command, id } = deps;
   const thread = ctx.requireThread(threadId, command, id);
   if (!thread) return undefined;
@@ -329,7 +329,12 @@ const handleFork: Handler = async (ctx, cmd, id) => {
   if (!thread) return;
   let forkError: string | undefined;
   let result:
-    | { thread: Thread; previousThreadId: string; selectedText?: string; cancelled: boolean }
+    | {
+        thread: PaiThread;
+        previousThreadId: string;
+        selectedText?: string;
+        cancelled: boolean;
+      }
     | undefined;
   try {
     result = await ctx.sessions.fork(fork.threadId, fork.entryId, fork.position ?? "before");
@@ -362,7 +367,7 @@ const handleClone: Handler = async (ctx, cmd, id) => {
   const thread = ctx.requireThread(clone.threadId, "clone", id);
   if (!thread) return;
   let cloneError: string | undefined;
-  let result: { thread: Thread; previousThreadId: string; cancelled: boolean } | undefined;
+  let result: { thread: PaiThread; previousThreadId: string; cancelled: boolean } | undefined;
   try {
     result = await ctx.sessions.clone(clone.threadId);
   } catch (error) {

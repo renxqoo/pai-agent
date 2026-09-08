@@ -1,17 +1,19 @@
 /**
- * What every worker command handler operates on: the single-session host,
- * the dialog broker, frame emitters, and the long-operation registry.
- * Assembled once in worker.ts after the model runtime is ready.
+ * What every worker command handler operates on: the single-session host
+ * (P1 port face), the dialog broker, frame emitters, the long-operation
+ * registry, and the backend's permission check (P2). Assembled once in
+ * worker.ts after the backend bundle is ready.
  */
 
 import type { WorkerCommand } from "./protocol.ts";
 import type { DialogBroker } from "./dialogs.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
 import type { HubFrame, WorkerGrantFrame, WorkerHeartbeatFrame } from "./protocol.ts";
-import type { SessionHost, Thread } from "./backend/pi-coding-agent/session-adapter.ts";
+import type { CheckPermission } from "./backend/ports/interception.ts";
+import type { PaiSessionHost, PaiThread } from "./backend/ports/session.ts";
 
 export interface WorkerContext {
-  sessions: SessionHost;
+  sessions: PaiSessionHost;
   broker: DialogBroker;
   emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
   /** v0.6: effective direct-bash wall clock (PAI_BASH_TIMEOUT_MS default; a
@@ -22,7 +24,11 @@ export interface WorkerContext {
   triggerShutdown: (reason: string) => void;
   success: (id: string | undefined, command: string, data?: unknown) => void;
   failure: (id: string | undefined, command: string, error: string) => void;
-  requireThread: (threadId: string, command: string, id: string | undefined) => Thread | undefined;
+  requireThread: (
+    threadId: string,
+    command: string,
+    id: string | undefined,
+  ) => PaiThread | undefined;
   /** Route a ui_response into a live grandchild (false = not a subagent request). */
   routeSubagentUi: (requestId: string, payload: Record<string, unknown>) => boolean;
   /** U2: client abort / thread stop kills every subagent (foreground + background). */
@@ -32,6 +38,9 @@ export interface WorkerContext {
   /** v0.6 INTERNAL grant_result: wake the pending acquire by grant id
    * (running feeds the denial message when granted is false). */
   resolveGrant: (grantId: string, granted: boolean, running?: number) => void;
+  /** P2: the backend's direct-bash permission check (same rules/dialog path
+   * as the agent's bash tool). */
+  checkPermission: CheckPermission;
 }
 
 /** One worker command handler (registered by type in worker-commands.ts). */

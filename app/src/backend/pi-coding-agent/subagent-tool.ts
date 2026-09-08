@@ -27,15 +27,15 @@ import {
   MAX_CONCURRENT_SUBAGENTS,
   MAX_INFLIGHT_PER_CONVERSATION,
   MAX_TASKS_PER_CALL,
-  type SubagentRegistry,
 } from "../../subagent-registry.ts";
+import type { SubagentRegistryFace } from "../ports/subagent.ts";
 import { registerQueryTools } from "./subagent-query-tools.ts";
 import { truncateBytes } from "../../truncate.ts";
 
 export interface TaskToolDeps {
   emit: (frame: HubFrame) => void;
   modelRuntime: ModelRuntime;
-  registry: SubagentRegistry;
+  registry: SubagentRegistryFace;
   writeStderr: (text: string) => void;
   getThreadId: () => string;
 }

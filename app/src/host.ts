@@ -8,7 +8,10 @@
  * takeOverStdout keeps stray writes off it.
  */
 
-import { ModelRuntime, VERSION } from "@earendil-works/pi-coding-agent";
+import { capabilityError } from "./backend/capabilities.ts";
+import { backendSdkVersion, createHostBackend } from "./backend/index.ts";
+import type { HostBackend } from "./backend/ports/backend.ts";
+import { bindSidecarAgentDir } from "./sidecar-rules.ts";
 // Bundlers inline JSON imports at build time, so the version survives the
 // `bun build --compile` single-file form where package.json is not on disk.
 import ownPackage from "../package.json" with { type: "json" };
@@ -36,10 +39,10 @@ interface HostMeta {
   startedAt: number;
 }
 
-function collectHostMeta(): HostMeta {
+function collectHostMeta(sdkVersion: string): HostMeta {
   return {
     version: ownPackage.version,
-    piVersion: VERSION,
+    piVersion: sdkVersion,
     bunVersion: (process.versions as Record<string, string | undefined>).bun ?? "unknown",
     startedAt: Date.now(),
   };
@@ -52,7 +55,7 @@ function isCommandShape(message: unknown): message is HubCommand {
 /** --version / --help short-circuit; returns true when handled. */
 function tryHandleVersionFlags(argv: string[]): boolean {
   if (argv.includes("--version") || argv.includes("-v")) {
-    process.stdout.write(`${VERSION}\n`);
+    process.stdout.write(`${backendSdkVersion()}\n`);
     return true;
   }
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -68,6 +71,21 @@ function tryHandleVersionFlags(argv: string[]): boolean {
     return true;
   }
   return false;
+}
+
+/** Host emitters with the write-failure contract wired (stdout gone ->
+ * stderr note + graceful exit via the normal shutdown path). */
+function createHostEmitters(
+  writer: ReturnType<typeof createFrameWriter>,
+  shutdown: (reason: string) => Promise<void>,
+): HostEmitters {
+  return createEmitters(
+    (text) => writer.write(text),
+    (error) => {
+      writeStderr(`pai-cli stdout write failed: ${String(error)}\n`);
+      void shutdown("stdout write failed");
+    },
+  );
 }
 
 interface HostEmitters {
@@ -210,23 +228,22 @@ export async function runHost(argv: string[]): Promise<void> {
     pool: { shutdownAll: () => poolRef.pool?.shutdownAll() ?? Promise.resolve() },
   });
   const { shutdown } = lifecycle;
-  const emitters = createEmitters(
-    (text) => writer.write(text),
-    (error) => {
-      // stdout is gone (client disconnected): frames can no longer be
-      // delivered. Contract: report to stderr and exit via the normal path.
-      writeStderr(`pai-cli stdout write failed: ${String(error)}\n`);
-      void shutdown("stdout write failed");
-    },
-  );
+  const emitters = createHostEmitters(writer, shutdown);
   startHeartbeat(emitters, poolRef);
-  const hostMeta = collectHostMeta();
-  const { deps } = await setupHostServices({ emitters, registry, poolRef, hostMeta });
+  const { deps, backend } = await setupHostServices({ emitters, registry, poolRef });
 
   const handleCommand = async (cmd: HubCommand, line: string): Promise<void> => {
     const { id } = cmd;
     if (lifecycle.isShuttingDown()) {
       emitters.emit(responseFailure(id, String(cmd.type ?? "unknown"), "pai-cli is shutting down"));
+      return;
+    }
+    // v0.8 capability gate (design.md): host-side fast failure with the
+    // contract error shape; the worker gate is defense in depth.
+    const name = String(cmd.type ?? "unknown");
+    const unsupported = capabilityError(cmd.type, backend.id, backend.capabilities);
+    if (unsupported !== undefined) {
+      emitters.emit(responseFailure(id, name, unsupported));
       return;
     }
     const handler = hostHandlers.get(cmd.type);
@@ -249,9 +266,11 @@ async function setupHostServices(deps: {
   emitters: HostEmitters;
   registry: ReturnType<typeof createInflightRegistry>;
   poolRef: { pool?: WorkerPool };
-  hostMeta: HostMeta;
-}): Promise<{ deps: HostDeps }> {
-  const modelRuntime = await ModelRuntime.create();
+}): Promise<{ deps: HostDeps; backend: HostBackend }> {
+  const backend = await createHostBackend();
+  const hostMeta = collectHostMeta(backend.sdkVersion);
+  // The sidecar store follows the selected backend's agent dir (P4).
+  bindSidecarAgentDir(backend.resources.agentDir);
   const pool = new WorkerPool({
     emitFrame: deps.emitters.emit,
     emitRaw: deps.emitters.emitRaw,
@@ -259,12 +278,13 @@ async function setupHostServices(deps: {
   });
   deps.poolRef.pool = pool;
   return {
+    backend,
     deps: {
       pool,
-      modelRuntime,
+      backend,
       emit: deps.emitters.emit,
       registerInflight: deps.registry.register,
-      hostMeta: deps.hostMeta,
+      hostMeta,
     },
   };
 }

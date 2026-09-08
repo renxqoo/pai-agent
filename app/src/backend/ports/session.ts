@@ -78,7 +78,7 @@ export interface PaiSession {
   readonly promptTemplates: ReadonlyArray<{ name: string; description?: string }>;
   readonly resourceLoader: PaiResourceLoader;
 
-  prompt(message: string, options?: PaiPromptOptions): Promise<unknown>;
+  prompt(message: string, options?: PaiPromptOptions): Promise<void>;
   steer(message: string, images?: ReadonlyArray<PaiImage>): Promise<unknown>;
   followUp(message: string, images?: ReadonlyArray<PaiImage>): Promise<unknown>;
   abort(): Promise<unknown>;
@@ -94,7 +94,7 @@ export interface PaiSession {
   getUserMessagesForForking(): unknown;
   executeBash(
     command: string,
-    cwd?: string,
+    onChunk?: (chunk: string) => void,
     options?: { excludeFromContext?: boolean; id?: string; operations?: unknown },
   ): Promise<unknown>;
   abortBash(): void;

@@ -6,9 +6,8 @@
  * frames; the final BashResult lands in the response.
  */
 
-import { checkPermission } from "./backend/pi-coding-agent/permission-gate.ts";
 import type { AbortBashCmd, BashCmd } from "./protocol.ts";
-import type { Thread } from "./backend/pi-coding-agent/session-adapter.ts";
+import type { PaiThread } from "./backend/ports/session.ts";
 import type { WorkerContext, WorkerHandler } from "./worker-context.ts";
 
 const BASH_CONFIRM_TIMEOUT_MS = 300_000;
@@ -61,7 +60,7 @@ export const handleBash: WorkerHandler = async (ctx, cmd, id) => {
 async function executeDirectBash(deps: {
   ctx: WorkerContext;
   bash: BashCmd;
-  thread: Thread;
+  thread: PaiThread;
   id: string | undefined;
   timeoutMs: number | undefined;
 }): Promise<void> {
@@ -109,11 +108,11 @@ async function executeDirectBash(deps: {
 async function confirmBashPermission(deps: {
   ctx: WorkerContext;
   bash: BashCmd;
-  thread: Thread;
+  thread: PaiThread;
   id: string | undefined;
 }): Promise<boolean> {
   const { ctx, bash, thread, id } = deps;
-  const check = await checkPermission({
+  const check = await ctx.checkPermission({
     tool: "bash",
     value: bash.command,
     ask: async (title: string, value: string) => {

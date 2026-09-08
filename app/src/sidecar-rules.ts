@@ -16,6 +16,14 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type PermissionRules, parseRules } from "./rules.ts";
 
+/** P4 injection: the effective agent dir follows the selected backend; the
+ * default is the coding-agent convention (identical until a backend binds). */
+let resolveSidecarAgentDir: () => string = getAgentDir;
+
+export function bindSidecarAgentDir(resolve: () => string): void {
+  resolveSidecarAgentDir = resolve;
+}
+
 /** Hostile session-header ids must never reach a filesystem path. */
 const SAFE_THREAD_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -25,7 +33,7 @@ export function isSafeThreadId(threadId: string): boolean {
 
 function sidecarPath(threadId: string): string | undefined {
   return isSafeThreadId(threadId)
-    ? join(getAgentDir(), "permission-rules", `${threadId}.json`)
+    ? join(resolveSidecarAgentDir(), "permission-rules", `${threadId}.json`)
     : undefined;
 }
 
@@ -48,7 +56,7 @@ export function readSidecarRules(threadId: string): PermissionRules | undefined 
 export function writeSidecarRules(threadId: string, rules: PermissionRules): string {
   const path = sidecarPath(threadId);
   if (path === undefined) throw new Error("Invalid threadId for permission rules");
-  mkdirSync(join(getAgentDir(), "permission-rules"), { recursive: true });
+  mkdirSync(join(resolveSidecarAgentDir(), "permission-rules"), { recursive: true });
   const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(rules, null, 2)}\n`);
   renameSync(tmp, path);

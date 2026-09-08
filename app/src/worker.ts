@@ -3,10 +3,14 @@
  * Speaks the thread-scoped subset of the v0.3 protocol on stdin/stdout to
  * the pai-cli host; global commands (auth, models, thread listing) live in
  * the host. This file is bootstrap only — command behavior is in
- * worker-commands.ts, session lifecycle in session-host.ts.
+ * worker-commands.ts; session lifecycle lives in the backend bundle
+ * (backend/pi-coding-agent/session-adapter.ts for the default backend).
  */
 
-import { type InlineExtension, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { capabilityError } from "./backend/capabilities.ts";
+import { createWorkerBackend } from "./backend/index.ts";
+import type { WorkerBackend } from "./backend/ports/backend.ts";
+import type { PaiSessionHost } from "./backend/ports/session.ts";
 import { DialogBroker } from "./dialogs.ts";
 import { responseFailure, responseSuccess } from "./frames.ts";
 import { createInflightRegistry } from "./inflight-registry.ts";
@@ -19,9 +23,6 @@ import type {
   WorkerHeartbeatFrame,
 } from "./protocol.ts";
 import { OBSERVER_COMMANDS } from "./protocol.ts";
-import { SessionHost } from "./backend/pi-coding-agent/session-adapter.ts";
-import { createSubagentCommunicationExtension } from "./backend/pi-coding-agent/subagent-communication.ts";
-import { createTaskTool } from "./backend/pi-coding-agent/subagent-tool.ts";
 import { SubagentRegistry } from "./subagent-registry.ts";
 import {
   createFrameWriter,
@@ -32,7 +33,6 @@ import {
 import { workerHandlers } from "./worker-commands.ts";
 import type { WorkerContext } from "./worker-context.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
-import { createUiContext } from "./backend/pi-coding-agent/ui-context.ts";
 
 const HEARTBEAT_INTERVAL_MS = 1_000;
 /** v0.6 assembly defaults (env overrides parsed at use sites). */
@@ -45,7 +45,7 @@ function isCommandShape(message: unknown): message is WorkerCommand {
 
 interface WorkerRefs {
   broker?: DialogBroker;
-  sessions?: SessionHost;
+  sessions?: PaiSessionHost;
 }
 
 interface WorkerStatus {
@@ -90,6 +90,7 @@ function startHeartbeat(deps: {
 }
 
 function buildContext(deps: {
+  backend: WorkerBackend;
   refs: WorkerRefs;
   registry: InflightRegistry;
   emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
@@ -110,6 +111,7 @@ function buildContext(deps: {
     resolveGrant: deps.resolveGrant,
     registerInflight: deps.registry.register,
     triggerShutdown: deps.triggerShutdown,
+    checkPermission: deps.backend.checkPermission,
     routeSubagentUi: (requestId, payload) => deps.subagents.route(requestId, payload),
     killSubagents: () => deps.subagents.killAll(),
     steerSubagent: (subagentId, message) => deps.subagents.steer(subagentId, message),
@@ -233,105 +235,6 @@ function createLifecycle(deps: {
   };
 }
 
-/** Built-in extensions (not user code): normal conversations get the task
- * tool (project-level agent definitions stay trust-gated inside); grandchild
- * spawns (depth 1) get the communication tools instead — report/send to the
- * parent, never a task tool of their own. */
-function builtinExtensions(deps: {
-  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
-  modelRuntime: ModelRuntime;
-  subagents: SubagentRegistry;
-  getThreadId: () => string;
-}): (spawn: {
-  trusted: boolean;
-  subagent: boolean;
-  subagentId?: string;
-  agentName?: string;
-}) => InlineExtension[] {
-  return (spawn) =>
-    spawn.subagent
-      ? [
-          createSubagentCommunicationExtension({
-            emit: (frame) => deps.emit(frame),
-            getThreadId: deps.getThreadId,
-            subagentId: spawn.subagentId ?? "",
-            agentName: spawn.agentName ?? "",
-          }),
-        ]
-      : [
-          createTaskTool(
-            {
-              emit: deps.emit,
-              modelRuntime: deps.modelRuntime,
-              registry: deps.subagents,
-              writeStderr,
-              getThreadId: deps.getThreadId,
-            },
-            spawn.trusted,
-          ),
-        ];
-}
-
-/** Model runtime, dialog broker, and the single-session host. */
-async function setupWorkerServices(deps: {
-  refs: WorkerRefs;
-  registry: ReturnType<typeof createInflightRegistry>;
-  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
-  shutdown: (reason: string) => Promise<void>;
-  subagents: SubagentRegistry;
-  resolveGrant: (grantId: string, granted: boolean) => void;
-}): Promise<WorkerContext> {
-  const modelRuntime = await ModelRuntime.create();
-  const broker = new DialogBroker((frame) => deps.emit(frame));
-  const { subagents } = deps;
-  deps.refs.broker = broker;
-  deps.refs.sessions = new SessionHost({
-    modelRuntime,
-    emit: deps.emit,
-    createUi: (threadId) => createUiContext(threadId, broker, deps.emit),
-    onThreadDisposed: (threadId) => broker.settleThread(threadId),
-    writeStderr,
-    createExtensions: builtinExtensions({
-      emit: deps.emit,
-      modelRuntime,
-      subagents,
-      getThreadId: () => deps.refs.sessions?.threadId() ?? "",
-    }),
-  });
-  return buildContext({
-    refs: deps.refs,
-    registry: deps.registry,
-    emit: deps.emit,
-    triggerShutdown: (reason) => void deps.shutdown(reason),
-    subagents,
-    resolveGrant: deps.resolveGrant,
-  });
-}
-
-function createCommandDispatcher(deps: {
-  ctx: WorkerContext;
-  lifecycle: { isShuttingDown: () => boolean };
-  status: WorkerStatus;
-}): (cmd: WorkerCommand) => Promise<void> {
-  const { ctx, lifecycle, status } = deps;
-  return async (cmd: WorkerCommand): Promise<void> => {
-    const { id } = cmd;
-    if (lifecycle.isShuttingDown()) {
-      responseFailure(id, String(cmd.type ?? "unknown"), "pai-cli worker is shutting down");
-      return;
-    }
-    if (!OBSERVER_COMMANDS.has(cmd.type)) status.lastBusyAt = Date.now();
-    const handler = workerHandlers.get(cmd.type);
-    if (handler === undefined) {
-      const unknown = cmd as { type?: unknown };
-      const name = typeof unknown.type === "string" ? unknown.type : "unknown";
-      responseFailure(id, name, `Unknown command: ${name}`);
-      return;
-    }
-    await handler(ctx, cmd, id);
-  };
-}
-
 /**
  * v0.6 global subagent cap client: worker→host grant roundtrips over the
  * frame writer. The emitter is late-bound (the registry is built before the
@@ -357,7 +260,7 @@ function createGrantClient(): {
         }, GRANT_REQUEST_TIMEOUT_MS);
         waiters.set(grantId, (granted, running) => {
           clearTimeout(timer);
-          resolve({ token: granted ? grantId : null, running });
+          resolve(granted ? { token: grantId, running } : { token: null, running });
         });
         sink.send?.({ type: "grant", id: grantId, n: 1 });
       }),
@@ -387,12 +290,14 @@ function createGrantClient(): {
 export async function runWorker(): Promise<void> {
   takeOverStdout();
   const writer = createFrameWriter(getRawStdoutWrite());
+  const backend = createWorkerBackend();
   const refs: WorkerRefs = {};
   const status: WorkerStatus = { lastBusyAt: Date.now() };
   const registry = createInflightRegistry();
   const shutdownProbe = { active: false };
   const grantClient = createGrantClient();
   const subagents = new SubagentRegistry({
+    startTask: backend.startTask,
     getSession: () => refs.sessions?.get()?.session,
     isShuttingDown: () => shutdownProbe.active,
     writeStderr,
@@ -415,19 +320,81 @@ export async function runWorker(): Promise<void> {
   grantClient.bind(emit);
   startHeartbeat({ emit, refs, registry, status, subagents });
   const ctx = await setupWorkerServices({
+    backend,
     refs,
     registry,
     emit,
     shutdown,
     subagents,
-    resolveGrant: grantClient.resolve,
+    grantClient,
   });
 
-  const handleCommand = createCommandDispatcher({ ctx, lifecycle, status });
+  const handleCommand = createCommandDispatcher({ ctx, backend, lifecycle, status });
 
   attachStdinLoop({ emit, handleCommand, onEnd: () => void shutdown("stdin end") });
   attachProcessGuards({ emit, onSignal: (signal) => void shutdown(signal) });
 
   // Keep the process alive waiting on stdin.
   await new Promise<void>(() => {});
+}
+
+/** Broker + backend session host + the command context (post-heartbeat). */
+async function setupWorkerServices(deps: {
+  backend: WorkerBackend;
+  refs: WorkerRefs;
+  registry: InflightRegistry;
+  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
+  shutdown: (reason: string) => Promise<void>;
+  subagents: SubagentRegistry;
+  grantClient: ReturnType<typeof createGrantClient>;
+}): Promise<WorkerContext> {
+  const broker = new DialogBroker((frame) => deps.emit(frame));
+  deps.refs.broker = broker;
+  deps.refs.sessions = await deps.backend.createSessionHost({
+    emit: deps.emit,
+    broker,
+    writeStderr,
+    subagents: deps.subagents,
+  });
+  return buildContext({
+    backend: deps.backend,
+    refs: deps.refs,
+    registry: deps.registry,
+    emit: deps.emit,
+    triggerShutdown: (reason) => void deps.shutdown(reason),
+    subagents: deps.subagents,
+    resolveGrant: deps.grantClient.resolve,
+  });
+}
+
+function createCommandDispatcher(deps: {
+  ctx: WorkerContext;
+  backend: WorkerBackend;
+  lifecycle: { isShuttingDown: () => boolean };
+  status: WorkerStatus;
+}): (cmd: WorkerCommand) => Promise<void> {
+  const { ctx, backend, lifecycle, status } = deps;
+  return async (cmd: WorkerCommand): Promise<void> => {
+    const { id } = cmd;
+    if (lifecycle.isShuttingDown()) {
+      responseFailure(id, String(cmd.type ?? "unknown"), "pai-cli worker is shutting down");
+      return;
+    }
+    if (!OBSERVER_COMMANDS.has(cmd.type)) status.lastBusyAt = Date.now();
+    const name = String(cmd.type ?? "unknown");
+    // v0.8 capability gate (design.md): capability-gated commands the
+    // backend does not support fail here with the contract error shape —
+    // exactly one response, before any handler runs.
+    const unsupported = capabilityError(cmd.type, backend.id, backend.capabilities);
+    if (unsupported !== undefined) {
+      responseFailure(id, name, unsupported);
+      return;
+    }
+    const handler = workerHandlers.get(cmd.type);
+    if (handler === undefined) {
+      responseFailure(id, name, `Unknown command: ${name}`);
+      return;
+    }
+    await handler(ctx, cmd, id);
+  };
 }
