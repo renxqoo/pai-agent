@@ -273,7 +273,7 @@ src/
 
 ### 能力协商（用户裁决 R3：host 级后端）
 
-- **核心必选命令**（任何后端必须实现）：`thread/start`、`thread/stop`、`prompt`、`abort`、`get_state`、`get_commands`、`get_host_info`、`ui_response`。其余 30 命令为能力门控。
+- **核心必选命令**（任何后端必须实现）：`thread/start`、`thread/stop`、`thread/list`（宿主路由表，崩溃恢复依赖）、`prompt`、`abort`、`get_state`、`get_commands`（可返回空集）、`get_host_info`、`ui_response`、`get_permission_rules`、`set_permission_rules`（host 本地 sidecar 文件操作，与后端无关；软门执行是能力位）。其余 27 命令为能力门控。
 - 能力位封闭枚举（29 位）：`session.fork`、`session.clone`、`session.tree`、`session.navigate`、`session.compact`、`session.entries`、`session.messages`、`session.stats`、`session.name`、`session.resume`、`session.listSaved`、`session.model.set`、`thinkingLevels`、`steer`、`followUp`、`queue.clear`、`bash.exec`、`dialogs`、`permission.soft`、`sandbox.bash`、`sandbox.fs`、`subagents`、`model.auth`、`model.list`、`image`、`extensions.project`、`resources.agents`、`resources.skills`。
 - 命令 → 能力位映射表（38 行，表驱动）唯一真相 `src/backend/capabilities.ts`（镜像本表，测试对拍两处一致）。能力门控命令在后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`（英文中性）。
 - `get_host_info` 响应增 `backend: { id, capabilities: [...] }`（字符串与枚举，**不含路径/env/凭据**——v0.6 承诺不变）；`get_commands` 按能力过滤。

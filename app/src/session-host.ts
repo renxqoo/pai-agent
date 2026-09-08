@@ -27,8 +27,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createPermissionGate, effectiveRules } from "./permission-gate.ts";
 import { type SandboxGateState, createSandboxGate, snapshotSandboxConfig } from "./sandbox-gate.ts";
+import type { SpawnShaping } from "./backend/ports/session.ts";
 import type { PermissionRules } from "./rules.ts";
-import type { HubFrame, SessionModel, SetThinkingLevelCmd } from "./protocol.ts";
+import type { HubFrame, SessionModel } from "./protocol.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
 
@@ -66,51 +67,6 @@ export interface SessionHostOptions {
 
 /** Subagent shaping of a spawn (plan §3.2 internal thread/start fields).
  * thinkingLevel matches pi's ThinkingLevel union (protocol's level type). */
-export interface SpawnShaping {
-  systemPrompt?: string;
-  tools?: string[];
-  thinkingLevel?: SetThinkingLevelCmd["level"];
-  /** Parent conversation id: the gate re-reads ITS ruleset (sidecar, else
-   * global) on every decision — tightening propagates to running
-   * grandchildren instead of freezing spawn-time rules forever. */
-  permissionThreadId?: string;
-  parentProtectedPaths?: string[];
-  /** Depth 1: the task tool is not registered inside this session. */
-  subagent?: boolean;
-  /** Labels for the grandchild's subagent_message frames (advisory). */
-  subagentId?: string;
-  agentName?: string;
-  /** In-memory session (pi --no-session equivalent): no session file. */
-  ephemeral?: boolean;
-}
-
-/** Extract the shaping fields of an internal thread/start command. */
-export function startShaping(cmd: {
-  systemPrompt?: string;
-  tools?: string[];
-  thinkingLevel?: SetThinkingLevelCmd["level"];
-  permissionThreadId?: string;
-  parentProtectedPaths?: string[];
-  subagent?: boolean;
-  subagentId?: string;
-  agentName?: string;
-  ephemeral?: boolean;
-}): SpawnShaping | undefined {
-  const shaping: SpawnShaping = {
-    ...(cmd.systemPrompt !== undefined ? { systemPrompt: cmd.systemPrompt } : {}),
-    ...(cmd.tools !== undefined ? { tools: cmd.tools } : {}),
-    ...(cmd.thinkingLevel !== undefined ? { thinkingLevel: cmd.thinkingLevel } : {}),
-    ...(cmd.permissionThreadId !== undefined ? { permissionThreadId: cmd.permissionThreadId } : {}),
-    ...(cmd.parentProtectedPaths !== undefined
-      ? { parentProtectedPaths: cmd.parentProtectedPaths }
-      : {}),
-    ...(cmd.subagent === true ? { subagent: true } : {}),
-    ...(cmd.subagentId !== undefined ? { subagentId: cmd.subagentId } : {}),
-    ...(cmd.agentName !== undefined ? { agentName: cmd.agentName } : {}),
-    ...(cmd.ephemeral === true ? { ephemeral: true } : {}),
-  };
-  return Object.keys(shaping).length > 0 ? shaping : undefined;
-}
 
 /**
  * Streaming events carry cumulative snapshots (message + the partial

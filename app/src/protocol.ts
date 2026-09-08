@@ -24,6 +24,83 @@ export interface ImagePayload {
 export type SessionModel = NonNullable<AgentSession["model"]>;
 
 // ============================================================================
+// Event vocabulary (v0.8: pai-owned, closed name set)
+// ============================================================================
+
+/** v0.8: the closed event-name set pai claims and guarantees on the wire
+ * (design.md v0.8; lifted 1:1 from the pi session event vocabulary, A-2
+ * enumeration). Events whose names are NOT in this set pass through the
+ * host verbatim — the wire is never filtered by this list; upstream
+ * vocabulary drift surfaces as unknown members clients must tolerate. */
+export const PAI_EVENT_NAMES = [
+  "agent_start",
+  "agent_end",
+  "agent_settled",
+  "turn_start",
+  "turn_end",
+  "message_start",
+  "message_update",
+  "message_end",
+  "tool_execution_start",
+  "tool_execution_update",
+  "tool_execution_end",
+  "queue_update",
+  "compaction_start",
+  "compaction_end",
+  "entry_appended",
+  "session_info_changed",
+  "thinking_level_changed",
+  "auto_retry_start",
+  "auto_retry_end",
+  "summarization_retry_scheduled",
+  "summarization_retry_attempt_start",
+  "summarization_retry_finished",
+  "bash_execution_update",
+] as const;
+
+export type PaiEventName = (typeof PAI_EVENT_NAMES)[number];
+
+/** Members whose payloads the pai contract documents structurally. */
+export interface PaiMessageUpdateEvent {
+  type: "message_update";
+  /** Delta envelope; the cumulative snapshot is stripped before the wire. */
+  assistantMessageEvent?: unknown;
+}
+
+export interface PaiAgentEndEvent {
+  type: "agent_end";
+  messages: unknown[];
+  willRetry?: boolean;
+}
+
+export interface PaiQueueUpdateEvent {
+  type: "queue_update";
+  steering: readonly string[];
+  followUp: readonly string[];
+}
+
+export interface PaiBashExecutionUpdateEvent {
+  type: "bash_execution_update";
+  id?: string;
+  delta: string;
+}
+
+/** The wire event: closed name vocabulary; payloads pai does not constrain
+ * ride along verbatim (unknown — the wire is JSON; backend adapters lift
+ * their native events into this shape at the adapter boundary). */
+export type PaiEvent =
+  | PaiMessageUpdateEvent
+  | PaiAgentEndEvent
+  | PaiQueueUpdateEvent
+  | PaiBashExecutionUpdateEvent
+  | {
+      type: Exclude<
+        PaiEventName,
+        "message_update" | "agent_end" | "queue_update" | "bash_execution_update"
+      >;
+    };
+
+// ============================================================================
 // Commands (stdin, Electron -> host)
 // ============================================================================
 

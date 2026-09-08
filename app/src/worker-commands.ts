@@ -36,7 +36,7 @@ import type {
   WorkerThreadStartCmd,
 } from "./protocol.ts";
 import type { Thread } from "./session-host.ts";
-import { startShaping } from "./session-host.ts";
+import { startShaping } from "./backend/ports/session.ts";
 import { collectCommands } from "./command-listing.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";
 import type { WorkerContext, WorkerHandler } from "./worker-context.ts";
