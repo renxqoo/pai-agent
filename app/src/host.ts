@@ -9,7 +9,7 @@
  */
 
 import { capabilityError } from "./backend/capabilities.ts";
-import { backendSdkVersion, createHostBackend } from "./backend/index.ts";
+import { backendSdkVersion, createHostBackend, resolveSpawnSelection } from "./backend/index.ts";
 import type { HostBackend } from "./backend/ports/backend.ts";
 import { bindSidecarAgentDir } from "./sidecar-rules.ts";
 // Bundlers inline JSON imports at build time, so the version survives the
@@ -271,10 +271,30 @@ async function setupHostServices(deps: {
   const hostMeta = collectHostMeta(backend.sdkVersion);
   // The sidecar store follows the selected backend's agent dir (P4).
   bindSidecarAgentDir(backend.resources.agentDir);
+  const selection = resolveSpawnSelection({ writeStderr });
+  if (selection.spawn.kind === "unregistered") {
+    throw new Error(selection.spawn.error);
+  }
+  // Boot audit line (stderr; env values are never echoed — v0.6 promise).
+  writeStderr(
+    selection.spawn.kind === "self"
+      ? `pai-cli backend: ${selection.backendId} (spawn self)\n`
+      : `pai-cli backend: ${selection.backendId} (spawn ${selection.spawn.command} ${selection.spawn.args.join(" ")})\n`,
+  );
   const pool = new WorkerPool({
     emitFrame: deps.emitters.emit,
     emitRaw: deps.emitters.emitRaw,
     writeStderr,
+    backendId: selection.backendId,
+    ...(selection.spawn.kind === "spec"
+      ? {
+          spawnSpec: {
+            command: selection.spawn.command,
+            args: selection.spawn.args,
+            ...(selection.spawn.env !== undefined ? { env: selection.spawn.env } : {}),
+          },
+        }
+      : {}),
   });
   deps.poolRef.pool = pool;
   return {

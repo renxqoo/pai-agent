@@ -165,6 +165,7 @@ function makeFakeSpawn(): { spawn: SpawnWorkerFn; workers: FakeWorker[] } {
         subagents: 0,
         pendingIds: new Map(),
         internalIds: new Set(),
+        greeted: false,
       };
       workers.push({
         deps,
@@ -234,6 +235,13 @@ const START_OK =
   '"data":{"threadId":"t1","cwd":"/tmp","sessionPath":"/tmp/t1.jsonl"}}';
 const HEARTBEAT_IDLE =
   '{"type":"heartbeat","idleMs":5000,"streaming":false,"sessionPath":"/tmp/t1.jsonl"}';
+const HELLO_OK =
+  '{"type":"hello","protocolVersion":1,"backendId":"pi-coding-agent","capabilities":[]}';
+
+/** Worker contract v1: every fake worker greets before any other frame. */
+function greet(worker: { deps: WorkerHandle }): void {
+  worker.deps.onLine(HELLO_OK);
+}
 
 describe("teardown deadline (wedged worker escalation)", () => {
   test("idle retire escalates to SIGTERM past the exit budget and settles parked", async () => {
@@ -242,6 +250,7 @@ describe("teardown deadline (wedged worker escalation)", () => {
     try {
       await pool.startThread({ id: "start-1" });
       const worker = soleWorker(fake.workers);
+      greet(worker);
       worker.deps.onLine(START_OK);
       worker.deps.onLine(HEARTBEAT_IDLE);
       await until(() => worker.ended(), 3_000); // retire EOF landed (1s sweep)
@@ -263,6 +272,7 @@ describe("teardown deadline (wedged worker escalation)", () => {
     try {
       await pool.startThread({ id: "start-1" });
       const worker = soleWorker(fake.workers);
+      greet(worker);
       worker.deps.onLine(START_OK);
       await pool.stopThread("t1", "stop-1", "thread/stop");
       // The worker neither answers the stop nor closes (wedged).
@@ -315,6 +325,7 @@ function resumeIdOf(worker: FakeWorker): string {
 }
 
 function respondResume(worker: FakeWorker, id: string, threadId: string): void {
+  greet(worker);
   worker.deps.onLine(
     JSON.stringify({
       id,
@@ -330,6 +341,7 @@ function respondResume(worker: FakeWorker, id: string, threadId: string): void {
 async function deadThread(fake: { workers: FakeWorker[] }, pool: WorkerPool): Promise<void> {
   await pool.startThread({ id: "start-1" });
   const first = soleWorker(fake.workers);
+  greet(first);
   first.deps.onLine(START_OK);
   first.close();
 }

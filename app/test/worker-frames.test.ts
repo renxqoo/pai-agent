@@ -21,6 +21,8 @@ function makeDeps() {
     killWorker: async () => {},
     onGrant: () => {},
     renewGrants: () => {},
+    internalKey: (worker, id) => `${worker.uid}:${id}`,
+    expectedBackendId: "pi-coding-agent",
   };
   return { deps, raw };
 }
@@ -45,8 +47,81 @@ function makeWorker(): WorkerHandle {
     subagents: 0,
     pendingIds: new Map(),
     internalIds: new Set(),
+    greeted: true,
   };
 }
+
+describe("worker contract v1 hello handshake", () => {
+  test("valid hello greets the worker; a duplicate is ignored", () => {
+    const { deps } = makeDeps();
+    const worker = makeWorker();
+    worker.greeted = false;
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"hello","protocolVersion":1,"backendId":"pi-coding-agent","capabilities":[]}',
+    );
+    expect(worker.greeted).toBeTrue();
+    // Duplicate hello: noted on stderr, not fatal.
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"hello","protocolVersion":1,"backendId":"pi-coding-agent","capabilities":[]}',
+    );
+    expect(worker.greeted).toBeTrue();
+  });
+
+  test("protocol version mismatch rejects through the spawn-failure path", async () => {
+    const { deps } = makeDeps();
+    const worker = makeWorker();
+    worker.greeted = false;
+    let killed = false;
+    deps.killWorker = async () => {
+      killed = true;
+    };
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"hello","protocolVersion":99,"backendId":"pi-coding-agent","capabilities":[]}',
+    );
+    expect(killed).toBeTrue();
+    expect(worker.spawnError).toContain("protocol version mismatch");
+  });
+
+  test("backend id mismatch rejects through the spawn-failure path", async () => {
+    const { deps } = makeDeps();
+    const worker = makeWorker();
+    worker.greeted = false;
+    let killed = false;
+    deps.killWorker = async () => {
+      killed = true;
+    };
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"hello","protocolVersion":1,"backendId":"other","capabilities":[]}',
+    );
+    expect(killed).toBeTrue();
+    expect(worker.spawnError).toContain("backend mismatch");
+  });
+
+  test("any frame before hello is rejected", async () => {
+    const { deps } = makeDeps();
+    const worker = makeWorker();
+    worker.greeted = false;
+    let killed = false;
+    deps.killWorker = async () => {
+      killed = true;
+    };
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"heartbeat","idleMs":0,"streaming":false,"sessionPath":null}',
+    );
+    expect(killed).toBeTrue();
+    expect(worker.spawnError).toContain("hello frame first");
+  });
+});
 
 describe("worker frame classification (v0.5 subagent_event)", () => {
   test("subagent_event forwards verbatim by prefix", () => {

@@ -568,6 +568,20 @@ export interface WorkerHeartbeatFrame {
   subagents?: number;
 }
 
+/** v0.8 INTERNAL worker→host hello (worker contract v1, docs/worker-contract.md):
+ * the FIRST frame a worker writes after taking over stdout — before the
+ * heartbeat timer arms. The host rejects version/backend mismatches through
+ * the spawning-failure recycle path (occupancy reclaimed, pending ids
+ * failed exactly once, no thread_died). */
+export const WORKER_PROTOCOL_VERSION = 1;
+
+export interface WorkerHelloFrame {
+  type: "hello";
+  protocolVersion: number;
+  backendId: string;
+  capabilities: string[];
+}
+
 /**
  * v0.6 INTERNAL worker→host grant arbitration (global running-grandchild
  * cap, PAI_MAX_SUBAGGENTS — design.md v0.6 / migration §3 addendum).

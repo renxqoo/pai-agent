@@ -8,6 +8,7 @@
 
 import type { WorkerGrantFrame } from "./protocol.ts";
 import type { WorkerHandle } from "./worker-process.ts";
+import type { InternalWaiter } from "./worker-frames.ts";
 
 export const MAX_SUBAGENTS_DEFAULT = 16;
 /** Heartbeat-renewed while the worker reports subagents; a forgotten
@@ -113,4 +114,28 @@ export class GrantLedger {
       if (lease.worker === worker) this.leases.delete(id);
     }
   }
+}
+
+/** Grant arbitration reply (pool integration): the decision rides the
+ * normal command channel; the worker's ack response is absorbed by an
+ * internal waiter (never forwarded to the client). */
+export function replyGrant(deps: {
+  internalIds: Map<string, InternalWaiter>;
+  worker: WorkerHandle;
+  grantId: string;
+  decision: GrantDecision | undefined;
+}): void {
+  const { internalIds, worker, grantId, decision } = deps;
+  if (decision === undefined) return;
+  const waiter: InternalWaiter = {
+    onResponse: () => {},
+    onClosed: () => {},
+  };
+  const key = `${worker.uid}:${grantId}`;
+  internalIds.set(key, waiter);
+  worker.internalIds.add(grantId);
+  void worker.writeLine(decision.replyLine).catch(() => {
+    internalIds.delete(key);
+    worker.internalIds.delete(grantId);
+  });
 }

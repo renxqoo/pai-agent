@@ -22,7 +22,8 @@ import type {
 } from "./protocol.ts";
 import { INTERNAL_ID_PREFIX } from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle, spawnWorkerProcess } from "./worker-process.ts";
-import { GrantLedger, MAX_SUBAGENTS_DEFAULT } from "./grant-ledger.ts";
+import { type DeathDeps, reconcileWorkerClosed } from "./worker-death.ts";
+import { GrantLedger, MAX_SUBAGENTS_DEFAULT, replyGrant } from "./grant-ledger.ts";
 import {
   resumeThreadAdmission,
   settledHolderOf,
@@ -62,6 +63,61 @@ export interface WorkerPoolOptions {
   maxSubagents?: number;
   /** Test seam: fake worker spawn. */
   spawnWorker?: typeof spawnWorkerProcess;
+  /** v0.8: backend id the host expects in each worker's hello frame. */
+  backendId?: string;
+  /** v0.8 registry: explicit spawn spec for external backends; omitted =
+   * dynamic self-resolution (the three launch forms). */
+  spawnSpec?: { command: string; args: readonly string[]; env?: Record<string, string> };
+}
+
+/** Internal resume exchange: settle when the absorbed response lands, the
+ * worker dies, or the write fails; onFailedResume runs the occupancy/death
+ * cleanup exactly once. */
+async function resumeAndWait(deps: {
+  worker: WorkerHandle;
+  entry: ThreadEntry;
+  sessionPath: string;
+  registerInternal: (waiter: InternalWaiter) => string;
+  internalIds: Map<string, InternalWaiter>;
+  onFailedResume: () => Promise<void>;
+}): Promise<void> {
+  const { worker, entry } = deps;
+  const forget = (id: string): void => {
+    deps.internalIds.delete(`${worker.uid}:${id}`);
+    worker.internalIds.delete(id);
+  };
+  try {
+    await new Promise<void>((done, refuse) => {
+      const id = deps.registerInternal({
+        onResponse: (frame) => {
+          forget(id);
+          if (frame["success"] === true) done();
+          else refuse(new Error(String(frame["error"] ?? "resume failed")));
+        },
+        onClosed: () => {
+          forget(id);
+          refuse(new Error("worker died while resuming"));
+        },
+      });
+      void worker
+        .writeLine(
+          JSON.stringify({
+            type: "thread/resume",
+            sessionPath: deps.sessionPath,
+            cwd: entry.cwd,
+            trusted: entry.trusted,
+            id,
+          }),
+        )
+        .catch((error: unknown) => {
+          forget(id);
+          refuse(error instanceof Error ? error : new Error(String(error)));
+        });
+    });
+  } catch (error) {
+    await deps.onFailedResume();
+    throw error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 export class WorkerPool {
@@ -80,6 +136,8 @@ export class WorkerPool {
   private readonly emitRaw: (line: string) => void;
   private readonly writeStderr: (text: string) => void;
   private readonly spawnWorkerFn: typeof spawnWorkerProcess;
+  private readonly backendId: string;
+  private readonly spawnSpec: WorkerPoolOptions["spawnSpec"];
   private readonly sweep: ReturnType<typeof setInterval>;
   private shuttingDown = false;
 
@@ -99,6 +157,8 @@ export class WorkerPool {
       options.maxSubagents ?? readIntEnv("PAI_MAX_SUBAGENTS", MAX_SUBAGENTS_DEFAULT);
     this.grantLedger = new GrantLedger(this.maxSubagents);
     this.spawnWorkerFn = options.spawnWorker ?? spawnWorkerProcess;
+    this.backendId = options.backendId ?? "pi-coding-agent";
+    this.spawnSpec = options.spawnSpec;
     this.sweep = setInterval(() => this.sweepWorkers(), SWEEP_INTERVAL_MS);
   }
 
@@ -153,17 +213,11 @@ export class WorkerPool {
   /** Worker→host grant arbitration (migration §3 addendum): synchronous
    * ledger decision + internal reply; release frames free silently. */
   handleGrantFrame(worker: WorkerHandle, frame: WorkerGrantFrame): void {
-    const decision = this.grantLedger.apply(worker, frame);
-    if (decision === undefined) return;
-    // Reply rides the normal command channel; the worker's ack response is
-    // absorbed by an internal waiter (never forwarded to the client).
-    const waiter: InternalWaiter = { onResponse: () => {}, onClosed: () => {} };
-    const key = WorkerPool.internalKey(worker, frame.id);
-    this.internalIds.set(key, waiter);
-    worker.internalIds.add(frame.id);
-    void worker.writeLine(decision.replyLine).catch(() => {
-      this.internalIds.delete(key);
-      worker.internalIds.delete(frame.id);
+    replyGrant({
+      internalIds: this.internalIds,
+      worker,
+      grantId: frame.id,
+      decision: this.grantLedger.apply(worker, frame),
     });
   }
 
@@ -383,7 +437,7 @@ export class WorkerPool {
       );
     }
     this.table.occupy(worker, sessionPath);
-    await this.resumeAndWait(worker, entry, sessionPath);
+    await this.internalResume(worker, entry, sessionPath);
     // Lazy-persist sessions resume under a fresh session id: re-key the
     // stale parked entry (sidecar rules follow) or it wedges the same
     // session path forever ("Session already open" self-lock).
@@ -403,53 +457,25 @@ export class WorkerPool {
     }
   }
 
-  /** Send the internal resume and settle when the absorbed response lands
-   * (or the worker dies / the write fails). */
-  private async resumeAndWait(
+  /** Internal resume: settle on the absorbed response, death, or write
+   * failure; cleanup (occupancy + dead mark + kill) runs exactly once. */
+  private async internalResume(
     worker: WorkerHandle,
     entry: ThreadEntry,
     sessionPath: string,
   ): Promise<void> {
-    const forget = (id: string): void => {
-      this.internalIds.delete(WorkerPool.internalKey(worker, id));
-      worker.internalIds.delete(id);
-    };
-    try {
-      await new Promise<void>((done, refuse) => {
-        const id = this.registerInternal(worker, {
-          onResponse: (frame) => {
-            forget(id);
-            if (frame["success"] === true) done();
-            else refuse(new Error(String(frame["error"] ?? "resume failed")));
-          },
-          onClosed: () => {
-            forget(id);
-            refuse(new Error("worker died while resuming"));
-          },
-        });
-        void worker
-          .writeLine(
-            JSON.stringify({
-              type: "thread/resume",
-              sessionPath,
-              cwd: entry.cwd,
-              trusted: entry.trusted,
-              id,
-            }),
-          )
-          .catch((error: unknown) => {
-            forget(id);
-            refuse(error instanceof Error ? error : new Error(String(error)));
-          });
-      });
-    } catch (error) {
-      this.releaseOccupancy(worker, sessionPath);
-      this.markDead(entry.threadId);
-      // Idempotent cleanup: the response handler (failed resume) or close
-      // (death) already did most of this; make sure no worker survives.
-      await this.killWorker(worker, "stop").catch(() => {});
-      throw error instanceof Error ? error : new Error(String(error));
-    }
+    await resumeAndWait({
+      worker,
+      entry,
+      sessionPath,
+      registerInternal: (waiter) => this.registerInternal(worker, waiter),
+      internalIds: this.internalIds,
+      onFailedResume: async () => {
+        this.releaseOccupancy(worker, sessionPath);
+        this.markDead(entry.threadId);
+        await this.killWorker(worker, "stop").catch(() => {});
+      },
+    });
   }
 
   private releaseOccupancy(worker: WorkerHandle, sessionPath: string): void {
@@ -531,6 +557,7 @@ export class WorkerPool {
       onGrant: (worker, frame) => this.handleGrantFrame(worker, frame),
       renewGrants: (worker) => this.grantLedger.renew(worker),
       internalKey: (worker, id) => WorkerPool.internalKey(worker, id),
+      expectedBackendId: this.backendId,
     };
   }
 
@@ -545,64 +572,30 @@ export class WorkerPool {
       onViolation: () => void this.killWorker(worker, "none"),
       onClosed: (code, signal) => this.onWorkerClosed(worker, code, signal),
       writeStderr: this.writeStderr,
+      ...(this.spawnSpec !== undefined ? { spawnSpec: this.spawnSpec } : {}),
     });
     this.allWorkers.add(worker);
     return worker;
   }
 
   private onWorkerClosed(worker: WorkerHandle, code: number | null, signal: string | null): void {
-    this.allWorkers.delete(worker);
-    this.grantLedger.freeWorker(worker);
-    if (worker.threadId !== "" && this.table.liveWorker(worker.threadId) === worker) {
-      this.table.removeLive(worker.threadId);
-    }
-    this.table.reoccupy(worker, null);
-    for (const id of worker.internalIds) {
-      const key = WorkerPool.internalKey(worker, id);
-      const waiter = this.internalIds.get(key);
-      this.internalIds.delete(key);
-      waiter?.onClosed();
-    }
-    worker.internalIds.clear();
-    this.settleClosedWorker(worker, this.closeReason(worker, code, signal));
+    reconcileWorkerClosed({
+      death: this.deathDeps(),
+      worker,
+      code,
+      signal,
+      workerExitTimeoutMs: this.workerExitTimeoutMs,
+    });
   }
 
-  private closeReason(worker: WorkerHandle, code: number | null, signal: string | null): string {
-    if (worker.retireIntent === "none" && worker.awaitingStart) {
-      return worker.spawnError !== undefined
-        ? `Worker failed to start: ${worker.spawnError}`
-        : `Worker failed to start within ${this.workerExitTimeoutMs}ms`;
-    }
-    return `worker exited (code: ${String(code)}, signal: ${String(signal)})`;
-  }
-
-  private settleClosedWorker(worker: WorkerHandle, reason: string): void {
-    const wasRetire = worker.retireIntent === "retire";
-    const wasStop = worker.retireIntent === "stop";
-    const wasShutdown = worker.retireIntent === "shutdown";
-    const spawnTimeout =
-      worker.retireIntent === "none" && worker.awaitingStart && worker.spawnError === undefined;
-    if (!wasShutdown) {
-      for (const [id, command] of worker.pendingIds) {
-        // Responses already seen were removed from pendingIds; what remains
-        // never got its exactly-one response. Spawn timeouts use the bare
-        // documented message (design §2), without the "worker died" prefix.
-        this.failure(id, command, spawnTimeout ? reason : `worker died: ${reason}`);
-      }
-    }
-    worker.pendingIds.clear();
-    const entry = worker.threadId !== "" ? this.table.entry(worker.threadId) : undefined;
-    if (wasStop || wasShutdown) {
-      if (entry !== undefined) this.table.delete(worker.threadId);
-      return;
-    }
-    if (entry === undefined) return;
-    entry.state = wasRetire ? "parked" : "dead";
-    entry.wake = undefined;
-    entry.sessionPath = worker.sessionPath ?? entry.sessionPath;
-    this.table.enforceNonLiveCap();
-    if (!wasRetire) {
-      this.emitFrame({ type: "thread_died", threadId: worker.threadId, reason });
-    }
+  private deathDeps(): DeathDeps {
+    return {
+      table: this.table,
+      internalIds: this.internalIds,
+      allWorkers: this.allWorkers,
+      freeGrants: (worker) => this.grantLedger.freeWorker(worker),
+      failure: (id, command, error) => this.failure(id, command, error),
+      emitFrame: this.emitFrame,
+    };
   }
 }

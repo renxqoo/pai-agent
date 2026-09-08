@@ -48,6 +48,8 @@ export interface WorkerHandle {
   readonly pendingIds: Map<string, string>;
   /** Internal ids issued to this worker (broadcast acks, wake resumes). */
   readonly internalIds: Set<string>;
+  /** v0.8 worker contract: true once a valid hello frame arrived (first). */
+  greeted: boolean;
 }
 
 interface SpawnArgsResult {
@@ -113,6 +115,7 @@ function makeFailedSpawnHandle(child: ChildProcess, reason: string): WorkerHandl
     subagents: 0,
     pendingIds: new Map<string, string>(),
     internalIds: new Set<string>(),
+    greeted: false,
   };
   dead.closed = new Promise<void>((closeResolve) => {
     child.on("close", () => {
@@ -189,15 +192,19 @@ export interface SpawnWorkerDeps {
   onViolation: (reason: string) => void;
   onClosed: (code: number | null, signal: string | null) => void;
   writeStderr: (text: string) => void;
+  /** v0.8 registry: explicit spawn spec for external backends (backends.json).
+   * Omitted = the default dynamic self-resolution (three launch forms). */
+  spawnSpec?: { command: string; args: readonly string[]; env?: Record<string, string> };
 }
 
 /** Spawn one worker process and return its handle (resolved synchronously —
  * node buffers stdin/stdout until listeners attach). */
 export function spawnWorkerProcess(deps: SpawnWorkerDeps): WorkerHandle {
-  const { command, args } = workerSpawnArgs(process.argv[1], process.execPath);
+  const spec = deps.spawnSpec;
+  const { command, args } = spec ?? workerSpawnArgs(process.argv[1], process.execPath);
   const child = spawn(command, args, {
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env: spec?.env === undefined ? process.env : { ...process.env, ...spec.env },
     cwd: process.cwd(),
   });
   const { stdin } = child;
@@ -257,6 +264,7 @@ function makeWorkerHandle(deps: {
     subagents: 0,
     pendingIds: new Map<string, string>(),
     internalIds: new Set<string>(),
+    greeted: false,
   };
   worker.closed = new Promise<void>((closeResolve) => {
     deps.child.on("close", (code, signal) => {

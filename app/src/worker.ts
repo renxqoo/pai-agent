@@ -22,7 +22,7 @@ import type {
   WorkerGrantFrame,
   WorkerHeartbeatFrame,
 } from "./protocol.ts";
-import { OBSERVER_COMMANDS } from "./protocol.ts";
+import { OBSERVER_COMMANDS, WORKER_PROTOCOL_VERSION } from "./protocol.ts";
 import { SubagentRegistry } from "./subagent-registry.ts";
 import {
   createFrameWriter,
@@ -190,6 +190,20 @@ function attachStdinLoop(deps: {
   });
 }
 
+/** Tail wiring: stdin loop + signal guards (both drain into shutdown). */
+function wireWorkerIo(deps: {
+  emit: (frame: HubFrame | WorkerGrantFrame) => void;
+  handleCommand: (cmd: WorkerCommand) => Promise<void>;
+  shutdown: (reason: string) => Promise<void>;
+}): void {
+  attachStdinLoop({
+    emit: deps.emit,
+    handleCommand: deps.handleCommand,
+    onEnd: () => void deps.shutdown("stdin end"),
+  });
+  attachProcessGuards({ emit: deps.emit, onSignal: (signal) => void deps.shutdown(signal) });
+}
+
 function attachProcessGuards(deps: {
   emit: (frame: HubFrame) => void;
   onSignal: (signal: string) => void;
@@ -318,6 +332,7 @@ export async function runWorker(): Promise<void> {
     });
   };
   grantClient.bind(emit);
+  emitHello({ writer, backend, shutdown });
   startHeartbeat({ emit, refs, registry, status, subagents });
   const ctx = await setupWorkerServices({
     backend,
@@ -331,11 +346,33 @@ export async function runWorker(): Promise<void> {
 
   const handleCommand = createCommandDispatcher({ ctx, backend, lifecycle, status });
 
-  attachStdinLoop({ emit, handleCommand, onEnd: () => void shutdown("stdin end") });
-  attachProcessGuards({ emit, onSignal: (signal) => void shutdown(signal) });
+  wireWorkerIo({ emit, handleCommand, shutdown });
 
   // Keep the process alive waiting on stdin.
   await new Promise<void>(() => {});
+}
+
+/** Worker contract v1 greeting: the FIRST frame, enqueued before the
+ * heartbeat timer arms (the serial writer keeps the order even though both
+ * writes are async). A write failure here is the stdout-gone path. */
+function emitHello(deps: {
+  writer: ReturnType<typeof createFrameWriter>;
+  backend: WorkerBackend;
+  shutdown: (reason: string) => Promise<void>;
+}): void {
+  void deps.writer
+    .write(
+      `${JSON.stringify({
+        type: "hello",
+        protocolVersion: WORKER_PROTOCOL_VERSION,
+        backendId: deps.backend.id,
+        capabilities: [...deps.backend.capabilities].toSorted(),
+      })}\n`,
+    )
+    .catch((error: unknown) => {
+      writeStderr(`pai-cli worker stdout write failed: ${String(error)}\n`);
+      void deps.shutdown("stdout write failed");
+    });
 }
 
 /** Broker + backend session host + the command context (post-heartbeat). */

@@ -11,7 +11,9 @@ import type {
   UiResponseCmd,
   WorkerGrantFrame,
   WorkerHeartbeatFrame,
+  WorkerHelloFrame,
 } from "./protocol.ts";
+import { WORKER_PROTOCOL_VERSION } from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle } from "./worker-process.ts";
 import type { ThreadTable } from "./thread-table.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
@@ -59,9 +61,22 @@ export interface FrameRelayDeps {
   renewGrants: (worker: WorkerHandle) => void;
   /** Worker-scoped internal-id registry key (see WorkerPool.internalKey). */
   internalKey: (worker: WorkerHandle, id: string) => string;
+  /** v0.8 worker contract: the backend id the host expects in hello. */
+  expectedBackendId: string;
 }
 
 export function onWorkerLine(deps: FrameRelayDeps, worker: WorkerHandle, line: string): void {
+  if (line.startsWith('{"type":"hello"')) {
+    onHello(deps, worker, JSON.parse(line) as WorkerHelloFrame);
+    return;
+  }
+  if (!worker.greeted) {
+    // Worker contract v1: hello must be the first frame. Anything else
+    // before it is a spawn-time contract violation — reject through the
+    // spawning-failure recycle (no thread_died, pending ids failed once).
+    rejectUngreeted(deps, worker, line);
+    return;
+  }
   if (line.startsWith('{"type":"heartbeat"')) {
     onHeartbeat(deps, worker, JSON.parse(line) as WorkerHeartbeatFrame);
     return;
@@ -89,6 +104,46 @@ export function onWorkerLine(deps: FrameRelayDeps, worker: WorkerHandle, line: s
     return;
   }
   onUnclassifiedLine(deps, worker, line);
+}
+
+function onHello(deps: FrameRelayDeps, worker: WorkerHandle, frame: WorkerHelloFrame): void {
+  if (worker.greeted) {
+    deps.writeStderr("pai-cli worker sent a duplicate hello frame; ignored\n");
+    return;
+  }
+  if (frame.protocolVersion !== WORKER_PROTOCOL_VERSION) {
+    rejectHello(
+      deps,
+      worker,
+      `worker hello protocol version mismatch (got ${String(frame.protocolVersion)}, want ${WORKER_PROTOCOL_VERSION})`,
+    );
+    return;
+  }
+  if (frame.backendId !== deps.expectedBackendId) {
+    rejectHello(
+      deps,
+      worker,
+      `worker hello backend mismatch (got ${frame.backendId}, want ${deps.expectedBackendId})`,
+    );
+    return;
+  }
+  worker.greeted = true;
+}
+
+/** Spawn-time contract violation: mark and recycle via the spawn-failure
+ * path — close reconciliation synthesizes the failure(s), the occupancy
+ * table (if any) is reclaimed, no thread_died is emitted. */
+function rejectHello(deps: FrameRelayDeps, worker: WorkerHandle, reason: string): void {
+  worker.spawnError = reason;
+  void deps.killWorker(worker, "none");
+}
+
+function rejectUngreeted(deps: FrameRelayDeps, worker: WorkerHandle, line: string): void {
+  worker.spawnError = "worker did not send the hello frame first";
+  deps.writeStderr(
+    `pai-cli worker contract violation: pre-hello frame; rejected: ${line.slice(0, 120)}\n`,
+  );
+  void deps.killWorker(worker, "none");
 }
 
 function onHeartbeat(
