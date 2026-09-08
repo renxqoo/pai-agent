@@ -20,7 +20,7 @@ spawn("pai-cli", [], {
 - 协议走 **stdin/stdout JSONL**，stderr 是日志（无协议含义；worker 的日志带 `[pai:worker:<threadId>]` 前缀转发到 host stderr）。
 - 进程生命周期：stdin EOF / SIGTERM / SIGINT → host 优雅停掉全部 worker（落盘会话）并 exit 0。
 - 心跳：stdout 每 1 秒一帧 `{"type":"heartbeat"}`；**超过 10 秒没有心跳 = 进程卡死**，杀掉重启后用 `thread/resume` 恢复各会话（`thread/list` 的 `sessionPath` 先持久化到你的注册表）。
-- 环境旋钮（v0.6 汇总；当前生效值可用 `get_host_info.limits` 回读）：`PAI_MAX_THREADS`（32）、`PAI_IDLE_RETIRE_MS`（900000）、`PAI_WORKER_STALE_MS`（30000）、`PAI_WORKER_EXIT_TIMEOUT_MS`（10000）、`PAI_MAX_SUBAGGENTS`（16，全局**正在运行**孙进程上限，超出时该任务立即失败、模型可重试）、`PAI_BASH_TIMEOUT_MS`（600000，直执行 bash 服务端墙钟；`0` 关闭）、`PAI_SANDBOX`（v0.7，`off|0|false` 强制关闭执行沙箱）。
+- 环境旋钮（v0.6 汇总；当前生效值可用 `get_host_info.limits` 回读）：`PAI_MAX_THREADS`（32）、`PAI_IDLE_RETIRE_MS`（900000）、`PAI_WORKER_STALE_MS`（30000）、`PAI_WORKER_EXIT_TIMEOUT_MS`（10000）、`PAI_MAX_SUBAGGENTS`（16，全局**正在运行**孙进程上限，超出时该任务立即失败、模型可重试）、`PAI_BASH_TIMEOUT_MS`（600000，直执行 bash 服务端墙钟；`0` 关闭）、`PAI_SANDBOX`（v0.7，`off|0|false` 强制关闭执行沙箱）、`PAI_BACKEND`（v0.8，host 级后端选择，缺省 `pi-coding-agent`；备选后端经 `<agentDir>/backends.json` 注册，见 §10）。
 
 ## 2. 协议基础
 
@@ -28,6 +28,7 @@ spawn("pai-cli", [], {
 - 响应契约：**每个带 `id` 的命令恰好收到一个 `response` 帧，`id` 回显**。`prompt` 的 response 表示"已接受"，回复内容走事件流。
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
+- 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、prompt、abort、get_state、get_commands、get_host_info、ui_response）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
 
 ## 3. 命令总览（38 个）
 
@@ -143,7 +144,7 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 ### 宿主信息（v0.6，host 本地）
 
-**`get_host_info`** — 无字段，host 本地应答（不唤醒任何 worker）。生产排障的单点入口：`{version, piVersion, bunVersion, pid, uptimeMs, rssBytes, threads:{live,parked,dead}, subagents:{running}, limits:{maxThreads, idleRetireMs, workerStaleMs, workerExitTimeoutMs, maxSubagents, bashTimeoutMs}}`。版本为 host 启动期一次性读取（pai-cli / pi SDK / bun）；`subagents.running` 是全局**正在运行**的孙进程数（grant 账本口径，非心跳的在飞口径）；`limits` 回显当前生效的全部环境旋钮值。不含任何路径、env 或凭据信息。
+**`get_host_info`** — 无字段，host 本地应答（不唤醒任何 worker）。生产排障的单点入口：`{version, piVersion, bunVersion, pid, uptimeMs, rssBytes, threads:{live,parked,dead}, subagents:{running}, limits:{maxThreads, idleRetireMs, workerStaleMs, workerExitTimeoutMs, maxSubagents, bashTimeoutMs}, backend:{id, capabilities:[...]}}`（v0.8 增 `backend`）。版本为 host 启动期一次性读取（pai-cli / pi SDK / bun）；`subagents.running` 是全局**正在运行**的孙进程数（grant 账本口径，非心跳的在飞口径）；`limits` 回显当前生效的全部环境旋钮值。不含任何路径、env 或凭据信息。
 
 ### 沙箱（v0.7，agent 执行沙箱）
 
@@ -179,7 +180,7 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 | `subagent_event` (v0.5)   | `{"threadId","subagentId","agent","task","event"}`：子 agent（grandchild 进程）的会话事件原样转发，按 `subagentId` 分组渲染                                                                  |
 | `subagent_message` (v0.5) | `{"threadId","subagentId","agent","text","to?"}`：子 agent 的 `report`/`send` 工具产出（阶段 8/9）。worker 用自己注册表重盖身份（孙自报 id 不可信）；`to` 仅兄弟路由时存在（父模型中介转发） |
 
-**渲染聊天界面需要的核心事件**（`event.type`）：
+**渲染聊天界面需要的核心事件**（`event.type`；v0.8 起事件词表归 pai 所有，已知成员与 v0.5-v0.7 逐字节等价；pai 尚未认领的上游新事件会**原样透传**——客户端对未知 `event.type` 应容忍忽略）：
 
 | 事件                                                  | 用途                                                                                                                                                                             |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -271,3 +272,12 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 - [ ] `abort` 语义确认：会杀后台任务且不可恢复（如需选择性停，引导用户/模型用 task_stop）
 - [ ] `subagent_message` 帧：report 按子 agent 分组渲染（与 subagent_event 同面板）；带 `to` 的兄弟路由请求按「待 lead 转发」样式提示
 - [ ] `subagent/steer` / task_steer 失败文案按状态呈现（queued/settled/unknown）
+
+## 10. 后端与能力协商（v0.8）
+
+pai-cli 的 worker 侧可替换为不同 agent 后端（host 级选择，会话出生即绑定后端，不跨后端 resume）：
+
+- **选择方式**：env `PAI_BACKEND`（缺省 `pi-coding-agent` 全功能后端）+ `<agentDir>/backends.json` 注册备选（`{"<id>": {command, args, env}}`，spawn 外部 worker 进程）。备选后端必须实现 `docs/worker-contract.md` 契约并通过 conformance 套件。
+- **能力发现**：`get_host_info.backend` 返回 `{id, capabilities}`。除核心必选命令（§2）外的命令按能力位过滤；不支持的能力回结构化 failure（`Unsupported capability: <bit> on backend <id>`）。
+- **安全注意**：注册表指定外部可执行 = 你显式信任该 worker——pai 的权限确认与执行沙箱对默认后端以外的 worker **不自动生效**（能力位如实声明）；仅在你信任该后端自身的 containment 时使用。
+- **事件兼容**：所有后端的事件都归一到 pai 事件词表（§5）；未认领的成员原样透传。

@@ -258,3 +258,37 @@ src/
 - **`get_sandbox_state`**（thread-scoped）：快照 + 降级态 + bashSandboxed 的单一真相。
 - 判定顺序不变量：权限门先（原始输入）、沙箱后（强制）；恰好一响应等全部既有契约不受影响。
 - 实测口径（darwin arm64 / bun 1.4.2）：cwd 内写通过、cwd 外/.env/~/.ssh/非白名单域名被 OS 层拒（Operation not permitted / 连接被断）、白名单 127.0.0.1 可达；对拍脚本见方案 §六批 0。
+
+## 契约 v0.8 增补：后端能力包与事件词表自有化（2026-09-09；方案 docs/plans/2026-09-09-backend-capability-packs.md，双子 agent 对抗审查处置见其 §5）
+
+对外**零破坏**：38 命令 / 8 帧不变；`event` 帧 JSON 与 v0.5-v0.7 **逐字节等价**（已知成员 1:1 提升，仅类型归属变更）。增量为能力协商与后端选择。
+
+### 事件词表归 pai（用户裁决 R2）
+
+- `protocol.ts` 持有 `PaiEvent` 封闭联合，成员 = 现 `AgentSessionEvent` 词表 1:1（23 个 type 名，A-2 全量枚举）：`agent_start`、`agent_end`（payload `messages`/`willRetry`）、`agent_settled`、`turn_start`、`turn_end`、`message_start`、`message_update`、`message_end`、`tool_execution_start/update/end`、`queue_update`、`compaction_start/end`、`entry_appended`、`session_info_changed`、`thinking_level_changed`、`auto_retry_start/end`、`summarization_retry_scheduled/attempt_start/finished`、`bash_execution_update`。负载类型 pai 自有声明：组合层实际消费的结构字段（strip 规则、`agent_end.messages`）显式声明，开放负载（message/entry/args/partialResult 等）为 `unknown`。
+- **未知成员透传不变式**：上游新增事件类型经归一层**逐字节透传**（与 v0.5-v0.7 host 转发行为一致）——「封闭词表」指 pai 认领并保证语义的成员集合，不是线上过滤白名单。已知成员语义变化 = pai 词表 bump + 显式协议演进（ Electron 消费方文档同步）。
+- `message_update` 剥离规则（顶层 `message` 与 `assistantMessageEvent.partial`，帧大小恒定）的唯一实现在 `backend/ports/event-strip.ts`，coding-agent 适配器、孙进程事件转发、agent-core 归一层共用。
+- `SessionModel` 同步自有化：`import type { Model } from "@earendil-works/pi-ai"`——pi-ai 是 pai 的直接依赖与双后端共享通货（消息/模型类型同源），protocol 摘除的是 `pi-coding-agent`/`pi-agent-core` import。
+- `subagent_event` 帧的 `event` 负载同为 PaiEvent（孙进程事件原样转发的语义不变）。
+
+### 能力协商（用户裁决 R3：host 级后端）
+
+- **核心必选命令**（任何后端必须实现）：`thread/start`、`thread/stop`、`prompt`、`abort`、`get_state`、`get_commands`、`get_host_info`、`ui_response`。其余 30 命令为能力门控。
+- 能力位封闭枚举（29 位）：`session.fork`、`session.clone`、`session.tree`、`session.navigate`、`session.compact`、`session.entries`、`session.messages`、`session.stats`、`session.name`、`session.resume`、`session.listSaved`、`session.model.set`、`thinkingLevels`、`steer`、`followUp`、`queue.clear`、`bash.exec`、`dialogs`、`permission.soft`、`sandbox.bash`、`sandbox.fs`、`subagents`、`model.auth`、`model.list`、`image`、`extensions.project`、`resources.agents`、`resources.skills`。
+- 命令 → 能力位映射表（38 行，表驱动）唯一真相 `src/backend/capabilities.ts`（镜像本表，测试对拍两处一致）。能力门控命令在后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`（英文中性）。
+- `get_host_info` 响应增 `backend: { id, capabilities: [...] }`（字符串与枚举，**不含路径/env/凭据**——v0.6 承诺不变）；`get_commands` 按能力过滤。
+- **会话出生即绑定后端**：会话文件格式是后端实现细节（coding-agent v3 / agent-core harness 各自持有），不跨后端 resume/fork；`thread/resume` 的路径准入与 `thread/list_saved` 的枚举经后端端口解析，能力位 off 即结构化失败。
+
+### worker 契约公开化（内部协议升格，详细规格 `docs/worker-contract.md` 为唯一真相，W4 落档）
+
+- 新增内部帧 `hello`：worker 在 stdout 接管后、心跳定时器武装**之前**同步发出 `{type:"hello", protocolVersion:1, backendId, capabilities}`；host 校验版本与 boot 期望后端，不符走 spawning 失败回收（migration/design.md §6：撤占用表占位、pendingIds 补 failure、不发 thread_died——恰好一响应闭环不破）。外部协议（Electron ↔ host）不出现 hello。
+- 内部协议帧词表全集：command（host→worker）/ response / event / heartbeat / grant / ui_request / hub_error / subagent_event / subagent_message / hello。行限不对称：host→worker 16 MiB / worker→host 128 MiB。
+- 后端注册表（host 级 v1）：boot 经 `PAI_BACKEND=<id>`（缺省 `pi-coding-agent`）+ `<agentDir>/backends.json`（id → `{command,args,env}`）解析；**缺省项不落配置、保留 spawn 自身的动态自解析**（compile 单文件形态兼容）；注册表配置与权限规则文件同信任级（用户机器级）；实际 spawn spec 在 boot 时记 host stderr 一行供审计（不经 `get_host_info` 外显）。安全语义：注册表指定外部可执行 = 用户显式信任该 worker 的 containment 自声明——pai 的权限门/沙箱对外部 worker **不生效**（沙箱经后端端口提供，见下）。
+
+### 沙箱与权限的后端口径（修正 v0.7 表述）
+
+v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座注入），**不是 host 进程级物理强制**：coding-agent 后端下全线程（含孙进程）生效；agent-core / 外部 worker 后端下经能力位如实声明（`sandbox.bash`/`sandbox.fs` off 即无此防线），由 worker 契约要求适配器自述 containment。权限软门（ask 弹窗）同为端口能力（`permission.soft`）。
+
+### 环境旋钮（v0.8 新增）
+
+`PAI_BACKEND`（缺省 `pi-coding-agent`）：host 级后端选择；worker/孙进程继承同一后端（孙进程 spawn 走同一注册表）。
