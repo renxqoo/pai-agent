@@ -14,7 +14,8 @@ import type { ExtensionAPI, InlineExtension, ModelRuntime } from "@earendil-work
 import { Type } from "typebox";
 import { discoverAgents } from "./agent-definitions.ts";
 import type { HubFrame, SessionModel } from "../../protocol.ts";
-import { toWireEvent } from "./session-adapter.ts";
+import { stripCumulativeSnapshot } from "../ports/event-strip.ts";
+import type { PaiEvent } from "../../protocol.ts";
 import {
   type GrandchildHooks,
   type GrandchildResult,
@@ -283,7 +284,7 @@ function hooksFor(tool: TaskToolDeps, spec: GrandchildTaskSpec): GrandchildHooks
           Buffer.byteLength(spec.task, "utf8") <= ENVELOPE_TASK_CAP
             ? spec.task
             : truncateBytes(spec.task, ENVELOPE_TASK_CAP, "..."),
-        event: toWireEvent(event),
+        event: stripCumulativeSnapshot(event) as PaiEvent,
       });
     },
     onUiRequest: (frame) => {

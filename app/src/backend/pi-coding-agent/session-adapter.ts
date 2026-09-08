@@ -27,6 +27,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { createPermissionGate, effectiveRules } from "./permission-gate.ts";
 import { type SandboxGateState, createSandboxGate, snapshotSandboxConfig } from "./sandbox-gate.ts";
+import { stripCumulativeSnapshot } from "../ports/event-strip.ts";
+import type { PaiEvent } from "../../protocol.ts";
 import type { SpawnShaping } from "../ports/session.ts";
 import type { PermissionRules } from "../../rules.ts";
 import type { HubFrame, SessionModel } from "../../protocol.ts";
@@ -74,17 +76,6 @@ export interface SessionHostOptions {
  * serialization; frame size must stay constant per delta, otherwise long
  * replies amplify to quadratic wire traffic. Top-level usage is kept.
  */
-export function toWireEvent(event: AgentSessionEvent): AgentSessionEvent {
-  if (event.type !== "message_update") return event;
-  const { message: _message, assistantMessageEvent, ...rest } = event;
-  if (assistantMessageEvent === undefined) {
-    return rest as AgentSessionEvent;
-  }
-  const { partial: _partial, ...delta } = assistantMessageEvent as typeof assistantMessageEvent & {
-    partial?: unknown;
-  };
-  return { ...rest, assistantMessageEvent: delta } as AgentSessionEvent;
-}
 
 /** Session-shaping extras (tool allowlist, thinking level). */
 function shapingOptions(shaping: SpawnShaping | undefined): Record<string, unknown> {
@@ -262,7 +253,13 @@ function bindThread(deps: {
     thread.session = replacement;
     thread.sessionPath = replacement.sessionFile;
     thread.unsubscribe = replacement.subscribe((event: AgentSessionEvent) => {
-      emit({ type: "event", threadId: replacement.sessionId, event: toWireEvent(event) });
+      // Adapter lift: strip the cumulative snapshot, then hand the pai-owned
+      // wire vocabulary the (structurally compatible) pi event.
+      emit({
+        type: "event",
+        threadId: replacement.sessionId,
+        event: stripCumulativeSnapshot(event) as PaiEvent,
+      });
     });
     threadIdRef.id = replacement.sessionId;
     // fork/clone (and any other id-changing replacement): rules follow.
@@ -283,7 +280,11 @@ function bindThread(deps: {
     });
   });
   thread.unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-    emit({ type: "event", threadId: session.sessionId, event: toWireEvent(event) });
+    emit({
+      type: "event",
+      threadId: session.sessionId,
+      event: stripCumulativeSnapshot(event) as PaiEvent,
+    });
   });
   threadIdRef.id = session.sessionId;
   return session.bindExtensions({ uiContext: createUi(session.sessionId), mode: "rpc" });

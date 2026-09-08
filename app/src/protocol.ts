@@ -11,7 +11,7 @@
  * on the Electron wire).
  */
 
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { PermissionRules } from "./rules.ts";
 
 export interface ImagePayload {
@@ -20,8 +20,9 @@ export interface ImagePayload {
   mimeType: string;
 }
 
-/** Session model type without importing the transitive pi-ai package. */
-export type SessionModel = NonNullable<AgentSession["model"]>;
+/** v0.8: pai-owned session model type. pi-ai is pai's direct dependency and
+ * the shared currency of every backend (both upstreams speak pi-ai models). */
+export type SessionModel = Model<Api>;
 
 // ============================================================================
 // Event vocabulary (v0.8: pai-owned, closed name set)
@@ -457,7 +458,7 @@ export interface ResponseFrame {
 export interface EventFrame {
   type: "event";
   threadId: string;
-  event: AgentSessionEvent;
+  event: PaiEvent;
 }
 
 export interface UiRequestFrame {
@@ -505,7 +506,7 @@ export interface SubagentEventFrame {
   subagentId: string;
   agent: string;
   task: string;
-  event: AgentSessionEvent;
+  event: PaiEvent;
 }
 
 /**

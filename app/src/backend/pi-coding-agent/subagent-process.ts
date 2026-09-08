@@ -30,7 +30,7 @@ import {
 import { truncateBytes } from "../../truncate.ts";
 import { matchResponseId, sleep } from "../../subagent-wire.ts";
 import { spawnWorkerProcess, type WorkerHandle } from "../../worker-process.ts";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { PaiEvent } from "../../protocol.ts";
 
 // Re-export the contract surface (single import point for the registry,
 // tool, and tests — the contract lives in subagent-contract.ts).
@@ -415,7 +415,7 @@ class GrandchildRunner {
     }
     const typed = event as { type?: string; message?: AssistantMessage };
     this.state.eventsRelayed += 1;
-    this.relay(line, event as AgentSessionEvent);
+    this.relay(line, event as PaiEvent);
     if (typed.type === "message_end" && typed.message?.role === "assistant") {
       this.summarize(typed.message);
     }
@@ -427,7 +427,7 @@ class GrandchildRunner {
     }
   }
 
-  private relay(line: string, event: AgentSessionEvent): void {
+  private relay(line: string, event: PaiEvent): void {
     const size = Buffer.byteLength(line, "utf8");
     if (this.state.relayBytes + size <= RELAY_BUFFER_CAP_BYTES) {
       this.state.relayBytes += size;

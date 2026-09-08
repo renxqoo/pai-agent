@@ -5,7 +5,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { PaiEvent } from "./protocol.ts";
 import { readIntEnv } from "./int-env.ts";
 import type { SessionModel } from "./protocol.ts";
 
@@ -47,7 +47,7 @@ export interface GrandchildMessage {
 
 export interface GrandchildHooks {
   /** One grandchild event (already relay-stripped by the caller). */
-  onEvent: (event: AgentSessionEvent) => void;
+  onEvent: (event: PaiEvent) => void;
   /** Grandchild ui_request relayed upward; answers arrive via resolveUi. */
   onUiRequest: (frame: Record<string, unknown>) => void;
   /** Grandchild report/send tool output (stage 8/9); absent in tests that
