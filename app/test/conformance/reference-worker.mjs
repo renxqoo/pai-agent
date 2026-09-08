@@ -128,7 +128,7 @@ if (MODE !== "no-hello") {
   write({
     type: "hello",
     protocolVersion: MODE === "bad-version" ? 99 : WORKER_PROTOCOL_VERSION,
-    backendId: BACKEND_ID,
+    backendId: MODE === "bad-backend" ? "mismatched-backend" : BACKEND_ID,
     capabilities: [],
   });
 }

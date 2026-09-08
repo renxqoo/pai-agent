@@ -289,6 +289,7 @@ const handleGetHostInfo: HostHandler = async (deps, cmd, id) => {
       },
       backend: {
         id: deps.backend.id,
+        version: deps.backend.sdkVersion,
         capabilities: [...deps.backend.capabilities].toSorted(),
       },
     }),

@@ -28,7 +28,7 @@ spawn("pai-cli", [], {
 - 响应契约：**每个带 `id` 的命令恰好收到一个 `response` 帧，`id` 回显**。`prompt` 的 response 表示"已接受"，回复内容走事件流。
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
-- 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、prompt、abort、get_state、get_commands、get_host_info、ui_response）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
+- 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、thread/list、prompt、abort、get_state、get_commands、get_host_info、ui_response、get_permission_rules、set_permission_rules——共 11 个，任何后端恒可用）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
 
 ## 3. 命令总览（38 个）
 
@@ -278,6 +278,6 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 pai-cli 的 worker 侧可替换为不同 agent 后端（host 级选择，会话出生即绑定后端，不跨后端 resume）：
 
 - **选择方式**：env `PAI_BACKEND`（缺省 `pi-coding-agent` 全功能后端）+ `<agentDir>/backends.json` 注册备选（`{"<id>": {command, args, env}}`，spawn 外部 worker 进程）。备选后端必须实现 `docs/worker-contract.md` 契约并通过 conformance 套件。
-- **能力发现**：`get_host_info.backend` 返回 `{id, capabilities}`。除核心必选命令（§2）外的命令按能力位过滤；不支持的能力回结构化 failure（`Unsupported capability: <bit> on backend <id>`）。
+- **能力发现**：`get_host_info.backend` 返回 `{id, version, capabilities}`（version = 后端 SDK 版本字符串）。除核心必选命令（§2）外的命令按能力位过滤；不支持的能力回结构化 failure（`Unsupported capability: <bit> on backend <id>`）。
 - **安全注意**：注册表指定外部可执行 = 你显式信任该 worker——pai 的权限确认与执行沙箱对默认后端以外的 worker **不自动生效**（能力位如实声明）；仅在你信任该后端自身的 containment 时使用。
 - **事件兼容**：所有后端的事件都归一到 pai 事件词表（§5）；未认领的成员原样透传。

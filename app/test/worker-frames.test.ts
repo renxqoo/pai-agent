@@ -105,6 +105,40 @@ describe("worker contract v1 hello handshake", () => {
     expect(worker.spawnError).toContain("backend mismatch");
   });
 
+  test("a rejected worker cannot resurrect itself with a valid hello", async () => {
+    const { deps } = makeDeps();
+    const worker = makeWorker();
+    worker.greeted = false;
+    let killed = false;
+    deps.killWorker = async () => {
+      killed = true;
+    };
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"hello","protocolVersion":99,"backendId":"pi-coding-agent","capabilities":[]}',
+    );
+    expect(killed).toBeTrue();
+    // Kill window: a corrected hello must NOT flip greeted...
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"hello","protocolVersion":1,"backendId":"pi-coding-agent","capabilities":[]}',
+    );
+    expect(worker.greeted).toBeFalse();
+    // ...and the worker's subsequent frames stay rejected.
+    let killedAgain = false;
+    deps.killWorker = async () => {
+      killedAgain = true;
+    };
+    onWorkerLine(
+      deps,
+      worker,
+      '{"type":"heartbeat","idleMs":0,"streaming":false,"sessionPath":null}',
+    );
+    expect(killedAgain).toBeTrue();
+  });
+
   test("any frame before hello is rejected", async () => {
     const { deps } = makeDeps();
     const worker = makeWorker();

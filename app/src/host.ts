@@ -230,7 +230,7 @@ export async function runHost(argv: string[]): Promise<void> {
   const { shutdown } = lifecycle;
   const emitters = createHostEmitters(writer, shutdown);
   startHeartbeat(emitters, poolRef);
-  const { deps, backend } = await setupHostServices({ emitters, registry, poolRef });
+  const { deps, backend } = await bootOrExit({ emitters, registry, poolRef });
 
   const handleCommand = async (cmd: HubCommand, line: string): Promise<void> => {
     const { id } = cmd;
@@ -259,6 +259,20 @@ export async function runHost(argv: string[]): Promise<void> {
 
   // Keep the process alive waiting on stdin.
   await new Promise<void>(() => {});
+}
+
+/** Setup with the boot-failure contract: unregistered backend or unreadable
+ * config exits with a clean stderr line (1), never a raw unhandled rejection
+ * on a process that already took over stdout. */
+async function bootOrExit(deps: Parameters<typeof setupHostServices>[0]) {
+  try {
+    return await setupHostServices(deps);
+  } catch (error) {
+    writeStderr(
+      `pai-cli failed to start: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  }
 }
 
 /** Model runtime + pool construction; returns the handler dependency set. */

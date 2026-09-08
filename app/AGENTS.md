@@ -34,7 +34,7 @@ npm start                              # 直接跑 host（stdio JSONL）
 ## 代码纪律
 
 - TypeScript：严格模式全覆盖；`.ts` 后缀导入；只用可擦除语法（bun 直接跑 TS，无构建转译层）；无 `any`（确需类型逃生用 `as never` 并注释原因）。
-- 单一真相：协议类型只在 `src/protocol.ts`；权限判定顺序只在 `src/rules.ts` 的 `decide()`；stdout 写入语义只在 `src/stdout-guard.ts`；模型解析只在 host（`resolveModel`）；auth.json 写入只在 host；会话多重性只在 `src/worker-pool.ts` 的路由表。
+- 单一真相：协议类型只在 `src/protocol.ts`（v0.8 起 `PaiEvent` 词表与 `SessionModel`（pi-ai `Model`）自有化，不再 import 上游事件/会话类型）；事件剥离（message_update 快照）只在 `src/backend/ports/event-strip.ts`；能力位与命令映射只在 `src/backend/capabilities.ts`；权限判定顺序只在 `src/rules.ts` 的 `decide()`；stdout 写入语义只在 `src/stdout-guard.ts`；模型解析只在 host（`resolveModel`，v0.8 起经 P3 端口 `backend/ports/model-auth.ts`）；auth.json 写入只在 host；会话多重性只在 `src/worker-pool.ts` 的路由表。
 - 纯函数优先：`rules.ts`、`jsonl.ts` 保持无副作用、可表驱动测试；新增判定逻辑先进这两个模块再被引用。
 - 错误 message 用英文中性语言。
 - 迭代中会 delete 的 Map，遍历用 `Array.from(...)` 快照（oxlint 的 no-useless-spread 会误报 spread 写法）。
@@ -55,6 +55,7 @@ npm start                              # 直接跑 host（stdio JSONL）
 - 扩展即任意代码：线程默认 `trusted:false` 只加载内联权限门；`trusted:true` 才启用项目 `.pi` 扩展发现。
 - 权限规则热读 `~/.pi/agent/permission-rules.json`（bash 命令串 / write·edit 原始 path），坏文件降级到 `{mode:"ask"}` 永不抛错。
 - 直接 fd 写无法被接管拦截——不可信代码本就不应被加载。
+- 后端注册表（v0.8）：`backends.json` 指向外部可执行 = 用户机器级显式信任该 worker 的 containment 自声明——pai 的权限确认与执行沙箱对默认后端（pi-coding-agent）以外的 worker **不自动生效**（能力位如实声明；详见 `docs/worker-contract.md` §6）。
 
 ## Git
 

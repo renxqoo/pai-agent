@@ -255,7 +255,7 @@ function createLifecycle(deps: {
  * writer exists); a silent host resolves acquisitions as denied — the worker
  * follows the host down via stdin EOF anyway, so no denial can outlive it.
  */
-function createGrantClient(): {
+export function createGrantClient(timeoutMs = GRANT_REQUEST_TIMEOUT_MS): {
   request: () => Promise<{ token: string | null; running?: number }>;
   release: (token: string) => void;
   resolve: (grantId: string, granted: boolean, running?: number) => void;
@@ -271,7 +271,7 @@ function createGrantClient(): {
         const grantId = `g-${seq}`;
         const timer = setTimeout(() => {
           if (waiters.delete(grantId)) resolve({ token: null });
-        }, GRANT_REQUEST_TIMEOUT_MS);
+        }, timeoutMs);
         waiters.set(grantId, (granted, running) => {
           clearTimeout(timer);
           resolve(granted ? { token: grantId, running } : { token: null, running });
@@ -418,7 +418,8 @@ function createCommandDispatcher(deps: {
       return;
     }
     if (!OBSERVER_COMMANDS.has(cmd.type)) status.lastBusyAt = Date.now();
-    const name = String(cmd.type ?? "unknown");
+    const unknown = cmd as { type?: unknown };
+    const name = typeof unknown.type === "string" ? unknown.type : "unknown";
     // v0.8 capability gate (design.md): capability-gated commands the
     // backend does not support fail here with the contract error shape —
     // exactly one response, before any handler runs.

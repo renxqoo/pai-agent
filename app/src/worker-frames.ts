@@ -107,6 +107,11 @@ export function onWorkerLine(deps: FrameRelayDeps, worker: WorkerHandle, line: s
 }
 
 function onHello(deps: FrameRelayDeps, worker: WorkerHandle, frame: WorkerHelloFrame): void {
+  if (worker.spawnError !== undefined) {
+    // Already rejected (or dying): the handshake is monotonic — a second,
+    // valid-looking hello during the kill window must not resurrect it.
+    return;
+  }
   if (worker.greeted) {
     deps.writeStderr("pai-cli worker sent a duplicate hello frame; ignored\n");
     return;

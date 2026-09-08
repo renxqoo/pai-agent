@@ -64,7 +64,7 @@ const FULL_CAPABILITIES: ReadonlySet<CapabilityBit> = new Set<CapabilityBit>([
  * semantics): absolute, lexically and physically inside the agent's own
  * sessions directory (no probing differential), and actually present.
  */
-function resumePathError(sessionPath: string): string | undefined {
+export function resumePathError(sessionPath: string): string | undefined {
   if (!isAbsolute(sessionPath)) {
     return "sessionPath must be an absolute path (echo the value returned by thread/start or a previous thread/resume)";
   }

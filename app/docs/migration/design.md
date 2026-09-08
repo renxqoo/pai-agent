@@ -108,6 +108,8 @@ conversation; …` 同尾句）；
 
 ## 3. 内部协议（host ↔ worker，D-W4 / D-W14 / D-W17）
 
+> v0.8 起本节的公开契约形态以 [../worker-contract.md](../worker-contract.md) 为唯一真相（含 hello 握手增补）；本节保留 v0.4-v0.6 演进史。
+
 - 传输：worker stdin/stdout 管道上的 JSONL，帧解析复用 jsonl.ts。
 - 命令：v0.3 线形状，仅线程作用域子集（prompt、steer、follow_up、abort、
   compact、get_state、get_messages、set_model、set_thinking_level、

@@ -276,7 +276,7 @@ src/
 - **核心必选命令**（任何后端必须实现）：`thread/start`、`thread/stop`、`thread/list`（宿主路由表，崩溃恢复依赖）、`prompt`、`abort`、`get_state`、`get_commands`（可返回空集）、`get_host_info`、`ui_response`、`get_permission_rules`、`set_permission_rules`（host 本地 sidecar 文件操作，与后端无关；软门执行是能力位）。其余 27 命令为能力门控。
 - 能力位封闭枚举（29 位）：`session.fork`、`session.clone`、`session.tree`、`session.navigate`、`session.compact`、`session.entries`、`session.messages`、`session.stats`、`session.name`、`session.resume`、`session.listSaved`、`session.model.set`、`thinkingLevels`、`steer`、`followUp`、`queue.clear`、`bash.exec`、`dialogs`、`permission.soft`、`sandbox.bash`、`sandbox.fs`、`subagents`、`model.auth`、`model.list`、`image`、`extensions.project`、`resources.agents`、`resources.skills`。
 - 命令 → 能力位映射表（38 行，表驱动）唯一真相 `src/backend/capabilities.ts`（镜像本表，测试对拍两处一致）。能力门控命令在后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`（英文中性）。
-- `get_host_info` 响应增 `backend: { id, capabilities: [...] }`（字符串与枚举，**不含路径/env/凭据**——v0.6 承诺不变）；`get_commands` 按能力过滤。
+- `get_host_info` 响应增 `backend: { id, version, capabilities: [...] }`（字符串与枚举，**不含路径/env/凭据**——v0.6 承诺不变）。`get_commands` 为核心必选命令，返回后端实际提供的数据源（可为空集）；`resources.*` 能力位是对这些数据源可用性的声明面（advisory），不做结果过滤。
 - **会话出生即绑定后端**：会话文件格式是后端实现细节（coding-agent v3 / agent-core harness 各自持有），不跨后端 resume/fork；`thread/resume` 的路径准入与 `thread/list_saved` 的枚举经后端端口解析，能力位 off 即结构化失败。
 
 ### worker 契约公开化（内部协议升格，详细规格 `docs/worker-contract.md` 为唯一真相，W4 落档）
@@ -288,6 +288,11 @@ src/
 ### 沙箱与权限的后端口径（修正 v0.7 表述）
 
 v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座注入），**不是 host 进程级物理强制**：coding-agent 后端下全线程（含孙进程）生效；agent-core / 外部 worker 后端下经能力位如实声明（`sandbox.bash`/`sandbox.fs` off 即无此防线），由 worker 契约要求适配器自述 containment。权限软门（ask 弹窗）同为端口能力（`permission.soft`）。
+
+### 探针后端的既有口径（W3 实施落档）
+
+- `pi-agent-core` 后端的事件提升：`agent_settled` 按 run 合成（每个 `agent_end` 后一个）——coding-agent 在 followUp 队列排空后才 settle，探针后端每个 run 即 settle 且新 run 接续启动；客户端在探针后端可能提前看到 settled（已知 fidelity 差异，随探针定位）。
+- `get_commands` 在探针后端返回空集（无扩展/模板/skills 数据源）。
 
 ### 环境旋钮（v0.8 新增）
 

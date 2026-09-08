@@ -8,7 +8,8 @@
 ## 1. 进程模型
 
 host 按**每会话一个 worker 进程**spawn 你（`PAI_BACKEND` + `<agentDir>/backends.json` 注册你的
-`{command, args, env}`；内置后端由 pai 自 spawn，不经过注册表）。你与 host 一对 stdio 管道相连：
+`{command, args, env}`；`env` **覆盖**继承的 host 环境——同名变量以注册表为准；内置后端由 pai
+自 spawn，不经过注册表）。你与 host 一对 stdio 管道相连：
 
 - stdin/stdout 各为 UTF-8 JSONL，**LF 是唯一记录分隔**；
 - 行上限**不对称**：host→worker 每行 ≤ 16 MiB（超限整行丢弃 + parse failure）；worker→host 每行 ≤ 128 MiB（超限 worker 被 kill——为数十 MB 的 get_messages 响应设计，别贴着上限发）；

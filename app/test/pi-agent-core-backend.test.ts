@@ -146,6 +146,26 @@ describe("AgentCoreSessionHost", () => {
     expect(fake.calls.aborts).toBe(1);
   });
 
+  test("capability-off members throw instead of silently misbehaving", async () => {
+    const fake = makeFakeAgent();
+    const host = new AgentCoreSessionHost({
+      createAgent: () => fake.agent,
+      emit: () => {},
+      writeStderr: () => {},
+    });
+    const thread = await host.start({ cwd: "/tmp", trusted: false });
+    // The stubs throw synchronously (they are unreachable behind the gate —
+    // reaching one at all is the defect being pinned here).
+    expect(() => void thread.session.compact()).toThrow("does not support");
+    expect(() => void thread.session.setModel()).toThrow("does not support");
+    expect(() => void thread.session.executeBash()).toThrow("does not support");
+    expect(() => void thread.session.navigateTree("x", {})).toThrow("does not support");
+    expect(() => void host.resume({ cwd: undefined, trusted: false, sessionPath: "/x" })).toThrow(
+      "does not support",
+    );
+    expect(() => thread.session.setThinkingLevel("off")).toThrow("does not support");
+  });
+
   test("double start rejects with the one-session contract wording", async () => {
     const fake = makeFakeAgent();
     const host = new AgentCoreSessionHost({

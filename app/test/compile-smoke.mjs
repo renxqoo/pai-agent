@@ -110,15 +110,15 @@ const send = (cmd) =>
 
 // The compiled binary spawns workers as `<bin> --internal-worker`; the child
 // must come up and answer inside the compiled form.
-const start = await send({
+const boot = await send({
   id: "c1",
   type: "thread/start",
   cwd: projectDir,
   provider: "glm",
   modelId,
 });
-assert(start.success, `compiled host starts a worker (${(start.error ?? "ok").slice(0, 80)})`);
-const tid = start.data.threadId;
+assert(boot.success, `compiled host starts a worker (${(boot.error ?? "ok").slice(0, 80)})`);
+const tid = boot.data.threadId;
 {
   const kids = String(
     spawnSync("pgrep", ["-P", String(pai.pid)], { encoding: "utf8" }).stdout ?? "",
@@ -181,6 +181,63 @@ const tid = start.data.threadId;
 }
 assert(!allFrames.some((f) => JSON.stringify(f).includes(apiKey)), "API key never in frames");
 assert(!stderrText.includes(apiKey), "API key never on stderr");
+
+// --- registry section: compiled binary + backends.json + reference worker -----------
+// A-13 disposition (capability-packs plan §5): the compile form's dynamic
+// self-resolution must keep working alongside an explicit registry spawn.
+{
+  const refAgentDir = mkdtempSync(join(tmpdir(), "pai-compile-ref-"));
+  writeFileSync(
+    join(refAgentDir, "backends.json"),
+    JSON.stringify({
+      reference: {
+        command: process.execPath,
+        args: [join(process.cwd(), "test", "conformance", "reference-worker.mjs")],
+      },
+    }),
+  );
+  const ref = spawn(bin, [], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, PI_CODING_AGENT_DIR: refAgentDir, PAI_BACKEND: "reference" },
+  });
+  const refFrames = [];
+  let refBuf = "";
+  ref.stdout.setEncoding("utf8");
+  ref.stdout.on("data", (c) => {
+    refBuf += c;
+    let i = refBuf.indexOf("\n");
+    while (i !== -1) {
+      const line = refBuf.slice(0, i).trim();
+      refBuf = refBuf.slice(i + 1);
+      if (line.length > 0) {
+        try {
+          refFrames.push(JSON.parse(line));
+        } catch {}
+      }
+      i = refBuf.indexOf("\n");
+    }
+  });
+  const waitResp = async (id) => {
+    for (const deadline = Date.now() + 20_000; Date.now() < deadline;) {
+      const f = refFrames.find((x) => x.type === "response" && x.id === id);
+      if (f !== undefined) return f;
+      await new Promise((r) => {
+        setTimeout(r, 25);
+      });
+    }
+    throw new Error(`registry section: response ${id} timed out`);
+  };
+  try {
+    ref.stdin.write(`${JSON.stringify({ id: "r1", type: "thread/start" })}\n`);
+    const bootResp = await waitResp("r1");
+    assert(bootResp.success === true, "compiled binary spawns the registered reference worker");
+  } finally {
+    ref.stdin.end();
+    ref.kill("SIGKILL");
+    rmSync(refAgentDir, { recursive: true, force: true });
+  }
+}
 
 pai.stdin.end();
 const exitCode = await new Promise((r) => {

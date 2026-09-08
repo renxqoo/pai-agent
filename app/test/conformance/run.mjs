@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 
 const APP_ROOT = new URL("../..", import.meta.url).pathname;
-const scenarios = [referenceJourney, rejectsMissingHello, rejectsBadVersion];
+const scenarios = [referenceJourney, rejectsMissingHello, rejectsBadVersion, rejectsBadBackend];
 
 const args = process.argv.slice(2);
 if (args.includes("--list")) {
@@ -263,5 +263,13 @@ async function rejectsBadVersion() {
     "rejects-bad-version",
     { REF_WORKER_MODE: "bad-version" },
     "protocol version mismatch",
+  );
+}
+
+async function rejectsBadBackend() {
+  return rejectionScenario(
+    "rejects-bad-backend",
+    { REF_WORKER_MODE: "bad-backend" },
+    "backend mismatch",
   );
 }
