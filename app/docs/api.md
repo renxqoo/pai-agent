@@ -53,7 +53,7 @@ spawn("pai-cli", [], {
 响应：`{threadId, cwd, sessionPath}`。`threadId` = 会话 id，后续命令都靠它。
 
 **`thread/resume`** — 恢复历史会话（窗口重开 / hub 重启恢复用）。
-字段：`sessionPath`（必填，**必须是绝对路径**——回传 `thread/start`/`thread/resume` 响应里的原值即可；相对路径或文件不存在都会回 `failure`，**不会**静默开出一个空会话）、`cwd?`（缺省取**会话文件头记录的 cwd**）、`trusted?`。
+字段：`sessionPath`（必填，**必须是绝对路径**——回传 `thread/start`/`thread/resume` 响应里的原值即可；相对路径、文件不存在、或文件不在 `<agentDir>/sessions/` 目录之下——含符号链接指向圈外——都会回 `failure`，**不会**静默开出一个空会话，也不可借此加载磁盘上任意会话格式文件）、`cwd?`（缺省取**会话文件头记录的 cwd**）、`trusted?`。
 响应同 start。同一文件在本 hub 内已打开 → `success:false`（先 `thread/stop` 旧线程再 resume）。恢复后历史用 `get_entries`/`get_messages` 拉取渲染。
 
 **`thread/stop`** — 释放对话（dispose，会话文件保留）。幂等：未知 id 也回 success。配合 resume 实现"闲置回收"。

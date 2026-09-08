@@ -4,7 +4,15 @@
 // Run: bun test/smoke.mjs   (from app/)
 
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+  existsSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -618,6 +626,29 @@ await expectResponse(
     );
   },
 );
+// Red-team pin (external review probe): a pi-format file OUTSIDE the agent
+// sessions directory — even one that exists and parses — must not load,
+// and get_entries must never serve its contents back.
+{
+  const smuggled = join(agentDir, "smuggled.jsonl"); // inside agentDir, outside sessions/
+  writeFileSync(smuggled, `${JSON.stringify({ type: "session", id: "smuggled" })}\n`);
+  await expectResponse({ id: "v16d", type: "thread/resume", sessionPath: smuggled }, (r) => {
+    assert(
+      !r.success && /inside the agent sessions directory/.test(r.error ?? ""),
+      "thread/resume outside sessions dir: rejected",
+    );
+  });
+  // Symlink escape: a link inside sessions/ pointing outside is equally
+  // rejected after realpath normalization.
+  const link = join(fixtureDir, "escape-link.jsonl");
+  symlinkSync(smuggled, link);
+  await expectResponse({ id: "v16e", type: "thread/resume", sessionPath: link }, (r) => {
+    assert(
+      !r.success && /inside the agent sessions directory/.test(r.error ?? ""),
+      "thread/resume symlink escape: rejected",
+    );
+  });
+}
 await expectResponse(
   { id: "v16", type: "thread/resume", sessionPath: fixturePath },
   (r) => {

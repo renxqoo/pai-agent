@@ -1313,6 +1313,25 @@ async function assertNoGrandchildren(hostPid, label) {
   await waitEvent((e) => e.type === "agent_settled", "B: wait turn settled", 300_000);
   await waitAssistantContains(tid4, "bg-wait-B1", 300_000);
   await waitAssistantContains(tid4, "bg-wait-B2", 300_000);
+  // Drain first (batch-run finding): if the first hop needed a nudge, the
+  // model may have started MORE tasks than task_wait listed; those settle on
+  // their own and the sweep must wait for in-flight to reach zero.
+  await new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const t = setInterval(() => {
+      const inflight = allFrames
+        .slice(-40)
+        .filter((f) => f.type === "heartbeat")
+        .at(-1)?.subagents;
+      if ((inflight ?? 0) === 0) {
+        clearInterval(t);
+        resolve();
+      } else if (Date.now() - t0 > 120_000) {
+        clearInterval(t);
+        reject(new Error("B: in-flight subagents never drained"));
+      }
+    }, 500);
+  });
   await assertNoGrandchildren(hub.pid, "B: grandchildren gone after wait");
 
   // Journey C: background + client abort kills everything, no notification.

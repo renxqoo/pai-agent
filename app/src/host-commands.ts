@@ -4,9 +4,9 @@
  * thread-scoped falls through to the worker pool via handlePassthrough.
  */
 
-import { existsSync } from "node:fs";
-import { isAbsolute } from "node:path";
-import { type ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, join as joinPath, resolve as resolvePath } from "node:path";
+import { type ModelRuntime, getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "./agent-definitions.ts";
 import type {
   AgentsListCmd,
@@ -84,25 +84,46 @@ const handleStart: HostHandler = async (deps, cmd, id) => {
   await deps.pool.startThread(start, model);
 };
 
+/**
+ * thread/resume path admission (red-team findings): absolute (relative
+ * would resolve against the HOST cwd), physically under the agent's own
+ * sessions directory (otherwise any client could make the hub load — and
+ * serve back via get_entries — an arbitrary pi-format file from anywhere
+ * on disk; one uniform error outside, no exists/valid differential for
+ * path probing), and actually present (pi's SessionManager.open would
+ * otherwise silently "resume" a brand-new empty session).
+ *
+ * Spaces stay consistent per check: lexical containment compares
+ * resolve()'d strings (no symlink resolution — macOS /var is /private/var,
+ * mixing spaces would reject legit paths), then physical containment
+ * realpaths BOTH sides (a link inside sessions/ pointing outside is caught
+ * there).
+ */
+function resumePathError(sessionPath: string): string | undefined {
+  if (!isAbsolute(sessionPath)) {
+    return "sessionPath must be an absolute path (echo the value returned by thread/start or a previous thread/resume)";
+  }
+  const sessionsLexical = resolvePath(joinPath(getAgentDir(), "sessions"));
+  const resolved = resolvePath(sessionPath);
+  if (resolved !== sessionsLexical && !resolved.startsWith(`${sessionsLexical}/`)) {
+    return "Session file must be inside the agent sessions directory";
+  }
+  if (!existsSync(sessionPath)) {
+    return `Session file not found: ${sessionPath}`;
+  }
+  const sessionsRoot = realpathSync(sessionsLexical); // exists: the file under it does
+  const physical = realpathSync(sessionPath);
+  if (physical !== sessionsRoot && !physical.startsWith(`${sessionsRoot}/`)) {
+    return "Session file must be inside the agent sessions directory";
+  }
+  return undefined;
+}
+
 const handleResume: HostHandler = async (deps, cmd, id) => {
   const resume = cmd as ThreadResumeCmd;
-  // Fail fast, host-side: a missing file would otherwise be "resumed" as a
-  // brand-new empty session (pi's SessionManager.open creates), silently
-  // losing the client's history; a relative path would resolve against the
-  // HOST's cwd, not the client's. Absolute paths are what every response
-  // echoes back — require them.
-  if (!isAbsolute(resume.sessionPath ?? "")) {
-    deps.emit(
-      responseFailure(
-        id,
-        resume.type,
-        "sessionPath must be an absolute path (echo the value returned by thread/start or a previous thread/resume)",
-      ),
-    );
-    return;
-  }
-  if (!existsSync(resume.sessionPath)) {
-    deps.emit(responseFailure(id, resume.type, `Session file not found: ${resume.sessionPath}`));
+  const error = resumePathError(resume.sessionPath ?? "");
+  if (error !== undefined) {
+    deps.emit(responseFailure(id, resume.type, error));
     return;
   }
   await deps.pool.resumeThread(resume);
