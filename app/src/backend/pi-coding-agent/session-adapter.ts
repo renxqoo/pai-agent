@@ -238,6 +238,46 @@ export interface ThreadIdRef {
  * replacement swaps the subscription in place, the thread's id becomes the
  * new session's id (the host updates its routing from the response), and the
  * permission-rule sidecar follows the conversation to the new id. */
+/** The fork/clone rebind closure: swap the session in place, re-point the
+ * subscription and the id ref, and copy the permission sidecar across
+ * (best-effort; failure degrades to the global rules with a note). */
+async function rebindThread(deps: {
+  thread: Thread;
+  replacement: AgentSession;
+  emit: (frame: HubFrame) => void;
+  createUi: UiContextFactory;
+  threadIdRef: ThreadIdRef;
+  writeStderr: (text: string) => void;
+}): Promise<void> {
+  const { thread, replacement, emit, createUi, threadIdRef, writeStderr } = deps;
+  const previousId = thread.session.sessionId;
+  thread.unsubscribe();
+  thread.session = replacement;
+  thread.sessionPath = replacement.sessionFile;
+  thread.unsubscribe = replacement.subscribe((event: AgentSessionEvent) => {
+    // Adapter lift: strip the cumulative snapshot, then hand the pai-owned
+    // wire vocabulary the (structurally compatible) pi event.
+    emit({
+      type: "event",
+      threadId: replacement.sessionId,
+      event: stripCumulativeSnapshot(event) as PaiEvent,
+    });
+  });
+  threadIdRef.id = replacement.sessionId;
+  if (
+    replacement.sessionId !== previousId &&
+    !copySidecarRules(previousId, replacement.sessionId)
+  ) {
+    writeStderr(
+      `pai-cli could not copy permission rules across the session replacement (${previousId} -> ${replacement.sessionId}); falling back to the global rules\n`,
+    );
+  }
+  await replacement.bindExtensions({
+    uiContext: createUi(replacement.sessionId),
+    mode: "rpc",
+  });
+}
+
 function bindThread(deps: {
   thread: Thread;
   emit: (frame: HubFrame) => void;
@@ -247,38 +287,9 @@ function bindThread(deps: {
 }): Promise<void> {
   const { thread, emit, createUi, threadIdRef, writeStderr } = deps;
   const { runtime, session } = thread;
-  runtime.setRebindSession(async (replacement) => {
-    const previousId = thread.session.sessionId;
-    thread.unsubscribe();
-    thread.session = replacement;
-    thread.sessionPath = replacement.sessionFile;
-    thread.unsubscribe = replacement.subscribe((event: AgentSessionEvent) => {
-      // Adapter lift: strip the cumulative snapshot, then hand the pai-owned
-      // wire vocabulary the (structurally compatible) pi event.
-      emit({
-        type: "event",
-        threadId: replacement.sessionId,
-        event: stripCumulativeSnapshot(event) as PaiEvent,
-      });
-    });
-    threadIdRef.id = replacement.sessionId;
-    // fork/clone (and any other id-changing replacement): rules follow.
-    // Best-effort — the replacement is already applied inside pi, so a
-    // copy failure degrades to the global rules with a note, never
-    // aborts the rebind half-way.
-    if (
-      replacement.sessionId !== previousId &&
-      !copySidecarRules(previousId, replacement.sessionId)
-    ) {
-      writeStderr(
-        `pai-cli could not copy permission rules across the session replacement (${previousId} -> ${replacement.sessionId}); falling back to the global rules\n`,
-      );
-    }
-    await replacement.bindExtensions({
-      uiContext: createUi(replacement.sessionId),
-      mode: "rpc",
-    });
-  });
+  runtime.setRebindSession((replacement) =>
+    rebindThread({ thread, replacement, emit, createUi, threadIdRef, writeStderr }),
+  );
   thread.unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     emit({
       type: "event",
