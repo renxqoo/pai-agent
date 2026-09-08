@@ -146,11 +146,15 @@ export interface AuthRemoveKeyCmd {
   provider: string;
 }
 
-/** Session entries in append order; `since` is a durable cursor. */
+/** Session entries in append order; `since`/`before` are durable cursors
+ * (forward increment / backward paging) and `limit` caps the window to the
+ * most recent N entries (bounded single frame, design.md). */
 export interface GetEntriesCmd {
   type: "get_entries";
   threadId: string;
   since?: string;
+  before?: string;
+  limit?: number;
 }
 
 /** Session as a tree of entries with the current leaf. */
@@ -221,6 +225,12 @@ export interface BashCmd {
   threadId: string;
   command: string;
   excludeFromContext?: boolean;
+  /**
+   * v0.6 server-side wall clock: positive integer <= 86_400_000; `0` disables
+   * the timeout for this command; omitted = the PAI_BASH_TIMEOUT_MS default.
+   * Firing aborts via abortBash (BashResult.cancelled:true, not a failure).
+   */
+  timeoutMs?: number;
 }
 
 /** Abort a running direct bash command. */
@@ -274,6 +284,43 @@ export interface SubagentSteerCmd {
   message: string;
 }
 
+/**
+ * v0.6: host-local observability entry point (versions/counts/limits). No
+ * paths, env values, or credentials — numbers and version strings only.
+ */
+export interface GetHostInfoCmd {
+  type: "get_host_info";
+}
+
+/** v0.7: the thread's sandbox snapshot + OS-runtime state (docs/plans
+ * 2026-09-09-sandbox.md). */
+export interface GetSandboxStateCmd {
+  type: "get_sandbox_state";
+  threadId: string;
+}
+
+/** Response payload of get_host_info (design.md v0.6 addendum). */
+export interface HostInfo {
+  version: string;
+  piVersion: string;
+  bunVersion: string;
+  pid: number;
+  uptimeMs: number;
+  rssBytes: number;
+  threads: { live: number; parked: number; dead: number };
+  /** Global RUNNING grandchildren per the host grant ledger (a different
+   * metric from the heartbeat `subagents` in-flight count). */
+  subagents: { running: number };
+  limits: {
+    maxThreads: number;
+    idleRetireMs: number;
+    workerStaleMs: number;
+    workerExitTimeoutMs: number;
+    maxSubagents: number;
+    bashTimeoutMs: number;
+  };
+}
+
 export type HubCommand =
   | (ThreadStartCmd & { id?: string })
   | (ThreadResumeCmd & { id?: string })
@@ -310,7 +357,9 @@ export type HubCommand =
   | (GetPermissionRulesCmd & { id?: string })
   | (SetPermissionRulesCmd & { id?: string })
   | (AgentsListCmd & { id?: string })
-  | (SubagentSteerCmd & { id?: string });
+  | (SubagentSteerCmd & { id?: string })
+  | (GetHostInfoCmd & { id?: string })
+  | (GetSandboxStateCmd & { id?: string });
 
 // ============================================================================
 // Frames (stdout, host -> Electron)
@@ -438,6 +487,29 @@ export interface WorkerHeartbeatFrame {
   subagents?: number;
 }
 
+/**
+ * v0.6 INTERNAL worker→host grant arbitration (global running-grandchild
+ * cap, PAI_MAX_SUBAGGENTS — design.md v0.6 / migration §3 addendum).
+ * acquire: `{"type":"grant","id":"g-<seq>","n":1}` — host replies with an
+ * internal `grant_result` command carrying the same id.
+ * release: same frame with `"release":true` — no reply.
+ */
+export interface WorkerGrantFrame {
+  type: "grant";
+  id: string;
+  n?: number;
+  release?: boolean;
+}
+
+/** v0.6 INTERNAL host→worker grant decision (id = the grant id). The worker
+ * resolves its pending acquire and replies with an absorbed ack response;
+ * `running` (denials only) feeds the retryable limit-error message. */
+export interface WorkerGrantResultCmd {
+  type: "grant_result";
+  granted: boolean;
+  running?: number;
+}
+
 /** INTERNAL thread/start: host injects the resolved model object. v0.5 adds
  * the subagent extension fields (used by the task tool's grandchild spawns):
  * systemPrompt/tools/thinkingLevel shape the grandchild session,
@@ -453,6 +525,8 @@ export interface WorkerThreadStartCmd extends Omit<ThreadStartCmd, "provider" | 
   tools?: string[];
   thinkingLevel?: SetThinkingLevelCmd["level"];
   permissionThreadId?: string;
+  /** Conversation-cwd paths a grandchild must never write (sandbox P3). */
+  parentProtectedPaths?: string[];
   subagent?: boolean;
   subagentId?: string;
   agentName?: string;
@@ -489,11 +563,13 @@ type ThreadScopedCmd =
   | ThreadResumeCmd
   | ThreadStopCmd
   | UiResponseCmd
-  | SubagentSteerCmd;
+  | SubagentSteerCmd
+  | GetSandboxStateCmd;
 
 export type WorkerCommand =
   | (WorkerThreadStartCmd & { id?: string })
   | (WorkerSetModelCmd & { id?: string })
+  | (WorkerGrantResultCmd & { id?: string })
   | (ThreadScopedCmd & { id?: string });
 
 /** Commands that do not mutate or exercise the session; they never reset the
@@ -533,4 +609,5 @@ export const THREAD_SCOPED_COMMANDS: ReadonlySet<string> = new Set([
   "bash",
   "abort_bash",
   "subagent/steer",
+  "get_sandbox_state",
 ]);

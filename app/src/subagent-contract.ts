@@ -6,6 +6,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { readIntEnv } from "./int-env.ts";
 import type { SessionModel } from "./protocol.ts";
 
 export const SUBAGENT_START_TIMEOUT_MS_DEFAULT = 30_000;
@@ -15,12 +16,7 @@ export const RESULT_CONTENT_CAP_BYTES = 50 * 1024;
 export const RELAY_BUFFER_CAP_BYTES = 256 * 1024;
 export const STDERR_CAP_BYTES = 32 * 1024;
 
-export function readIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const value = Number.parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
+export { readIntEnv };
 
 export interface GrandchildTaskSpec {
   subagentId: string;
@@ -33,6 +29,10 @@ export interface GrandchildTaskSpec {
   thinkingLevel?: string;
   /** Parent conversation id: the grandchild's gate re-reads its ruleset. */
   permissionThreadId: string;
+  /** Conversation-cwd paths the grandchild must never write (its own task
+   * cwd may be a subdirectory — the project sandbox.json protection would
+   * otherwise drift). */
+  parentProtectedPaths?: string[];
   /** Stage 8: agent definition came from the project directory — messages
    * from this task are enveloped as unverified data (trust guardrail). */
   projectSourced?: boolean;

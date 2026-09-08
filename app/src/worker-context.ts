@@ -4,15 +4,19 @@
  * Assembled once in worker.ts after the model runtime is ready.
  */
 
+import type { WorkerCommand } from "./protocol.ts";
 import type { DialogBroker } from "./dialogs.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
-import type { HubFrame, WorkerHeartbeatFrame } from "./protocol.ts";
+import type { HubFrame, WorkerGrantFrame, WorkerHeartbeatFrame } from "./protocol.ts";
 import type { SessionHost, Thread } from "./session-host.ts";
 
 export interface WorkerContext {
   sessions: SessionHost;
   broker: DialogBroker;
-  emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
+  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
+  /** v0.6: effective direct-bash wall clock (PAI_BASH_TIMEOUT_MS default; a
+   * command's timeoutMs overrides, 0 disables per command). */
+  bashTimeoutMs: number;
   registerInflight: InflightRegistry["register"];
   /** Worker self-shutdown (fork destroyed the session, etc). */
   triggerShutdown: (reason: string) => void;
@@ -25,4 +29,14 @@ export interface WorkerContext {
   killSubagents: () => void;
   /** Stage 7: steer a running subagent; true on ack, otherwise an error string. */
   steerSubagent: (subagentId: string, message: string) => Promise<boolean | string>;
+  /** v0.6 INTERNAL grant_result: wake the pending acquire by grant id
+   * (running feeds the denial message when granted is false). */
+  resolveGrant: (grantId: string, granted: boolean, running?: number) => void;
 }
+
+/** One worker command handler (registered by type in worker-commands.ts). */
+export type WorkerHandler = (
+  ctx: WorkerContext,
+  cmd: WorkerCommand,
+  id: string | undefined,
+) => Promise<void>;

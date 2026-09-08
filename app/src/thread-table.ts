@@ -63,6 +63,13 @@ export class ThreadTable {
     this.workers.delete(threadId);
   }
 
+  /** Live/parked/dead entry counts (get_host_info.threads). */
+  stateCounts(): { live: number; parked: number; dead: number } {
+    const counts = { live: 0, parked: 0, dead: 0 };
+    for (const entry of this.list(() => false)) counts[entry.state] += 1;
+    return counts;
+  }
+
   liveCount(): number {
     return this.workers.size;
   }
@@ -169,7 +176,8 @@ export class ThreadTable {
     entry.trusted = worker.trusted;
     entry.state = "live";
     entry.wake = undefined;
-    entry.stopRequested = false;
+    // stopRequested survives reuse: a thread/stop racing this wake lands on
+    // this very object (registerLive runs before doWake's post-check).
     this.entries.set(data.threadId, entry);
     worker.threadId = data.threadId;
     this.workers.set(data.threadId, worker);
@@ -200,5 +208,28 @@ export class ThreadTable {
       worker.threadId = fork.threadId;
     }
     this.reoccupy(worker, fork.sessionPath);
+  }
+
+  /** Wake resumed under a different session id (lazy-persist sessions get a
+   * fresh id): drop the stale parked entry so it cannot wedge the same
+   * session path; sidecar rules follow the id (warn on copy failure). */
+  rekeyWake(
+    worker: WorkerHandle,
+    previousThreadId: string,
+    sidecar: {
+      warn: (text: string) => void;
+      copy: (from: string, to: string) => boolean;
+    },
+  ): void {
+    const id = worker.threadId;
+    sidecar.warn(
+      `pai-cli worker resumed to a different session id (${previousThreadId} -> ${id})\n`,
+    );
+    if (!sidecar.copy(previousThreadId, id)) {
+      sidecar.warn(
+        "pai-cli could not copy permission rules across the id change; the thread falls back to the global rules\n",
+      );
+    }
+    this.delete(previousThreadId);
   }
 }

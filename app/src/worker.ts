@@ -11,7 +11,13 @@ import { DialogBroker } from "./dialogs.ts";
 import { responseFailure, responseSuccess } from "./frames.ts";
 import { createInflightRegistry } from "./inflight-registry.ts";
 import { createJsonlSplitter } from "./jsonl.ts";
-import type { HubFrame, WorkerCommand, WorkerHeartbeatFrame } from "./protocol.ts";
+import { readNonNegativeIntEnv } from "./int-env.ts";
+import type {
+  HubFrame,
+  WorkerCommand,
+  WorkerGrantFrame,
+  WorkerHeartbeatFrame,
+} from "./protocol.ts";
 import { OBSERVER_COMMANDS } from "./protocol.ts";
 import { SessionHost } from "./session-host.ts";
 import { createSubagentCommunicationExtension } from "./subagent-communication.ts";
@@ -29,6 +35,9 @@ import type { InflightRegistry } from "./inflight-registry.ts";
 import { createUiContext } from "./ui-context.ts";
 
 const HEARTBEAT_INTERVAL_MS = 1_000;
+/** v0.6 assembly defaults (env overrides parsed at use sites). */
+const BASH_TIMEOUT_MS_DEFAULT = 600_000;
+const GRANT_REQUEST_TIMEOUT_MS = 5_000;
 
 function isCommandShape(message: unknown): message is WorkerCommand {
   return typeof message === "object" && message !== null && !Array.isArray(message);
@@ -83,9 +92,10 @@ function startHeartbeat(deps: {
 function buildContext(deps: {
   refs: WorkerRefs;
   registry: InflightRegistry;
-  emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
+  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
   triggerShutdown: (reason: string) => void;
   subagents: SubagentRegistry;
+  resolveGrant: (grantId: string, granted: boolean) => void;
 }): WorkerContext {
   const { sessions } = deps.refs;
   const { broker } = deps.refs;
@@ -96,6 +106,8 @@ function buildContext(deps: {
     sessions,
     broker,
     emit: deps.emit,
+    bashTimeoutMs: readNonNegativeIntEnv("PAI_BASH_TIMEOUT_MS", BASH_TIMEOUT_MS_DEFAULT),
+    resolveGrant: deps.resolveGrant,
     registerInflight: deps.registry.register,
     triggerShutdown: deps.triggerShutdown,
     routeSubagentUi: (requestId, payload) => deps.subagents.route(requestId, payload),
@@ -155,7 +167,7 @@ function createLineHandler(deps: {
 }
 
 function attachStdinLoop(deps: {
-  emit: (frame: HubFrame) => void;
+  emit: (frame: HubFrame | WorkerGrantFrame) => void;
   handleCommand: (cmd: WorkerCommand) => Promise<void>;
   onEnd: () => void;
 }): void {
@@ -226,7 +238,7 @@ function createLifecycle(deps: {
  * spawns (depth 1) get the communication tools instead — report/send to the
  * parent, never a task tool of their own. */
 function builtinExtensions(deps: {
-  emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
+  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
   modelRuntime: ModelRuntime;
   subagents: SubagentRegistry;
   getThreadId: () => string;
@@ -264,9 +276,10 @@ function builtinExtensions(deps: {
 async function setupWorkerServices(deps: {
   refs: WorkerRefs;
   registry: ReturnType<typeof createInflightRegistry>;
-  emit: (frame: HubFrame | WorkerHeartbeatFrame) => void;
+  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
   shutdown: (reason: string) => Promise<void>;
   subagents: SubagentRegistry;
+  resolveGrant: (grantId: string, granted: boolean) => void;
 }): Promise<WorkerContext> {
   const modelRuntime = await ModelRuntime.create();
   const broker = new DialogBroker((frame) => deps.emit(frame));
@@ -291,6 +304,7 @@ async function setupWorkerServices(deps: {
     emit: deps.emit,
     triggerShutdown: (reason) => void deps.shutdown(reason),
     subagents,
+    resolveGrant: deps.resolveGrant,
   });
 }
 
@@ -318,6 +332,58 @@ function createCommandDispatcher(deps: {
   };
 }
 
+/**
+ * v0.6 global subagent cap client: worker→host grant roundtrips over the
+ * frame writer. The emitter is late-bound (the registry is built before the
+ * writer exists); a silent host resolves acquisitions as denied — the worker
+ * follows the host down via stdin EOF anyway, so no denial can outlive it.
+ */
+function createGrantClient(): {
+  request: () => Promise<{ token: string | null; running?: number }>;
+  release: (token: string) => void;
+  resolve: (grantId: string, granted: boolean, running?: number) => void;
+  bind: (send: (frame: WorkerGrantFrame) => void) => void;
+} {
+  const waiters = new Map<string, (granted: boolean, running?: number) => void>();
+  const sink: { send?: (frame: WorkerGrantFrame) => void } = {};
+  let seq = 0;
+  return {
+    request: () =>
+      new Promise((resolve) => {
+        seq += 1;
+        const grantId = `g-${seq}`;
+        const timer = setTimeout(() => {
+          if (waiters.delete(grantId)) resolve({ token: null });
+        }, GRANT_REQUEST_TIMEOUT_MS);
+        waiters.set(grantId, (granted, running) => {
+          clearTimeout(timer);
+          resolve({ token: granted ? grantId : null, running });
+        });
+        sink.send?.({ type: "grant", id: grantId, n: 1 });
+      }),
+    release: (token) => {
+      sink.send?.({ type: "grant", id: token, release: true, n: 1 });
+    },
+    resolve: (grantId, granted, running) => {
+      const waiter = waiters.get(grantId);
+      if (waiter !== undefined) {
+        waiters.delete(grantId);
+        waiter(granted, running);
+        return;
+      }
+      // Late decision after the 5s timeout: the task was already treated as
+      // denied, but the host ledger holds a lease — release it, or a busy
+      // worker's heartbeats renew the ghost lease forever (review #4).
+      if (granted) {
+        sink.send?.({ type: "grant", id: grantId, release: true, n: 1 });
+      }
+    },
+    bind: (send) => {
+      sink.send = send;
+    },
+  };
+}
+
 export async function runWorker(): Promise<void> {
   takeOverStdout();
   const writer = createFrameWriter(getRawStdoutWrite());
@@ -325,15 +391,17 @@ export async function runWorker(): Promise<void> {
   const status: WorkerStatus = { lastBusyAt: Date.now() };
   const registry = createInflightRegistry();
   const shutdownProbe = { active: false };
+  const grantClient = createGrantClient();
   const subagents = new SubagentRegistry({
     getSession: () => refs.sessions?.get()?.session,
     isShuttingDown: () => shutdownProbe.active,
     writeStderr,
+    grants: { acquire: grantClient.request, release: grantClient.release },
   });
   const lifecycle = createLifecycle({ writer, registry, refs, subagents, shutdownProbe });
   const { shutdown } = lifecycle;
 
-  const emit = (frame: HubFrame | WorkerHeartbeatFrame): void => {
+  const emit = (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame): void => {
     // Turn-boundary trigger (plan stage 3): the run that just settled may
     // free the session for a queued subagent notification.
     if (frame.type === "event" && frame.event.type === "agent_settled") subagents.onTurnSettled();
@@ -344,8 +412,16 @@ export async function runWorker(): Promise<void> {
       void shutdown("stdout write failed");
     });
   };
+  grantClient.bind(emit);
   startHeartbeat({ emit, refs, registry, status, subagents });
-  const ctx = await setupWorkerServices({ refs, registry, emit, shutdown, subagents });
+  const ctx = await setupWorkerServices({
+    refs,
+    registry,
+    emit,
+    shutdown,
+    subagents,
+    resolveGrant: grantClient.resolve,
+  });
 
   const handleCommand = createCommandDispatcher({ ctx, lifecycle, status });
 

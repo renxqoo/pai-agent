@@ -29,7 +29,7 @@ JSONL, LF-delimited only (strip optional trailing `\r`; do not use Node `readlin
 
 ### Commands (stdin)
 
-36 commands across ten groups — the canonical table with every field and
+38 commands across eleven groups — the canonical table with every field and
 error wording is **[docs/api.md](docs/api.md)**; the highlights:
 
 | Group                         | Commands                                                                                                                             |
@@ -40,10 +40,11 @@ error wording is **[docs/api.md](docs/api.md)**; the highlights:
 | Tree/fork                     | `fork`, `clone`, `navigate_tree`                                                                                                     |
 | Models                        | `get_models`, `set_model`, `set_thinking_level`, `get_thinking_levels`                                                               |
 | Credentials                   | `auth/list`, `auth/set_api_key`, `auth/remove_key`                                                                                   |
-| Direct exec                   | `bash`, `abort_bash`                                                                                                                 |
+| Direct exec                   | `bash` (optional server-side `timeoutMs`, v0.6), `abort_bash`                                                                        |
 | Dialogs                       | `ui_response`                                                                                                                        |
 | Per-thread permissions (v0.5) | `get_permission_rules`, `set_permission_rules`                                                                                       |
 | Agents (v0.5)                 | `agents/list`, `subagent/steer`                                                                                                      |
+| Host info (v0.6)              | `get_host_info` (host-local versions/counts/limits; ops single entry point)                                                          |
 
 ### Frames (stdout)
 
@@ -92,6 +93,7 @@ Every thread runs the built-in permission gate (inline extension). Rules in `~/.
 
 ## Security model
 
+- **Execution sandbox (v0.7)**: on by default. OS-level wrapping for bash (sandbox-exec on macOS, bubblewrap on Linux) plus in-process hard checks for write/edit/read against `<agentDir>/sandbox.json` (project `.pi/sandbox.json` merges only for trusted threads). Config is snapshotted at session creation; `PAI_SANDBOX=off` force-disables. See docs/api.md "Sandbox (v0.7)".
 - Extensions are arbitrary code. Threads default to `trusted: false`: project `.pi` extensions are **not** loaded; only the built-in gate runs. Pass `trusted: true` per thread when the user has approved the project. Skills, prompt templates, and context files (AGENTS.md) are data and always load.
 - Sessions persist under `~/.pi/agent/sessions/` (pi's standard layout), one file per thread.
 
@@ -100,9 +102,9 @@ Every thread runs the built-in permission gate (inline extension). Rules in `~/.
 - Host death: session files are durable; restart the host and `thread/resume` each `{ sessionPath, cwd }`. Workers self-exit on host death (their stdin pipe closes).
 - Host hang (sync code stuck): heartbeat stops; SIGKILL the host and recover as above.
 - Worker crash or hang (one conversation): the host emits `thread_died`, that thread shows `state:"dead"` in `thread/list`, and its next command transparently revives it. Other conversations keep running.
-- Idle retirement: workers idle for `PAI_IDLE_RETIRE_MS` (default 15 min) with a persisted session are retired to `state:"parked"` (zero resident memory); the next command transparently wakes them. Poll parked threads via `thread/list`, not `get_state`.
+- Idle retirement: workers idle for `PAI_IDLE_RETIRE_MS` (default 15 min) with a persisted session are retired to `state:"parked"` (zero resident memory); the next command transparently wakes them. A teardown (idle retire or `thread/stop`) that fails to reach close within `PAI_WORKER_EXIT_TIMEOUT_MS` is force-killed (SIGTERM, then SIGKILL). Poll parked threads via `thread/list`, not `get_state`.
 - Client death: host exits on stdin end (EOF) after flushing every session file.
-- Concurrency cap: `PAI_MAX_THREADS` (default 32) live conversations.
+- Concurrency cap: `PAI_MAX_THREADS` (default 32) live conversations; global running-subagent cap `PAI_MAX_SUBAGGENTS` (default 16, v0.6 — host-arbitrated grants; a denied task fails immediately and is retryable); direct-bash wall clock `PAI_BASH_TIMEOUT_MS` (default 600000, `0` disables; per-command `timeoutMs` overrides). Current knob values are echoed by `get_host_info.limits`.
 
 ## Test
 

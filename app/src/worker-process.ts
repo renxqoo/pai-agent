@@ -23,6 +23,10 @@ export interface WorkerStdin {
 export interface WorkerHandle {
   child: ChildProcess;
   stdin: WorkerStdin;
+  /** Pool-assigned unique worker tag ("w1", "w2", ...). Namespaces the
+   * host-side grant ledger and internal-id registry: worker-generated ids
+   * (grant "g-N") are only worker-locally unique. */
+  uid: string;
   /** Current session id; changes on fork/clone. Empty before first response. */
   threadId: string;
   trusted: boolean;
@@ -85,6 +89,7 @@ function createLineWriter(stdin: WorkerStdin): (line: string) => Promise<void> {
 function makeFailedSpawnHandle(child: ChildProcess, reason: string): WorkerHandle {
   const dead: WorkerHandle = {
     child,
+    uid: "dead",
     stdin: {
       end: () => {},
       write: (_chunk: string, cb?: (e?: Error | null) => void) => {
@@ -174,6 +179,8 @@ function attachWorkerStreams(deps: {
 }
 
 export interface SpawnWorkerDeps {
+  /** Pool-assigned unique worker tag (WorkerHandle.uid). */
+  uid: string;
   trusted: boolean;
   /** Spawn-to-first-response budget; the pool kills past it (design §8). */
   spawnTimeoutMs: number;
@@ -204,6 +211,7 @@ export function spawnWorkerProcess(deps: SpawnWorkerDeps): WorkerHandle {
   const worker = makeWorkerHandle({
     child,
     stdin,
+    uid: deps.uid,
     trusted: deps.trusted,
     spawnTimeoutMs: deps.spawnTimeoutMs,
     onClosed: deps.onClosed,
@@ -224,6 +232,7 @@ export function spawnWorkerProcess(deps: SpawnWorkerDeps): WorkerHandle {
 function makeWorkerHandle(deps: {
   child: ChildProcess;
   stdin: WorkerStdin;
+  uid: string;
   trusted: boolean;
   spawnTimeoutMs: number;
   onClosed: (code: number | null, signal: string | null) => void;
@@ -231,6 +240,7 @@ function makeWorkerHandle(deps: {
   const worker: WorkerHandle = {
     child: deps.child,
     stdin: deps.stdin,
+    uid: deps.uid,
     threadId: "",
     trusted: deps.trusted,
     writeLine: createLineWriter(deps.stdin),

@@ -13,10 +13,27 @@
  */
 
 import { resolve as resolvePath } from "node:path";
-import type { HubFrame, SessionModel, ThreadListEntry, UiResponseCmd } from "./protocol.ts";
+import type {
+  HubFrame,
+  SessionModel,
+  ThreadListEntry,
+  UiResponseCmd,
+  WorkerGrantFrame,
+} from "./protocol.ts";
 import { INTERNAL_ID_PREFIX } from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle, spawnWorkerProcess } from "./worker-process.ts";
-import { ThreadTable } from "./thread-table.ts";
+import { GrantLedger, MAX_SUBAGENTS_DEFAULT } from "./grant-ledger.ts";
+import {
+  resumeThreadAdmission,
+  settledHolderOf,
+  startThreadAdmission,
+  type AdmissionOps,
+} from "./thread-admission.ts";
+import { stopThreadSettlement, type StopOps } from "./thread-stop.ts";
+import { type ThreadEntry, ThreadTable } from "./thread-table.ts";
+import { readIntEnv } from "./int-env.ts";
+import { copySidecarRules } from "./sidecar-rules.ts";
+import { sleep } from "./subagent-wire.ts";
 import {
   type FrameRelayDeps,
   type InternalWaiter,
@@ -31,14 +48,6 @@ export const WORKER_EXIT_TIMEOUT_MS_DEFAULT = 10_000;
 const STALE_SIGKILL_GRACE_MS = 2_000;
 const SWEEP_INTERVAL_MS = 1_000;
 
-/** Minimum entry shape the wake paths need (the table holds the full entry). */
-interface WakeEntry {
-  threadId: string;
-  sessionPath: string | null;
-  trusted: boolean;
-  cwd: string;
-}
-
 export interface WorkerPoolOptions {
   /** Emit a synthesized frame (host serializes it). */
   emitFrame: (frame: HubFrame) => void;
@@ -49,13 +58,10 @@ export interface WorkerPoolOptions {
   idleRetireMs?: number;
   workerStaleMs?: number;
   workerExitTimeoutMs?: number;
-}
-
-function readIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined) return fallback;
-  const value = Number.parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+  /** v0.6: global RUNNING-grandchild cap (PAI_MAX_SUBAGGENTS). */
+  maxSubagents?: number;
+  /** Test seam: fake worker spawn. */
+  spawnWorker?: typeof spawnWorkerProcess;
 }
 
 export class WorkerPool {
@@ -63,13 +69,17 @@ export class WorkerPool {
   private readonly internalIds = new Map<string, InternalWaiter>();
   private readonly allWorkers = new Set<WorkerHandle>();
   private internalSeq = 0;
+  private workerSeq = 0;
   private readonly maxThreads: number;
   private readonly idleRetireMs: number;
   private readonly workerStaleMs: number;
   private readonly workerExitTimeoutMs: number;
+  private readonly maxSubagents: number;
+  private readonly grantLedger: GrantLedger;
   private readonly emitFrame: (frame: HubFrame) => void;
   private readonly emitRaw: (line: string) => void;
   private readonly writeStderr: (text: string) => void;
+  private readonly spawnWorkerFn: typeof spawnWorkerProcess;
   private readonly sweep: ReturnType<typeof setInterval>;
   private shuttingDown = false;
 
@@ -85,6 +95,10 @@ export class WorkerPool {
     this.workerExitTimeoutMs =
       options.workerExitTimeoutMs ??
       readIntEnv("PAI_WORKER_EXIT_TIMEOUT_MS", WORKER_EXIT_TIMEOUT_MS_DEFAULT);
+    this.maxSubagents =
+      options.maxSubagents ?? readIntEnv("PAI_MAX_SUBAGENTS", MAX_SUBAGENTS_DEFAULT);
+    this.grantLedger = new GrantLedger(this.maxSubagents);
+    this.spawnWorkerFn = options.spawnWorker ?? spawnWorkerProcess;
     this.sweep = setInterval(() => this.sweepWorkers(), SWEEP_INTERVAL_MS);
   }
 
@@ -110,68 +124,64 @@ export class WorkerPool {
     return this.liveWorkers().reduce((total, worker) => total + worker.subagents, 0);
   }
 
-  /** thread/start: spawn a worker and send the internal start (model resolved by the host). */
-  async startThread(
-    cmd: { id?: string; cwd?: string; trusted?: boolean },
-    model: SessionModel | undefined,
-  ): Promise<void> {
-    if (this.rejectOverBudget(cmd.id, "thread/start")) return;
-    const worker = this.spawnWorker(cmd.trusted === true);
-    if (this.overBudget()) {
-      // A concurrent start took the last slot while this worker spawned
-      // (this spawn now counts itself). Exactly maxThreads survive.
-      await this.killWorker(worker, "stop");
-      this.rejectOverBudget(cmd.id, "thread/start");
-      return;
-    }
-    const line = JSON.stringify({
-      type: "thread/start",
-      cwd: cmd.cwd ?? process.cwd(),
-      trusted: cmd.trusted === true,
-      ...(model !== undefined ? { model } : {}),
-      ...(cmd.id !== undefined ? { id: cmd.id } : {}),
-    });
-    await this.deliverCommand({ worker, id: cmd.id, command: "thread/start", line });
+  /** Live/parked/dead entry counts (get_host_info.threads). */
+  threadStateCounts(): { live: number; parked: number; dead: number } {
+    return this.table.stateCounts();
   }
 
-  /** thread/resume: claim the session path (spawning counts as occupied), then spawn. */
+  limits(): {
+    maxThreads: number;
+    idleRetireMs: number;
+    workerStaleMs: number;
+    workerExitTimeoutMs: number;
+    maxSubagents: number;
+  } {
+    return {
+      maxThreads: this.maxThreads,
+      idleRetireMs: this.idleRetireMs,
+      workerStaleMs: this.workerStaleMs,
+      workerExitTimeoutMs: this.workerExitTimeoutMs,
+      maxSubagents: this.maxSubagents,
+    };
+  }
+
+  /** Global RUNNING grandchildren per the grant ledger. */
+  runningGrants(): number {
+    return this.grantLedger.running();
+  }
+
+  /** Worker→host grant arbitration (migration §3 addendum): synchronous
+   * ledger decision + internal reply; release frames free silently. */
+  handleGrantFrame(worker: WorkerHandle, frame: WorkerGrantFrame): void {
+    const decision = this.grantLedger.apply(worker, frame);
+    if (decision === undefined) return;
+    // Reply rides the normal command channel; the worker's ack response is
+    // absorbed by an internal waiter (never forwarded to the client).
+    const waiter: InternalWaiter = { onResponse: () => {}, onClosed: () => {} };
+    const key = WorkerPool.internalKey(worker, frame.id);
+    this.internalIds.set(key, waiter);
+    worker.internalIds.add(frame.id);
+    void worker.writeLine(decision.replyLine).catch(() => {
+      this.internalIds.delete(key);
+      worker.internalIds.delete(frame.id);
+    });
+  }
+
+  /** thread/start / thread/resume: admission lives in thread-admission.ts. */
+  async startThread(
+    cmd: { id?: string; cwd?: string; trusted?: boolean },
+    model?: SessionModel,
+  ): Promise<void> {
+    await startThreadAdmission(this.admissionOps(), cmd, model);
+  }
+
   async resumeThread(cmd: {
     id?: string;
     sessionPath: string;
     cwd?: string;
     trusted?: boolean;
   }): Promise<void> {
-    const sessionPath = resolvePath(cmd.sessionPath);
-    const holder = await this.settledHolder(sessionPath);
-    if (holder !== undefined) {
-      this.failure(
-        cmd.id,
-        "thread/resume",
-        `Session already open (threadId: ${holder.threadId}); two writers would corrupt the session file`,
-      );
-      return;
-    }
-    if (this.rejectOverBudget(cmd.id, "thread/resume")) return;
-    this.table.deleteNonLiveByPath(sessionPath);
-    const worker = this.spawnWorker(cmd.trusted === true);
-    if (this.table.holder(sessionPath, this.allWorkers) !== undefined || this.overBudget()) {
-      await this.killWorker(worker, "stop");
-      this.failure(
-        cmd.id,
-        "thread/resume",
-        "Session already open in another conversation; two writers would corrupt the session file",
-      );
-      return;
-    }
-    this.table.occupy(worker, sessionPath);
-    const line = JSON.stringify({
-      type: "thread/resume",
-      sessionPath,
-      ...(cmd.cwd !== undefined ? { cwd: cmd.cwd } : {}),
-      trusted: cmd.trusted === true,
-      ...(cmd.id !== undefined ? { id: cmd.id } : {}),
-    });
-    await this.deliverCommand({ worker, id: cmd.id, command: "thread/resume", line });
+    await resumeThreadAdmission(this.admissionOps(), cmd);
   }
 
   /**
@@ -218,36 +228,7 @@ export class WorkerPool {
   }
 
   async stopThread(threadId: string, cmdId: string | undefined, cmdType: string): Promise<void> {
-    const entry = this.table.entry(threadId);
-    if (entry === undefined) {
-      // Idempotent: stopping an unknown thread succeeds silently (v0.3).
-      this.ackStop(cmdId, cmdType);
-      return;
-    }
-    if (entry.state !== "live") {
-      this.stopNonLiveEntry(entry);
-      this.ackStop(cmdId, cmdType);
-      return;
-    }
-    const worker = this.table.liveWorker(threadId);
-    if (worker === undefined) {
-      this.table.delete(threadId);
-      this.ackStop(cmdId, cmdType);
-      return;
-    }
-    if (worker.retiring) {
-      // Retirement in flight: repurpose it — close will drop the entry.
-      worker.retireIntent = "stop";
-      this.ackStop(cmdId, cmdType);
-      return;
-    }
-    worker.retireIntent = "stop";
-    const line = JSON.stringify({
-      type: "thread/stop",
-      threadId,
-      ...(cmdId !== undefined ? { id: cmdId } : {}),
-    });
-    void this.deliverCommand({ worker, id: cmdId, command: "thread/stop", line });
+    stopThreadSettlement(this.stopOps(), { threadId, id: cmdId, cmdType });
   }
 
   /** ui_response: ack once in the host, broadcast to every live worker (the
@@ -258,7 +239,7 @@ export class WorkerPool {
       workers: this.liveWorkers(),
       registerInternal: (worker, waiter) => this.registerInternal(worker, waiter),
       forgetInternal: (worker, id) => {
-        this.internalIds.delete(id);
+        this.internalIds.delete(WorkerPool.internalKey(worker, id));
         worker.internalIds.delete(id);
       },
     });
@@ -276,7 +257,8 @@ export class WorkerPool {
       worker.retiring = true;
       worker.stdin.end();
     }
-    await this.awaitCloses(workers);
+    const timeout = sleep(this.workerExitTimeoutMs);
+    await Promise.race([Promise.allSettled(workers.map((w) => w.closed)), timeout]);
     for (const worker of this.allWorkers) {
       if (!worker.child.killed) worker.child.kill("SIGKILL");
     }
@@ -293,29 +275,14 @@ export class WorkerPool {
     return live;
   }
 
-  private async awaitCloses(workers: WorkerHandle[]): Promise<void> {
-    const timeout = new Promise<void>((done) => {
-      setTimeout(done, this.workerExitTimeoutMs);
-    });
-    await Promise.race([Promise.allSettled(workers.map((worker) => worker.closed)), timeout]);
-  }
-
-  private ackStop(cmdId: string | undefined, cmdType: string): void {
-    this.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
-  }
-
-  private stopNonLiveEntry(entry: {
-    threadId: string;
-    wake: Promise<void> | undefined;
-    stopRequested: boolean;
-  }): void {
-    if (entry.wake === undefined) return void this.table.delete(entry.threadId);
-    // A wake is respawning this thread right now (design §6 spawning -
-    // thread/stop edge): mark it so the wake lands on a stopped thread,
-    // tears its worker down, and drops the re-registered entry instead
-    // of resurrecting it.
-    entry.stopRequested = true;
-    void entry.wake.catch(() => {}).finally(() => this.table.delete(entry.threadId));
+  private stopOps(): StopOps {
+    return {
+      table: this.table,
+      emitFrame: this.emitFrame,
+      liveWorker: (threadId) => this.table.liveWorker(threadId),
+      armTeardownDeadline: (worker) => this.armTeardownDeadline(worker),
+      deliverCommand: (command) => this.deliverCommand(command),
+    };
   }
 
   private rejectOverBudget(id: string | undefined, command: string): boolean {
@@ -341,10 +308,7 @@ export class WorkerPool {
   }
 
   private liveAndSpawning(): number {
-    let spawning = 0;
-    for (const worker of this.allWorkers) {
-      if (worker.awaitingStart) spawning++;
-    }
+    const spawning = Array.from(this.allWorkers).filter((w) => w.awaitingStart).length;
     return this.table.liveCount() + spawning;
   }
 
@@ -368,15 +332,22 @@ export class WorkerPool {
     return `worker died: command could not be delivered (${error instanceof Error ? error.message : String(error)})`;
   }
 
+  /** Internal-id key is worker-scoped: ids are only unique within one
+   * worker, and a global raw-id lookup would mis-absorb same-string ids
+   * across workers (adversarial review #2/#3). */
+  private static internalKey(worker: WorkerHandle, id: string): string {
+    return `${worker.uid}:${id}`;
+  }
+
   private registerInternal(worker: WorkerHandle, waiter: InternalWaiter): string {
     this.internalSeq += 1;
     const id = `${INTERNAL_ID_PREFIX}${this.internalSeq}`;
-    this.internalIds.set(id, waiter);
+    this.internalIds.set(WorkerPool.internalKey(worker, id), waiter);
     worker.internalIds.add(id);
     return id;
   }
 
-  private ensureAwake(entry: WakeEntry & { wake: Promise<void> | undefined }): Promise<void> {
+  private ensureAwake(entry: ThreadEntry): Promise<void> {
     if (entry.wake !== undefined) return entry.wake;
     const wake = this.doWake(entry).finally(() => {
       const current = this.table.entry(entry.threadId);
@@ -387,7 +358,7 @@ export class WorkerPool {
     return wake;
   }
 
-  private async doWake(entry: WakeEntry): Promise<void> {
+  private async doWake(entry: ThreadEntry): Promise<void> {
     if (entry.sessionPath === null) {
       throw new Error("Cannot wake thread: session was never persisted");
     }
@@ -395,28 +366,40 @@ export class WorkerPool {
       throw new Error(`Too many concurrent conversations (limit ${this.maxThreads})`);
     }
     const sessionPath = resolvePath(entry.sessionPath);
-    const holder = await this.settledHolder(sessionPath);
+    const holder = await settledHolderOf(this.admissionOps(), sessionPath);
     if (holder !== undefined) {
       throw new Error(
         `Session already open (threadId: ${holder.threadId}); two writers would corrupt the session file`,
       );
     }
     const worker = this.spawnWorker(entry.trusted);
-    if (this.table.holder(sessionPath, this.allWorkers) !== undefined || this.overBudget()) {
+    const held = this.table.holder(sessionPath, this.allWorkers) !== undefined;
+    if (held || this.overBudget()) {
       await this.killWorker(worker, "stop");
-      throw new Error("Session already open in another conversation");
+      throw new Error(
+        held
+          ? "Session already open in another conversation"
+          : `Too many concurrent conversations (limit ${this.maxThreads})`,
+      );
     }
     this.table.occupy(worker, sessionPath);
     await this.resumeAndWait(worker, entry, sessionPath);
-    // The absorbed resume response already registered the live entry —
-    // unless thread/stop raced the wake (design §6 spawning -thread/stop
-    // edge): tear the respawned worker down and drop the entry instead of
-    // resurrecting a stopped conversation.
-    const settled = this.table.entry(entry.threadId);
-    if (settled !== undefined && settled.stopRequested) {
-      const spawned = this.table.liveWorker(settled.threadId);
-      this.table.delete(settled.threadId);
-      if (spawned !== undefined) await this.killWorker(spawned, "stop");
+    // Lazy-persist sessions resume under a fresh session id: re-key the
+    // stale parked entry (sidecar rules follow) or it wedges the same
+    // session path forever ("Session already open" self-lock).
+    if (worker.threadId !== "" && worker.threadId !== entry.threadId) {
+      this.table.rekeyWake(worker, entry.threadId, {
+        warn: this.writeStderr,
+        copy: copySidecarRules,
+      });
+    }
+    // thread/stop raced the wake (design §6): settle by closure reference —
+    // the kill must never depend on table lookups the re-key above or
+    // registerLive's re-registration may have invalidated.
+    if (entry.stopRequested) {
+      this.table.delete(entry.threadId);
+      this.table.delete(worker.threadId);
+      await this.killWorker(worker, "stop");
     }
   }
 
@@ -424,11 +407,11 @@ export class WorkerPool {
    * (or the worker dies / the write fails). */
   private async resumeAndWait(
     worker: WorkerHandle,
-    entry: WakeEntry,
+    entry: ThreadEntry,
     sessionPath: string,
   ): Promise<void> {
     const forget = (id: string): void => {
-      this.internalIds.delete(id);
+      this.internalIds.delete(WorkerPool.internalKey(worker, id));
       worker.internalIds.delete(id);
     };
     try {
@@ -481,21 +464,17 @@ export class WorkerPool {
     this.table.enforceNonLiveCap();
   }
 
-  /**
-   * Path-occupancy lookup that first waits out a worker still releasing the
-   * path: thread/stop is acknowledged before the worker closes (the response
-   * rides ahead of the EOF), so an immediate resume of the same path must
-   * wait for that close instead of reporting the thread's own stopping
-   * worker as a conflict. Bounded: a wedged shutdown (worker alive but never
-   * exiting) is force-closed via killWorker — resume must never become a
-   * permanently unanswered command.
-   */
-  private async settledHolder(sessionPath: string): Promise<WorkerHandle | undefined> {
-    for (;;) {
-      const holder = this.table.holder(sessionPath, this.allWorkers);
-      if (holder === undefined || !holder.retiring) return holder;
-      await this.killWorker(holder, holder.retireIntent === "none" ? "stop" : holder.retireIntent);
-    }
+  private admissionOps(): AdmissionOps {
+    return {
+      table: this.table,
+      workers: () => [...this.allWorkers],
+      spawnWorker: (trusted) => this.spawnWorker(trusted),
+      killWorker: (worker, intent) => this.killWorker(worker, intent),
+      deliverCommand: (command) => this.deliverCommand(command),
+      rejectOverBudget: (id, command) => this.rejectOverBudget(id, command),
+      overBudget: () => this.overBudget(),
+      failure: (id, command, error) => this.failure(id, command, error),
+    };
   }
 
   private async killWorker(worker: WorkerHandle, intent: RetireIntent): Promise<void> {
@@ -510,10 +489,21 @@ export class WorkerPool {
     worker.retiring = true;
     worker.retireIntent = "retire";
     worker.stdin.end();
+    this.armTeardownDeadline(worker);
+  }
+
+  /** Bounded tear-down (design §6): a wedged-but-heartbeating worker would
+   * outlive the sweep's stale kill line forever — force-kill it once the
+   * exit budget lapses (killWorker owns SIGTERM -> SIGKILL; the timer is
+   * cleared on close like every other state transition). */
+  private armTeardownDeadline(worker: WorkerHandle): void {
+    const grace = setTimeout(() => void this.killWorker(worker, "none"), this.workerExitTimeoutMs);
+    void worker.closed.finally(() => clearTimeout(grace));
   }
 
   private sweepWorkers(): void {
     const now = Date.now();
+    this.grantLedger.expire();
     for (const worker of this.allWorkers) {
       if (worker.awaitingStart && now > worker.spawnDeadline) {
         void this.killWorker(worker, "none");
@@ -538,12 +528,17 @@ export class WorkerPool {
       emitRaw: this.emitRaw,
       writeStderr: this.writeStderr,
       killWorker: (worker, intent) => this.killWorker(worker, intent),
+      onGrant: (worker, frame) => this.handleGrantFrame(worker, frame),
+      renewGrants: (worker) => this.grantLedger.renew(worker),
+      internalKey: (worker, id) => WorkerPool.internalKey(worker, id),
     };
   }
 
   private spawnWorker(trusted: boolean): WorkerHandle {
     const relay = this.frameRelayDeps();
-    const worker = spawnWorkerProcess({
+    this.workerSeq += 1;
+    const worker = this.spawnWorkerFn({
+      uid: `w${this.workerSeq}`,
       trusted,
       spawnTimeoutMs: this.workerExitTimeoutMs,
       onLine: (line) => onWorkerLine(relay, worker, line),
@@ -557,13 +552,15 @@ export class WorkerPool {
 
   private onWorkerClosed(worker: WorkerHandle, code: number | null, signal: string | null): void {
     this.allWorkers.delete(worker);
+    this.grantLedger.freeWorker(worker);
     if (worker.threadId !== "" && this.table.liveWorker(worker.threadId) === worker) {
       this.table.removeLive(worker.threadId);
     }
     this.table.reoccupy(worker, null);
     for (const id of worker.internalIds) {
-      const waiter = this.internalIds.get(id);
-      this.internalIds.delete(id);
+      const key = WorkerPool.internalKey(worker, id);
+      const waiter = this.internalIds.get(key);
+      this.internalIds.delete(key);
       waiter?.onClosed();
     }
     worker.internalIds.clear();

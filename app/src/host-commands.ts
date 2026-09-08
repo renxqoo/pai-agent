@@ -13,6 +13,7 @@ import type {
   AuthListCmd,
   AuthRemoveKeyCmd,
   AuthSetApiKeyCmd,
+  GetHostInfoCmd,
   GetModelsCmd,
   GetPermissionRulesCmd,
   HubCommand,
@@ -28,6 +29,7 @@ import type {
   UiResponseCmd,
 } from "./protocol.ts";
 import { THREAD_SCOPED_COMMANDS } from "./protocol.ts";
+import { readNonNegativeIntEnv } from "./int-env.ts";
 import { responseFailure, responseSuccess } from "./frames.ts";
 import type { RegisterInflight } from "./inflight-registry.ts";
 import { handleAuthList, handleAuthRemoveKey, handleAuthSetApiKey } from "./host-auth.ts";
@@ -46,6 +48,13 @@ export interface HostDeps {
   modelRuntime: ModelRuntime;
   emit: (frame: HubFrame) => void;
   registerInflight: RegisterInflight;
+  /** Static host facts collected once at startup (get_host_info). */
+  hostMeta: {
+    version: string;
+    piVersion: string;
+    bunVersion: string;
+    startedAt: number;
+  };
 }
 
 export type HostHandler = (
@@ -300,6 +309,33 @@ const handleAgentsList: HostHandler = (deps, cmd, id) => {
 
 /** Registry of commands the host answers itself; everything else either
  * routes to a worker (thread-scoped) or is an unknown command. */
+/** v0.6 get_host_info: host-local observability (design.md v0.6). */
+const handleGetHostInfo: HostHandler = async (deps, cmd, id) => {
+  const typed = cmd as GetHostInfoCmd;
+  const counts = deps.pool.threadStateCounts();
+  const limits = deps.pool.limits();
+  deps.emit(
+    responseSuccess(id, typed.type, {
+      version: deps.hostMeta.version,
+      piVersion: deps.hostMeta.piVersion,
+      bunVersion: deps.hostMeta.bunVersion,
+      pid: process.pid,
+      uptimeMs: Date.now() - deps.hostMeta.startedAt,
+      rssBytes: process.memoryUsage().rss,
+      threads: counts,
+      subagents: { running: deps.pool.runningGrants() },
+      limits: {
+        maxThreads: limits.maxThreads,
+        idleRetireMs: limits.idleRetireMs,
+        workerStaleMs: limits.workerStaleMs,
+        workerExitTimeoutMs: limits.workerExitTimeoutMs,
+        maxSubagents: limits.maxSubagents,
+        bashTimeoutMs: readNonNegativeIntEnv("PAI_BASH_TIMEOUT_MS", 600_000),
+      },
+    }),
+  );
+};
+
 export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, HostHandler>(
   Object.entries({
     "thread/start": handleStart,
@@ -316,6 +352,7 @@ export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, Ho
     get_permission_rules: handleGetPermissionRules,
     set_permission_rules: handleSetPermissionRules,
     "agents/list": handleAgentsList,
+    get_host_info: handleGetHostInfo,
   }),
 );
 

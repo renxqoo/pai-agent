@@ -521,6 +521,91 @@ await expectResponse(
   "abort_bash idle",
 );
 
+// --- v0.6: bash wall clock + get_host_info ------------------------------------
+
+// The wall-clock probe needs a hanging command through the gate: allow
+// sleep * (hot-read; the blocked pattern below still denies its own shape).
+writeFileSync(
+  join(agentDir, "permission-rules.json"),
+  JSON.stringify({
+    bash: { allowPatterns: ["echo *", "sleep *"], blockPatterns: ["echo blocked-*"] },
+  }),
+);
+
+// timeoutMs validation matrix (table-driven; happy bounds in unit tests).
+for (const [label, timeoutMs] of [
+  ["negative", -1],
+  ["fractional", 1.5],
+  ["over-max", 86_400_001],
+  ["string", "1000"],
+]) {
+  await expectResponse(
+    { id: `v12t-${label}`, type: "bash", threadId, command: "echo x", timeoutMs },
+    (r) => {
+      assert(
+        !r.success && /timeoutMs must be an integer/.test(r.error ?? ""),
+        `bash: timeoutMs ${label} rejected`,
+      );
+    },
+    `bash timeoutMs ${label} error`,
+  );
+}
+await expectResponse(
+  { id: "v12t-ok", type: "bash", threadId, command: "echo timeout-zero-ok", timeoutMs: 0 },
+  (r) => {
+    assert(r.success, "bash: timeoutMs 0 disables the wall clock");
+  },
+  "bash timeoutMs zero ok",
+);
+{
+  const t0 = Date.now();
+  await expectResponse(
+    { id: "v12t-fire", type: "bash", threadId, command: "sleep 30", timeoutMs: 400 },
+    (r) => {
+      const elapsed = Date.now() - t0;
+      assert(r.success, "bash: timed-out command responds success (abort shape)");
+      assert(r.data.cancelled === true, "bash: timed-out command reports cancelled:true");
+      assert(elapsed < 5_000, `bash: wall clock fired promptly (${elapsed}ms)`);
+    },
+    "bash timeout fires",
+  );
+}
+
+await expectResponse(
+  { id: "hi1", type: "get_host_info" },
+  (r) => {
+    assert(r.success, "get_host_info: success");
+    const d = r.data;
+    assert(
+      typeof d.version === "string" &&
+        typeof d.piVersion === "string" &&
+        typeof d.bunVersion === "string",
+      "get_host_info: version strings present",
+    );
+    assert(typeof d.pid === "number" && d.pid > 0, "get_host_info: pid");
+    assert(typeof d.uptimeMs === "number" && d.uptimeMs >= 0, "get_host_info: uptimeMs");
+    assert(typeof d.rssBytes === "number" && d.rssBytes > 0, "get_host_info: rssBytes");
+    assert(
+      d.threads.live >= 1 &&
+        typeof d.threads.parked === "number" &&
+        typeof d.threads.dead === "number",
+      "get_host_info: thread state counts",
+    );
+    assert(d.subagents.running === 0, "get_host_info: no running subagents on a quiet host");
+    const lim = d.limits;
+    assert(
+      lim.maxThreads === 32 &&
+        lim.idleRetireMs === 900_000 &&
+        lim.workerStaleMs === 30_000 &&
+        lim.workerExitTimeoutMs === 10_000 &&
+        lim.maxSubagents === 16 &&
+        lim.bashTimeoutMs === 600_000,
+      "get_host_info: limits echo the documented defaults",
+    );
+  },
+  "get_host_info shape",
+);
+
 await expectResponse(
   { id: "v12b", type: "bash", threadId, command: "echo blocked-marker" },
   (r) => {
@@ -571,6 +656,41 @@ await expectResponse(
   },
   "get_entries after bash",
 );
+
+{
+  // Pagination contract (design.md): limit keeps the most recent window
+  // entries and reports hasMore; before pages backward from a known id.
+  const total = (await send({ id: "v13a", type: "get_entries", threadId })).data.entries.length;
+  const page = await send({
+    id: "v13b",
+    type: "get_entries",
+    threadId,
+    limit: Math.max(1, total - 1),
+  });
+  assert(page.success, "get_entries limit: success");
+  assert(page.data.entries.length === Math.max(1, total - 1), "get_entries limit: window size");
+  assert(page.data.hasMore === true, "get_entries limit: hasMore when truncated");
+  const older = await send({
+    id: "v13c",
+    type: "get_entries",
+    threadId,
+    before: page.data.entries[0].id,
+  });
+  assert(older.success && older.data.entries.length === 1, "get_entries before: one older entry");
+  assert(older.data.hasMore === false, "get_entries before: hasMore false without truncation");
+  const exact = await send({ id: "v13d", type: "get_entries", threadId, limit: total });
+  assert(exact.data.hasMore === false, "get_entries limit: hasMore false when exact");
+  const badLimit = await send({ id: "v13e", type: "get_entries", threadId, limit: 0 });
+  assert(
+    !badLimit.success && /limit/.test(badLimit.error ?? ""),
+    "get_entries: invalid limit rejected",
+  );
+  const badBefore = await send({ id: "v13f", type: "get_entries", threadId, before: "bogus" });
+  assert(
+    !badBefore.success && /Entry not found/.test(badBefore.error ?? ""),
+    "get_entries: bogus before cursor rejected",
+  );
+}
 
 await expectResponse(
   { id: "v14", type: "fork", threadId, entryId: "no-such-entry" },

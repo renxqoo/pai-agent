@@ -150,6 +150,27 @@ conversation; …` 同尾句）；
 - worker 单会话守卫：thread/start/thread/resume 在已有会话（或 spawn 进行中）
   时失败；threadId ≠ 当前会话 id 的命令失败（防御 host 竞态，显式好于静默）。
 
+### §3 增补：全局孙进程配额的 grant 仲裁（v0.6，2026-09-09）
+
+worker→host 新帧（前缀分类新增 `{"type":"grant"` 类，小帧全量 parse）：
+
+- 申请：`{"type":"grant","id":"g-<seq>","n":1}`（worker 生成 id；n 恒 1，字段为前向兼容保留）。
+- 释放：`{"type":"grant","id":"g-<seq>","release":true,"n":1}`（无应答）。
+
+host→worker 应答：既有命令通道 `{"id":"<同 id>","type":"grant_result","granted":true|false}`；
+worker 的命令分发为它加了内部分支：按 id 唤醒等待者并回一个 response（host 以既有
+internal-waiter 机制吸收，不上抛客户端）。**作用域键**：grant id 只在单个 worker 内唯一，
+host 的租约账本与 internal-id 注册表一律以 `<workerUid>:<id>` 复合键记账（workerUid 由
+pool 派发，w1/w2/…）——否则两个 worker 的同名 "g-1" 互相覆盖：账本漏记击穿全局上限、
+ack 吸收判定错位甚至把内部帧泄漏到对外线（对抗审查 #1–#3 的处置）。
+
+语义（design.md v0.6 增补同口径）：
+
+- 记账对象 = RUNNING 孙进程；上限 `PAI_MAX_SUBAGGENTS`（默认 16）；host 单事件循环同步记账，转发路径零新增磁盘 IO；
+- worker 侧在任务 queued→running（spawn 前）申请；等待上限 5s，超时按拒绝处理（host 死则 worker 随 stdin EOF 自灭，无放大窗口）；拒绝 = 任务立即失败，**不排队**（跨 worker 排队引入全局有序复杂度，拒绝语义诚实且简单，模型可重试；拒绝应答带当时的全局运行数 `running`，进入模型可见的错误文案）；
+- settle/kill 即释放；租约 TTL 5 分钟，worker 心跳 `subagents>0` 时续约（跑着任务的 worker 不会误过期；忘了释放但心跳正常的 worker 其租约 5 分钟后自然回收）；worker 死亡（close）回收其全部租约——搭既有死亡路径，无新增全局定时器（TTL 检查并入既有健康扫描）；
+- `get_host_info.subagents.running` 与本账本同源（单一真相）。
+
 ## 4. threadId 语义、fork/clone 与失败语义（D-W3）
 
 外部 threadId = worker 当前 sessionId（v0.3 语义不变）。fork/clone 后 worker 内
@@ -207,12 +228,18 @@ host 才做状态迁移；对该 worker 全部 pending 命令按 id 对账：已
   丢数据；与 v0.3「永不落盘的会话常驻」一致）。EOF 与 close 之间 worker 若
   开始新活动（≤1s 心跳盲区）：其 shutdown 先 abort in-flight 并发出对应
   failure 响应，这些响应在 drain 期正常送达（不静默丢失），盲区与后果记录
-  在案。
+  在案。EOF 即武装拆除死线：超过 `PAI_WORKER_EXIT_TIMEOUT_MS` 仍未 close
+  （楔死但心跳犹存——stale 杀线只覆盖无心跳者）→ killWorker 强杀
+  （SIGTERM → 2s → SIGKILL），终态仍按 retire 收编语义结算（不发
+  thread_died），后续排队命令不再无限等待 close。
 - **retire 竞态**：retiring 中命令到达 → 排队到 close 后走唤醒。绝不与新
   worker 并存于同一会话文件。
-- **stop 与唤醒竞态**（已闭环）：非 live 条目唤醒进行中收到 thread/stop →
-  条目标记 stopRequested → 唤醒完成后回收 respawn 的 worker 并删除表项，
-  不复活（触发唤醒的命令按 Unknown threadId 失败，诚实可接受）。
+- **stop 与唤醒竞态**（已闭环，红测回归锁定）：非 live 条目唤醒进行中收到 thread/stop →
+  条目标记 stopRequested → 唤醒完成后**按闭包 worker 引用**回收 respawn 的 worker 并
+  删除新旧两个 id 的表项，不复活。`registerLive` 复用既有 entry 时**保留**
+  stopRequested（清掉会让 stop 意图丢失——幻影 worker 缺陷）；唤醒 resume 以新
+  sessionId 应答（未落盘会话）时先重键旧表项（sidecar 规则随行复制），再结算 stop，
+  杀进程不依赖任何表反查（重键会使反查失效）。
 - **已知盲区**（与 retire 心跳盲区同列，接受并记录）：thread/start 的会话
   文件在「首次落盘 → start 响应/心跳上报占用」之间有亚秒级窗口，外部
   thread/resume 恰在该窗口命中同路径可短暂双开。缓解：占用检查除注册表外
@@ -228,7 +255,10 @@ host 才做状态迁移；对该 worker 全部 pending 命令按 id 对账：已
   杀错不放过（冻结对话在 v0.3 是全员冻结，新架构只损失一个对话）。
 - **thread/stop**：live → 路由到 worker（dispose 语义）→ 响应后走 retire
   路径退出 → 表项删除；spawning → 取消（杀 worker、撤占位与表项，响应成功）；
-  parked/dead → host 直接成功 + 表项删除（幂等，v0.3 语义）。
+  parked/dead → host 直接成功 + 表项删除（幂等，v0.3 语义）。发出 stop 即
+  武装与 retire 相同的拆除死线：worker 未响应/未退出超过
+  `PAI_WORKER_EXIT_TIMEOUT_MS` → 强杀闭环（表项照删；stop 命令 id 若未获
+  响应按统一终止语义合成 failure，恰好一响应不变）。
 - **孤儿自灭（简化）**：worker stdin 即 host 管道；host 死亡（含 SIGKILL）→
   管道写端关闭 → worker 现有 stdin-end shutdown 优雅退出（v0.3 既有机制，
   不新增检测代码；stdout 侧 EPIPE 亦触发 shutdown）。不依赖 ppid/reparent。

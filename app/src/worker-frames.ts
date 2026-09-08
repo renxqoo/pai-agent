@@ -6,7 +6,12 @@
  */
 
 import { CONTROL_COMMANDS, type ResponseHead, matchResponseHead } from "./frame-classify.ts";
-import type { HubFrame, UiResponseCmd, WorkerHeartbeatFrame } from "./protocol.ts";
+import type {
+  HubFrame,
+  UiResponseCmd,
+  WorkerGrantFrame,
+  WorkerHeartbeatFrame,
+} from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle } from "./worker-process.ts";
 import type { ThreadTable } from "./thread-table.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
@@ -48,11 +53,21 @@ export interface FrameRelayDeps {
   emitRaw: (line: string) => void;
   writeStderr: (text: string) => void;
   killWorker: (worker: WorkerHandle, intent: RetireIntent) => Promise<void>;
+  /** v0.6 global subagent cap arbitration (migration §3 addendum). */
+  onGrant: (worker: WorkerHandle, frame: WorkerGrantFrame) => void;
+  /** Lease renewal on heartbeats that still report subagents. */
+  renewGrants: (worker: WorkerHandle) => void;
+  /** Worker-scoped internal-id registry key (see WorkerPool.internalKey). */
+  internalKey: (worker: WorkerHandle, id: string) => string;
 }
 
 export function onWorkerLine(deps: FrameRelayDeps, worker: WorkerHandle, line: string): void {
   if (line.startsWith('{"type":"heartbeat"')) {
     onHeartbeat(deps, worker, JSON.parse(line) as WorkerHeartbeatFrame);
+    return;
+  }
+  if (line.startsWith('{"type":"grant"')) {
+    deps.onGrant(worker, JSON.parse(line) as WorkerGrantFrame);
     return;
   }
   if (
@@ -85,6 +100,7 @@ function onHeartbeat(
   worker.idleMs = frame.idleMs;
   worker.streaming = frame.streaming;
   worker.subagents = frame.subagents ?? 0;
+  if (worker.subagents > 0) deps.renewGrants(worker);
   if (frame.sessionPath !== worker.sessionPath) {
     // First persist, or a fork/clone path change: keep occupancy exact.
     deps.table.reoccupy(worker, frame.sessionPath);
@@ -121,10 +137,16 @@ function onUnclassifiedLine(deps: FrameRelayDeps, worker: WorkerHandle, line: st
       parsed.type === "ui_request" ||
       parsed.type === "hub_error" ||
       parsed.type === "subagent_event" ||
-      parsed.type === "subagent_message")
+      parsed.type === "subagent_message" ||
+      parsed.type === "grant")
   ) {
-    // Known shapes with unexpected key order still forward verbatim.
-    deps.emitRaw(line);
+    // Known shapes with unexpected key order: relay frames forward verbatim;
+    // grant frames carry no ordering contract, the ledger just decides.
+    if (parsed.type === "grant") {
+      deps.onGrant(worker, parsed as WorkerGrantFrame);
+    } else {
+      deps.emitRaw(line);
+    }
     return;
   }
   deps.writeStderr(`pai-cli worker sent an unclassified frame; ignored: ${line.slice(0, 200)}\n`);
@@ -165,7 +187,7 @@ function onWorkerResponse(
 ): void {
   const resolved = resolveResponseFrame(message.line, message.head);
   const { id } = resolved.head;
-  const waiter = id !== undefined ? deps.internalIds.get(id) : undefined;
+  const waiter = id !== undefined ? deps.internalIds.get(deps.internalKey(worker, id)) : undefined;
   const isInternal = waiter !== undefined;
   if (id !== undefined && !isInternal) worker.pendingIds.delete(id);
 
@@ -177,7 +199,7 @@ function onWorkerResponse(
   }
 
   if (isInternal && waiter !== undefined) {
-    deps.internalIds.delete(id ?? "");
+    deps.internalIds.delete(deps.internalKey(worker, id ?? ""));
     worker.internalIds.delete(id ?? "");
     waiter.onResponse(resolved.frame as Record<string, unknown>);
     return;

@@ -9,7 +9,7 @@
  * conversation cwd (plan §3.6).
  */
 
-import { resolve as resolvePath } from "node:path";
+import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { ExtensionAPI, InlineExtension, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { discoverAgents } from "./agent-definitions.ts";
@@ -264,6 +264,7 @@ async function buildSpecs(deps: {
       ...(model.model !== undefined ? { model: model.model } : {}),
       ...(def.source === "project" ? { projectSourced: true } : {}),
       permissionThreadId: tool.getThreadId(),
+      parentProtectedPaths: [joinPath(ctx.cwd, ".pi", "sandbox.json")],
     });
   }
   return { specs, notes };

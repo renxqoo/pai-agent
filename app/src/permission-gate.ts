@@ -18,6 +18,7 @@ import {
   getAgentDir,
   type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
+import { resolveMatchPath } from "./gate-path.ts";
 import { decide, type GatedTool, loadRules, type PermissionRules } from "./rules.ts";
 import { readSidecarRules } from "./sidecar-rules.ts";
 
@@ -88,11 +89,13 @@ export async function checkPermission(deps: {
  * after the session exists (and changes on fork/clone), so the factory
  * closes over a mutable ref owned by the SessionHost. The optional injected
  * rules getter is the grandchild's LIVE rules provider (it re-reads the
- * parent conversation's ruleset on every call).
+ * parent conversation's ruleset on every call). write/edit match values are
+ * resolved to effect-space absolute paths against the session cwd.
  */
 export function createPermissionGate(
   getThreadId: () => string,
   getInjectedRules?: () => PermissionRules | undefined,
+  cwd: string = process.cwd(),
 ): InlineExtension {
   return (pi: ExtensionAPI): void => {
     pi.on("tool_call", async (event, ctx) => {
@@ -101,7 +104,8 @@ export function createPermissionGate(
       if (valueKey === undefined) return;
 
       const input = event.input as Record<string, unknown>;
-      const value = String(input[valueKey] ?? "");
+      const rawValue = String(input[valueKey] ?? "");
+      const value = tool === "bash" ? rawValue : resolveMatchPath(cwd, rawValue);
 
       if (!ctx.hasUI) {
         // Fail closed only at the ask stage: allow-all/allowPatterns still

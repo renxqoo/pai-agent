@@ -5,10 +5,9 @@
  */
 
 import { toImages, validateImages } from "./images.ts";
-import { checkPermission } from "./permission-gate.ts";
+import { handleAbortBash, handleBash } from "./bash-commands.ts";
+import { selectEntriesWindow } from "./entries-window.ts";
 import type {
-  AbortBashCmd,
-  BashCmd,
   ClearQueueCmd,
   CloneCmd,
   CompactCmd,
@@ -18,6 +17,7 @@ import type {
   GetEntriesCmd,
   GetForkMessagesCmd,
   GetMessagesCmd,
+  GetSandboxStateCmd,
   GetSessionStatsCmd,
   GetStateCmd,
   GetThinkingLevelsCmd,
@@ -31,7 +31,7 @@ import type {
   ImagePayload,
   ThreadResumeCmd,
   UiResponseCmd,
-  WorkerCommand,
+  WorkerGrantResultCmd,
   WorkerSetModelCmd,
   WorkerThreadStartCmd,
 } from "./protocol.ts";
@@ -39,11 +39,9 @@ import type { Thread } from "./session-host.ts";
 import { startShaping } from "./session-host.ts";
 import { collectCommands } from "./command-listing.ts";
 import { SessionDestroyedError } from "./session-destroyed-error.ts";
-import type { WorkerContext } from "./worker-context.ts";
+import type { WorkerContext, WorkerHandler } from "./worker-context.ts";
 
-const BASH_CONFIRM_TIMEOUT_MS = 300_000;
-
-type Handler = (ctx: WorkerContext, cmd: WorkerCommand, id: string | undefined) => Promise<void>;
+type Handler = WorkerHandler;
 
 function emitThreadOpened(deps: {
   ctx: WorkerContext;
@@ -267,22 +265,18 @@ const handleGetThinkingLevels: Handler = (ctx, cmd, id) => {
   return Promise.resolve();
 };
 
-const handleGetEntries: Handler = (ctx, cmd, id) => {
+const handleGetEntries: Handler = async (ctx, cmd, id) => {
   const entries = cmd as GetEntriesCmd & { id?: string };
   const thread = ctx.requireThread(entries.threadId, "get_entries", id);
-  if (!thread) return Promise.resolve();
+  if (!thread) return;
   const { sessionManager } = thread.session;
-  let list = sessionManager.getEntries();
-  if (entries.since !== undefined) {
-    const sinceIndex = list.findIndex((entry) => entry.id === entries.since);
-    if (sinceIndex === -1) {
-      ctx.failure(id, "get_entries", `Entry not found: ${entries.since}`);
-      return Promise.resolve();
-    }
-    list = list.slice(sinceIndex + 1);
-  }
-  ctx.success(id, "get_entries", { entries: list, leafId: sessionManager.getLeafId() });
-  return Promise.resolve();
+  const window = selectEntriesWindow(sessionManager.getEntries(), entries);
+  if (!window.ok) return void ctx.failure(id, "get_entries", window.error);
+  ctx.success(id, "get_entries", {
+    entries: window.entries,
+    leafId: sessionManager.getLeafId(),
+    hasMore: window.hasMore,
+  });
 };
 
 const handleGetTree: Handler = (ctx, cmd, id) => {
@@ -426,87 +420,6 @@ const handleGetCommands: Handler = (ctx, cmd, id) => {
   return Promise.resolve();
 };
 
-// --- direct bash ----------------------------------------------------------------
-
-const handleBash: Handler = async (ctx, cmd, id) => {
-  const bash = cmd as BashCmd & { id?: string };
-  const thread = ctx.requireThread(bash.threadId, "bash", id);
-  if (!thread) return;
-  if (typeof bash.command !== "string" || bash.command.length === 0) {
-    ctx.failure(id, "bash", "command must be a non-empty string");
-    return;
-  }
-  // Direct execution does not go through tool_call: gate it with the same
-  // rules/dialog path as the agent's bash tool.
-  const allowed = await confirmBashPermission({ ctx, bash, thread, id });
-  if (!allowed) return;
-  // Mirror pi's RPC mode: extensions may observe or fully replace the
-  // execution via the user_bash event.
-  const eventResult = await thread.session.extensionRunner.emitUserBash({
-    type: "user_bash",
-    command: bash.command,
-    excludeFromContext: bash.excludeFromContext === true,
-    cwd: thread.session.sessionManager.getCwd(),
-  });
-  if (eventResult?.result) {
-    thread.session.recordBashResult(bash.command, eventResult.result, {
-      excludeFromContext: bash.excludeFromContext === true,
-    });
-    ctx.success(id, "bash", eventResult.result);
-    return;
-  }
-  // Streaming output arrives as bash_execution_update events (carrying this
-  // command's id) through the normal event frames.
-  const inflight = ctx.registerInflight(() => thread.session.abortBash());
-  try {
-    const result = await thread.session.executeBash(bash.command, undefined, {
-      excludeFromContext: bash.excludeFromContext === true,
-      id,
-      ...(eventResult?.operations !== undefined ? { operations: eventResult.operations } : {}),
-    });
-    ctx.success(id, "bash", result);
-  } finally {
-    inflight.unregister();
-  }
-};
-
-async function confirmBashPermission(deps: {
-  ctx: WorkerContext;
-  bash: BashCmd;
-  thread: Thread;
-  id: string | undefined;
-}): Promise<boolean> {
-  const { ctx, bash, thread, id } = deps;
-  const check = await checkPermission({
-    tool: "bash",
-    value: bash.command,
-    ask: async (title: string, value: string) => {
-      const response = await ctx.broker.ask(
-        thread.session.sessionId,
-        { method: "confirm", title, message: value },
-        { timeout: BASH_CONFIRM_TIMEOUT_MS },
-      );
-      return response?.["confirmed"] === true;
-    },
-    threadId: thread.session.sessionId,
-    injectedRules: ctx.sessions.getInjectedRules(),
-  });
-  if (check.block) {
-    ctx.failure(id, "bash", check.reason ?? "Blocked by permission rules");
-    return false;
-  }
-  return true;
-}
-
-const handleAbortBash: Handler = (ctx, cmd, id) => {
-  const abortBash = cmd as AbortBashCmd & { id?: string };
-  const thread = ctx.requireThread(abortBash.threadId, "abort_bash", id);
-  if (!thread) return Promise.resolve();
-  thread.session.abortBash();
-  ctx.success(id, "abort_bash");
-  return Promise.resolve();
-};
-
 /** Stage 7: client-facing steer into a running grandchild (same pipeline as
  * the model's task_steer tool; the registry owns the not-running wording). */
 const handleSubagentSteer: Handler = async (ctx, cmd, id) => {
@@ -541,6 +454,32 @@ const handleUiResponse: Handler = (ctx, cmd, id) => {
 };
 
 /** Registry the worker dispatches through; keys are the command `type`s. */
+/** v0.7: the session's sandbox snapshot + OS-runtime state. */
+const handleGetSandboxState: Handler = async (ctx, cmd, id) => {
+  const query = cmd as GetSandboxStateCmd;
+  const thread = ctx.requireThread(query.threadId, "get_sandbox_state", id);
+  if (!thread) return;
+  const state = ctx.sessions.getSandboxState();
+  ctx.success(id, "get_sandbox_state", {
+    enabled: state.snapshot.config.enabled,
+    platform: process.platform,
+    ...(state.runtime.degraded !== undefined ? { degraded: state.runtime.degraded } : {}),
+    network: state.snapshot.config.network,
+    filesystem: state.snapshot.config.filesystem,
+    source: state.snapshot.source,
+    ...(state.runtime.active ? { bashSandboxed: true } : { bashSandboxed: false }),
+  });
+};
+
+/** INTERNAL v0.6 grant decision from the host: wake the pending acquire by
+ * grant id (the command id doubles as the grant id) and ack — the host
+ * absorbs this response via its internal-waiter mechanism. */
+const handleGrantResult: Handler = async (ctx, cmd, id) => {
+  const grant = cmd as WorkerGrantResultCmd & { id?: string };
+  ctx.resolveGrant(id ?? "", grant.granted === true, grant.running);
+  ctx.success(id, "grant_result", { granted: grant.granted === true });
+};
+
 export const workerHandlers: ReadonlyMap<string, Handler> = new Map<string, Handler>(
   Object.entries({
     "thread/start": handleStart,
@@ -568,6 +507,8 @@ export const workerHandlers: ReadonlyMap<string, Handler> = new Map<string, Hand
     get_commands: handleGetCommands,
     bash: handleBash,
     abort_bash: handleAbortBash,
+    grant_result: handleGrantResult,
+    get_sandbox_state: handleGetSandboxState,
     "subagent/steer": handleSubagentSteer,
     ui_response: handleUiResponse,
   }),

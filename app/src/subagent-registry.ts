@@ -21,7 +21,16 @@ import {
   type GrandchildUsage,
   startGrandchildTask,
 } from "./subagent-process.ts";
-import { tailBytes, truncateBytes } from "./truncate.ts";
+import {
+  chainOuterSignal,
+  formatMessage,
+  formatNotification,
+  settledError,
+  snapshotOf,
+  stoppedResult,
+  terminalStatus,
+} from "./subagent-results.ts";
+export { ENVELOPE_TASK_CAP, TASK_OUT_RUNNING_TAIL_BYTES } from "./subagent-results.ts";
 
 /** Subagent budget constants (single truth; the tool re-uses them). */
 export const MAX_TASKS_PER_CALL = 8;
@@ -55,7 +64,7 @@ interface PendingNotification {
 
 export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "stopped";
 
-interface RegistryEntry {
+export interface RegistryEntry {
   spec: GrandchildTaskSpec;
   hooks: GrandchildHooks;
   resolveSettle: (result: GrandchildResult) => void;
@@ -72,6 +81,8 @@ interface RegistryEntry {
   settled: Promise<GrandchildResult>;
   /** Stage 8: report/send messages accepted from this task (parent-side cap). */
   messagesDelivered: number;
+  /** v0.6 global-cap lease token (set once the host grant lands). */
+  grantToken: string | undefined;
 }
 
 export interface LaunchHandle {
@@ -89,6 +100,12 @@ export interface RegistryDeps {
   getSession?: () => NotifySession | undefined;
   isShuttingDown?: () => boolean;
   writeStderr?: (text: string) => void;
+  /** v0.6 global running-grandchild cap (host-arbitrated leases). Without it
+   * (unit tests) the per-conversation budget stands alone, as before. */
+  grants?: {
+    acquire: () => Promise<{ token: string | null; running?: number }>;
+    release: (token: string) => void;
+  };
 }
 
 export interface SnapshotEntry {
@@ -101,59 +118,6 @@ export interface SnapshotEntry {
   usage: GrandchildUsage;
   eventsRelayed: number;
   truncated: boolean;
-}
-
-/** running tail cap for task_out previews (plan contract section). */
-export const TASK_OUT_RUNNING_TAIL_BYTES = 2 * 1024;
-/** Envelope task cap (review P2-10): chain steps can embed a 50KB
- * {previous} output; event frames AND task_out snapshots would re-carry it
- * without this cap (review B-P3-7 closed the snapshot bypass). */
-export const ENVELOPE_TASK_CAP = 512;
-
-function envelopeTask(task: string): string {
-  return Buffer.byteLength(task, "utf8") <= ENVELOPE_TASK_CAP
-    ? task
-    : truncateBytes(task, ENVELOPE_TASK_CAP, "...");
-}
-
-function elapsedOf(entry: RegistryEntry, now: number): number {
-  if (entry.settledAt !== null && entry.startedAt !== null)
-    return entry.settledAt - entry.startedAt;
-  if (entry.startedAt !== null) return now - entry.startedAt;
-  return 0;
-}
-
-function snapshotOf(entry: RegistryEntry): SnapshotEntry {
-  const now = Date.now();
-  const base = {
-    subagentId: entry.spec.subagentId,
-    agent: entry.spec.agent,
-    task: envelopeTask(entry.spec.task),
-    status: entry.status,
-    elapsedMs: elapsedOf(entry, now),
-  };
-  if (entry.result !== undefined) {
-    return {
-      ...base,
-      output: entry.result.output,
-      usage: entry.result.usage,
-      eventsRelayed: entry.result.eventsRelayed,
-      truncated: entry.result.truncated,
-    };
-  }
-  const live = entry.driver?.progress();
-  const text = live === undefined ? "" : tailBytes(live.text, TASK_OUT_RUNNING_TAIL_BYTES);
-  return {
-    ...base,
-    output: text,
-    usage: live?.usage ?? zeroUsage(),
-    eventsRelayed: live?.eventsRelayed ?? 0,
-    truncated: live?.truncated ?? false,
-  };
-}
-
-function zeroUsage(): GrandchildUsage {
-  return { turns: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0 };
 }
 
 function noSession(): NotifySession | undefined {
@@ -171,12 +135,18 @@ export class SubagentRegistry {
   /** ids whose notifications task_wait suppresses (results come from wait). */
   private readonly suppressedIds = new Set<string>();
   private delivering = false;
+  /** v0.6: grant roundtrips in flight — they hold a concurrency slot. */
+  private pendingStarts = 0;
+  private readonly grants: RegistryDeps["grants"];
+  private readonly deps: RegistryDeps;
 
   constructor(deps?: RegistryDeps) {
+    this.deps = deps ?? {};
     this.startTask = deps?.startTask ?? startGrandchildTask;
     this.getSession = deps?.getSession ?? noSession;
     this.isShuttingDown = deps?.isShuttingDown ?? (() => false);
     this.writeStderr = deps?.writeStderr ?? (() => {});
+    this.grants = deps?.grants;
   }
 
   /** Turn-boundary trigger: the main session's run fully settled. */
@@ -289,11 +259,12 @@ export class SubagentRegistry {
       result: undefined,
       settled,
       messagesDelivered: 0,
+      grantToken: undefined,
     };
     this.entries.set(spec.subagentId, entry);
     chainOuterSignal(entry, deps.outerSignal);
-    if (this.liveCount() < MAX_CONCURRENT_SUBAGENTS) {
-      this.startNow(entry);
+    if (this.liveCount() + this.pendingStarts < MAX_CONCURRENT_SUBAGENTS) {
+      this.beginStart(entry);
       return { result: settled, status: "started" };
     }
     this.queue.push(spec.subagentId);
@@ -406,7 +377,54 @@ export class SubagentRegistry {
     this.tryDeliver();
   }
 
-  private startNow(entry: RegistryEntry): void {
+  /**
+   * v0.6: start goes through the global grant first (host roundtrip, ms
+   * scale). `pendingStarts` keeps the per-conversation cap honest across the
+   * await — entries still "queued" during the roundtrip already hold a slot.
+   * A denied grant settles the task failed immediately (no queueing: the
+   * model sees the error and can retry); a task settled while the roundtrip
+   * was out (killAll/stopOne) releases a late grant instead of leaking it.
+   */
+  private beginStart(entry: RegistryEntry): void {
+    const { grants } = this;
+    if (grants === undefined) {
+      this.spawnEntry(entry);
+      return;
+    }
+    this.pendingStarts += 1;
+    void (async () => {
+      let token: string | null;
+      let running: number | undefined;
+      try {
+        ({ token, running } = await grants.acquire());
+      } catch {
+        // acquire resolves by contract (never rejects); belt and braces.
+        token = null;
+      }
+      // Decrement BEFORE any settle: settleEntry reschedules the queue, and
+      // the gate must not count this roundtrip anymore — otherwise a fully
+      // denied batch strands every queued task forever (review #5).
+      this.pendingStarts -= 1;
+      if (entry.status !== "queued") {
+        if (token !== null) grants.release(token);
+        return;
+      }
+      if (token === null) {
+        this.settleEntry(
+          entry,
+          settledError(
+            entry.spec,
+            `global subagent limit reached (${running ?? "?"} running); wait for running tasks to finish and retry`,
+          ),
+        );
+        return;
+      }
+      entry.grantToken = token;
+      this.spawnEntry(entry);
+    })();
+  }
+
+  private spawnEntry(entry: RegistryEntry): void {
     entry.status = "running";
     entry.startedAt = Date.now();
     entry.settledAt = null;
@@ -449,6 +467,10 @@ export class SubagentRegistry {
     entry.driver = undefined;
     entry.settledAt = Date.now();
     entry.status = terminalStatus(entry, result);
+    if (entry.grantToken !== undefined) {
+      this.deps.grants?.release(entry.grantToken);
+      entry.grantToken = undefined;
+    }
     entry.resolveSettle(result);
     this.evictOverflow();
     this.scheduleQueued();
@@ -471,12 +493,15 @@ export class SubagentRegistry {
   }
 
   private scheduleQueued(): void {
-    while (this.queue.length > 0 && this.liveCount() < MAX_CONCURRENT_SUBAGENTS) {
+    while (
+      this.queue.length > 0 &&
+      this.liveCount() + this.pendingStarts < MAX_CONCURRENT_SUBAGENTS
+    ) {
       const id = this.queue.shift();
       const entry = id === undefined ? undefined : this.entries.get(id);
       if (entry === undefined) continue;
       if (entry.status !== "queued") continue;
-      this.startNow(entry);
+      this.beginStart(entry);
     }
   }
 
@@ -494,102 +519,4 @@ export class SubagentRegistry {
       if (evicted !== undefined) this.entries.delete(evicted.id);
     }
   }
-}
-
-function formatNotification(spec: GrandchildTaskSpec, result: GrandchildResult): string {
-  let statusWord = "completed";
-  if (result.aborted) statusWord = "stopped";
-  else if (result.isError) statusWord = "failed";
-  const output = truncateBytes(
-    result.output,
-    NOTIFY_OUTPUT_CAP_BYTES,
-    "\n[output truncated to 8KB]",
-  );
-  return [
-    `[task-notification] subagent ${spec.subagentId} (${spec.agent}) ${statusWord}.`,
-    output,
-    `(full output: task_out {"subagentId":"${spec.subagentId}"}; wait for others: task_wait)`,
-  ].join("\n");
-}
-
-/** Envelope for a queued inter-agent message (stage 8/9 guardrails): source
- * id always; `to` marks a sibling-routing request the father mediates;
- * project-sourced agents speak as unverified data, not instructions. */
-function formatMessage(spec: GrandchildTaskSpec, message: GrandchildMessage): string {
-  const text = truncateBytes(message.text, NOTIFY_OUTPUT_CAP_BYTES, "\n[message truncated to 8KB]");
-  const header =
-    message.to === undefined
-      ? `[task-message] from subagent ${spec.subagentId} (${spec.agent}):`
-      : `[task-message] from subagent ${spec.subagentId} (${spec.agent}) intended for ${message.to} — route it with task_send only if appropriate:`;
-  const unverified =
-    spec.projectSourced === true
-      ? "\n[unverified data: agent definition from the project directory]"
-      : "";
-  return `${header}\n${text}${unverified}`;
-}
-
-function terminalStatus(entry: RegistryEntry, result: GrandchildResult): SubagentStatus {
-  if (result.aborted) return "stopped";
-  if (result.isError) return "failed";
-  return "completed";
-}
-
-function settledError(spec: GrandchildTaskSpec, message: string): GrandchildResult {
-  return {
-    agent: spec.agent,
-    task: spec.task,
-    output: message,
-    isError: true,
-    errorMessage: message,
-    aborted: false,
-    usage: {
-      turns: 0,
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      cost: 0,
-      contextTokens: 0,
-    },
-    stderr: "",
-    truncated: false,
-    eventsRelayed: 0,
-  };
-}
-
-function stoppedResult(spec: GrandchildTaskSpec, killed: boolean): GrandchildResult {
-  return {
-    agent: spec.agent,
-    task: spec.task,
-    output: killed ? "subagent killed" : "subagent stopped before start",
-    isError: true,
-    errorMessage: killed ? "subagent killed" : "subagent stopped before start",
-    aborted: true,
-    usage: {
-      turns: 0,
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      cost: 0,
-      contextTokens: 0,
-    },
-    stderr: "",
-    truncated: false,
-    eventsRelayed: 0,
-  };
-}
-
-/** The foreground turn's abort reaches the entry's controller (one-shot). */
-function chainOuterSignal(entry: RegistryEntry, outerSignal: AbortSignal | undefined): void {
-  if (outerSignal === undefined) return;
-  if (outerSignal.aborted) entry.controller.abort();
-  else
-    outerSignal.addEventListener(
-      "abort",
-      () => {
-        entry.controller.abort();
-      },
-      { once: true },
-    );
 }

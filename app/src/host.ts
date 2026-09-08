@@ -9,6 +9,9 @@
  */
 
 import { ModelRuntime, VERSION } from "@earendil-works/pi-coding-agent";
+// Bundlers inline JSON imports at build time, so the version survives the
+// `bun build --compile` single-file form where package.json is not on disk.
+import ownPackage from "../package.json" with { type: "json" };
 import { createJsonlSplitter } from "./jsonl.ts";
 import type { HubCommand, HubFrame } from "./protocol.ts";
 import { responseFailure } from "./frames.ts";
@@ -23,6 +26,24 @@ import {
 import { WorkerPool } from "./worker-pool.ts";
 
 const HEARTBEAT_INTERVAL_MS = 1_000;
+
+/** Static facts for get_host_info, read once at startup (versions never
+ * change mid-process; uptime is dated from here). */
+interface HostMeta {
+  version: string;
+  piVersion: string;
+  bunVersion: string;
+  startedAt: number;
+}
+
+function collectHostMeta(): HostMeta {
+  return {
+    version: ownPackage.version,
+    piVersion: VERSION,
+    bunVersion: (process.versions as Record<string, string | undefined>).bun ?? "unknown",
+    startedAt: Date.now(),
+  };
+}
 
 function isCommandShape(message: unknown): message is HubCommand {
   return typeof message === "object" && message !== null && !Array.isArray(message);
@@ -199,7 +220,8 @@ export async function runHost(argv: string[]): Promise<void> {
     },
   );
   startHeartbeat(emitters, poolRef);
-  const { deps } = await setupHostServices({ emitters, registry, poolRef });
+  const hostMeta = collectHostMeta();
+  const { deps } = await setupHostServices({ emitters, registry, poolRef, hostMeta });
 
   const handleCommand = async (cmd: HubCommand, line: string): Promise<void> => {
     const { id } = cmd;
@@ -227,6 +249,7 @@ async function setupHostServices(deps: {
   emitters: HostEmitters;
   registry: ReturnType<typeof createInflightRegistry>;
   poolRef: { pool?: WorkerPool };
+  hostMeta: HostMeta;
 }): Promise<{ deps: HostDeps }> {
   const modelRuntime = await ModelRuntime.create();
   const pool = new WorkerPool({
@@ -241,6 +264,7 @@ async function setupHostServices(deps: {
       modelRuntime,
       emit: deps.emitters.emit,
       registerInflight: deps.registry.register,
+      hostMeta: deps.hostMeta,
     },
   };
 }

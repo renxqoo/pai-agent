@@ -19,6 +19,8 @@ function makeDeps() {
     },
     writeStderr: () => {},
     killWorker: async () => {},
+    onGrant: () => {},
+    renewGrants: () => {},
   };
   return { deps, raw };
 }
