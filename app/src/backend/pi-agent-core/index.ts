@@ -12,7 +12,7 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CapabilityBit } from "../capabilities.ts";
 import type { HostBackend, WorkerBackend, WorkerSessionDeps } from "../ports/backend.ts";
-import type { PaiEvent, SessionModel } from "../../protocol.ts";
+import type { SessionModel } from "../../protocol.ts";
 import { AgentCoreSessionHost } from "./session-adapter.ts";
 import {
   handleAuthList,
@@ -20,6 +20,8 @@ import {
   handleAuthSetApiKey,
 } from "../pi-coding-agent/host-auth.ts";
 import { rulesPath } from "../pi-coding-agent/permission-gate.ts";
+import { createCodingToolset } from "../tools/coding/index.ts";
+import { createToolPermissionGate, TOOL_ASK_TIMEOUT_MS } from "../tools/coding/permission-gate.ts";
 
 /** The probe's honest capability set: chat + shared model/auth surface. */
 const PROBE_CAPABILITIES: ReadonlySet<CapabilityBit> = new Set<CapabilityBit>([
@@ -90,6 +92,53 @@ export async function createAgentCoreHostBackend(): Promise<HostBackend> {
   };
 }
 
+/** The probe session host with the coding toolset and permission gate:
+ * the late-bound host reference feeds the gate the live session id. */
+function createProbeSessionHost(deps: {
+  broker: WorkerSessionDeps["broker"];
+  emit: WorkerSessionDeps["emit"];
+  writeStderr: WorkerSessionDeps["writeStderr"];
+  pickModel: (model: SessionModel | undefined) => SessionModel;
+  modelRuntime: ModelRuntime;
+}): AgentCoreSessionHost {
+  const hostRef: { current?: AgentCoreSessionHost } = {};
+  const createAgent = (model: SessionModel | undefined, cwd: string): Agent => {
+    const toolset = createCodingToolset({
+      cwd,
+      gate: createToolPermissionGate({
+        threadId: () => hostRef.current?.threadId() ?? "",
+        rulesPath: rulesPath(),
+        ask: async (title, message) => {
+          const threadId = hostRef.current?.threadId() ?? "";
+          const response = await deps.broker.ask(
+            threadId,
+            { method: "confirm", title, message },
+            { timeout: TOOL_ASK_TIMEOUT_MS },
+          );
+          return response?.["confirmed"] === true;
+        },
+      }),
+    });
+    return new Agent({
+      initialState: {
+        model: deps.pickModel(model),
+        systemPrompt: "You are a helpful assistant.",
+        tools: toolset.tools,
+      },
+      // ModelRuntime.streamSimple matches the agent StreamFn shape 1:1.
+      streamFn: deps.modelRuntime.streamSimple.bind(deps.modelRuntime),
+      ...(toolset.beforeToolCall !== undefined ? { beforeToolCall: toolset.beforeToolCall } : {}),
+    });
+  };
+  const host = new AgentCoreSessionHost({
+    createAgent,
+    emit: deps.emit,
+    writeStderr: deps.writeStderr,
+  });
+  hostRef.current = host;
+  return host;
+}
+
 export function createAgentCoreWorkerBackend(): WorkerBackend {
   return {
     id: "pi-agent-core",
@@ -108,16 +157,13 @@ export function createAgentCoreWorkerBackend(): WorkerBackend {
         if (first === undefined) throw new Error("No models available for pi-agent-core backend");
         return first;
       };
-      const createAgent = (model: SessionModel | undefined): Agent =>
-        new Agent({
-          initialState: { model: pickModel(model), systemPrompt: "You are a helpful assistant." },
-          // ModelRuntime.streamSimple matches the agent StreamFn shape 1:1.
-          streamFn: modelRuntime.streamSimple.bind(modelRuntime),
-        });
-      const emit = (frame: { type: "event"; threadId: string; event: PaiEvent }): void => {
-        deps.emit(frame);
-      };
-      return new AgentCoreSessionHost({ createAgent, emit, writeStderr: deps.writeStderr });
+      return createProbeSessionHost({
+        broker: deps.broker,
+        emit: deps.emit,
+        writeStderr: deps.writeStderr,
+        pickModel,
+        modelRuntime,
+      });
     },
   };
 }

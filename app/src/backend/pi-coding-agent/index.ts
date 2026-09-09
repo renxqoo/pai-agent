@@ -17,8 +17,8 @@ import {
 import type { CapabilityBit } from "../capabilities.ts";
 import type { HostBackend, WorkerBackend, WorkerSessionDeps } from "../ports/backend.ts";
 import { SessionHost } from "./session-adapter.ts";
-import { createTaskTool } from "./subagent-tool.ts";
-import { createSubagentCommunicationExtension } from "./subagent-communication.ts";
+import { createTaskTool } from "../tools/task/subagent-tool.ts";
+import { createSubagentCommunicationExtension } from "../tools/task/subagent-communication.ts";
 import { startGrandchildTask } from "./subagent-process.ts";
 import { checkPermission } from "./permission-gate.ts";
 import { rulesPath } from "./permission-gate.ts";

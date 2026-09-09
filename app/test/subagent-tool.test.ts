@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createTaskTool, type TaskToolDeps } from "../src/backend/pi-coding-agent/subagent-tool.ts";
+import { createTaskTool, type TaskToolDeps } from "../src/backend/tools/task/subagent-tool.ts";
 import {
   MAX_CONCURRENT_SUBAGENTS,
   MAX_INFLIGHT_PER_CONVERSATION,

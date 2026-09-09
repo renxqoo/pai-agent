@@ -38,12 +38,12 @@ export function liftAgentEvent(event: AgentEvent): PaiEvent[] {
 export class AgentCoreSessionHost implements PaiSessionHost {
   private thread: PaiThread | undefined;
   private unsubscribe: () => void = () => {};
-  private readonly createAgent: (model: SessionModel | undefined) => Agent;
+  private readonly createAgent: (model: SessionModel | undefined, cwd: string) => Agent;
   private readonly emit: (frame: { type: "event"; threadId: string; event: PaiEvent }) => void;
   private readonly writeStderr: (text: string) => void;
 
   constructor(deps: {
-    createAgent: (model: SessionModel | undefined) => Agent;
+    createAgent: (model: SessionModel | undefined, cwd: string) => Agent;
     emit: (frame: { type: "event"; threadId: string; event: PaiEvent }) => void;
     writeStderr: (text: string) => void;
   }) {
@@ -77,7 +77,7 @@ export class AgentCoreSessionHost implements PaiSessionHost {
     if (this.thread !== undefined) {
       throw new Error("Worker already hosts a conversation; one session per worker process");
     }
-    const agent = this.createAgent(options.model);
+    const agent = this.createAgent(options.model, options.cwd);
     const session = new AgentCoreSession(agent);
     const thread: PaiThread = { session, cwd: options.cwd, sessionPath: undefined };
     this.unsubscribe = agent.subscribe((event: AgentEvent) => {

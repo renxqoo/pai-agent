@@ -12,26 +12,26 @@
 import { join as joinPath, resolve as resolvePath } from "node:path";
 import type { ExtensionAPI, InlineExtension, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { discoverAgents } from "./agent-definitions.ts";
-import type { HubFrame, SessionModel } from "../../protocol.ts";
-import { stripCumulativeSnapshot } from "../ports/event-strip.ts";
-import type { PaiEvent } from "../../protocol.ts";
+import { discoverAgents } from "../../pi-coding-agent/agent-definitions.ts";
+import type { HubFrame, SessionModel } from "../../../protocol.ts";
+import { stripCumulativeSnapshot } from "../../ports/event-strip.ts";
+import type { PaiEvent } from "../../../protocol.ts";
 import {
   type GrandchildHooks,
   type GrandchildResult,
   type GrandchildTaskSpec,
   type GrandchildUsage,
   newSubagentId,
-} from "./subagent-process.ts";
+} from "../../pi-coding-agent/subagent-process.ts";
 import {
   ENVELOPE_TASK_CAP,
   MAX_CONCURRENT_SUBAGENTS,
   MAX_INFLIGHT_PER_CONVERSATION,
   MAX_TASKS_PER_CALL,
-} from "../../subagent-registry.ts";
-import type { SubagentRegistryFace } from "../ports/subagent.ts";
+} from "../../../subagent-registry.ts";
+import type { SubagentRegistryFace } from "../../ports/subagent.ts";
 import { registerQueryTools } from "./subagent-query-tools.ts";
-import { truncateBytes } from "../../truncate.ts";
+import { truncateBytes } from "../../../truncate.ts";
 
 export interface TaskToolDeps {
   emit: (frame: HubFrame) => void;
