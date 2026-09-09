@@ -294,6 +294,10 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 - `pi-agent-core` 后端的事件提升：`agent_settled` 按 run 合成（每个 `agent_end` 后一个）——coding-agent 在 followUp 队列排空后才 settle，探针后端每个 run 即 settle 且新 run 接续启动；客户端在探针后端可能提前看到 settled（已知 fidelity 差异，随探针定位）。
 - `get_commands` 在探针后端返回空集（无扩展/模板/skills 数据源）。
 
+### skill 调用指针化（hub 预改写）
+
+`prompt`/`steer`/`follow_up` 的消息在 host 侧先经纯函数改写（唯一真相 `src/skill-pointer.ts`）：`/skill:name [args]` → `[name](url:filePath)`（args 以空行相接；description 不内联——系统提示的 available_skills 清单与 app 技能清单已携带）。改写后文本不再以 `/skill:` 开头，worker 内建的全量 SKILL.md 展开自然跳过——会话真相与模型上下文都不再内联正文，模型用 read/bash 自行加载文件。未知技能名时不改写（worker 内建展开为回退路径）。`resources.skills` 能力位语义不变（数据源声明面）。
+
 ### 环境旋钮（v0.8 新增）
 
 `PAI_BACKEND`（缺省 `pi-coding-agent`）：host 级后端选择；worker/孙进程继承同一后端（孙进程 spawn 走同一注册表）。

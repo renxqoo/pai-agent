@@ -54,9 +54,9 @@ export interface PaiExtensionRunner {
   getRegisteredCommands(): ReadonlyArray<{ invocationName: string; description?: string }>;
 }
 
-/** The resource-loader sub-face composition reads (get_commands skills). */
+/** The resource-loader sub-face composition reads (get_commands skills, /skill: pointer rewrite). */
 export interface PaiResourceLoader {
-  getSkills(): { skills: ReadonlyArray<{ name: string; description?: string }> };
+  getSkills(): { skills: ReadonlyArray<{ name: string; description?: string; filePath: string }> };
 }
 
 /**

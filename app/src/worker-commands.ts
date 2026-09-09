@@ -7,6 +7,7 @@
 import { toImages, validateImages } from "./images.ts";
 import { handleAbortBash, handleBash } from "./bash-commands.ts";
 import { selectEntriesWindow } from "./entries-window.ts";
+import { toSkillPointer } from "./skill-pointer.ts";
 import type {
   ClearQueueCmd,
   CloneCmd,
@@ -89,6 +90,11 @@ function emitStreamingBehaviorError(
   return false;
 }
 
+/** /skill:name rewrite: pointer line instead of the worker's full-body expansion (skill-pointer.ts). */
+function pointerMessage(thread: PaiThread, message: string): string {
+  return toSkillPointer(message, thread.session.resourceLoader.getSkills().skills);
+}
+
 // --- lifecycle ----------------------------------------------------------------
 
 const handleStart: Handler = async (ctx, cmd, id) => {
@@ -139,7 +145,7 @@ const handlePrompt: Handler = (ctx, cmd, id) => {
   // the event stream.
   let accepted = false;
   void thread.session
-    .prompt(prompt.message, {
+    .prompt(pointerMessage(thread, prompt.message), {
       images: toImages(prompt.images),
       ...(prompt.streamingBehavior ? { streamingBehavior: prompt.streamingBehavior } : {}),
       source: "rpc",
@@ -168,7 +174,7 @@ const handleSteer: Handler = async (ctx, cmd, id) => {
     id,
   });
   if (!thread) return;
-  await thread.session.steer(steer.message, toImages(steer.images));
+  await thread.session.steer(pointerMessage(thread, steer.message), toImages(steer.images));
   ctx.success(id, "steer");
 };
 
@@ -182,7 +188,10 @@ const handleFollowUp: Handler = async (ctx, cmd, id) => {
     id,
   });
   if (!thread) return;
-  await thread.session.followUp(followUp.message, toImages(followUp.images));
+  await thread.session.followUp(
+    pointerMessage(thread, followUp.message),
+    toImages(followUp.images),
+  );
   ctx.success(id, "follow_up");
 };
 
