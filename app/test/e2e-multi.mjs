@@ -30,10 +30,22 @@ const watchdog = setTimeout(() => {
 }, 420_000);
 
 // --- build the bundled artifact --------------------------------------------------
-const build = spawnSync("bun", ["build", "src/cli.ts", "--outdir", "dist", "--target=bun"], {
-  cwd: process.cwd(),
-  encoding: "utf8",
-});
+const build = spawnSync(
+  "bun",
+  [
+    "build",
+    "src/cli.ts",
+    "--outdir",
+    "dist",
+    "--target=bun",
+    "--tsconfig-override",
+    `${process.cwd()}/tsconfig.build.json`,
+  ],
+  {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  },
+);
 assert(build.status === 0, `bun build bundle (${(build.stderr ?? "").slice(0, 80)})`);
 const artifact = "dist/cli.js";
 

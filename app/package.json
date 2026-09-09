@@ -10,7 +10,7 @@
     "start": "bun src/cli.ts",
     "check": "oxlint && oxfmt --check . && tsc --noEmit",
     "fmt": "oxfmt .",
-    "build": "bun build src/cli.ts --minify --production --outdir dist --target=bun",
+    "build": "bun build src/cli.ts --minify --production --outdir dist --target=bun --tsconfig-override \"$PWD/tsconfig.build.json\"",
     "test": "bun test && bun test/smoke.mjs && bun test/e2e-mock/run.mjs && bun test/conformance/run.mjs",
     "e2e": "bun test/e2e.mjs",
     "e2e:mock": "bun test/e2e-mock/run.mjs",

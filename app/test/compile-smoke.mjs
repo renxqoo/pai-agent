@@ -25,7 +25,15 @@ const watchdog = setTimeout(() => {
 // --- build the compiled binary ------------------------------------------------------
 const build = spawnSync(
   "bun",
-  ["build", "src/cli.ts", "--compile", "--outfile", "dist/pai-smoke-bin"],
+  [
+    "build",
+    "src/cli.ts",
+    "--compile",
+    "--outfile",
+    "dist/pai-smoke-bin",
+    "--tsconfig-override",
+    `${process.cwd()}/tsconfig.build.json`,
+  ],
   { cwd: process.cwd(), encoding: "utf8" },
 );
 assert(build.status === 0, `bun build --compile (${(build.stderr ?? "").slice(0, 80)})`);

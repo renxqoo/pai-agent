@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@earendil-works/pi-ai": ["../packages/ai/src/index.ts"],
+      "@earendil-works/pi-ai/*": ["../packages/ai/src/*.ts"],
+      "@earendil-works/pi-agent-core": ["../packages/agent/src/index.ts"],
+      "@earendil-works/pi-agent-core/*": ["../packages/agent/src/*.ts"]
+    }
+  }
+}
