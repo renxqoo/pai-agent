@@ -1,5 +1,7 @@
-import { describe, expect, test } from "bun:test";
-import { unlinkSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   decide,
   globMatches,
@@ -175,17 +177,20 @@ describe("decide: write/edit path rules (v2)", () => {
 });
 
 describe("loadRules", () => {
+  // Hermetic temp dir: honors TMPDIR (sandboxes often deny /tmp root writes).
+  const rulesDir = mkdtempSync(join(tmpdir(), "pai-cli-rules-"));
+  afterAll(() => rmSync(rulesDir, { recursive: true, force: true }));
   test("missing file returns default", () => {
     expect(loadRules("/nonexistent/pai-cli-rules-test.json")).toEqual({ mode: "ask" });
   });
   test("reads and parses existing file", () => {
-    const path = `/tmp/pai-cli-rules-${Date.now()}.json`;
+    const path = join(rulesDir, `rules-${Date.now()}.json`);
     writeFileSync(path, '{"mode":"block-all"}');
     expect(loadRules(path)).toEqual({ mode: "block-all" });
     unlinkSync(path);
   });
   test("corrupt file returns default", () => {
-    const path = `/tmp/pai-cli-rules-bad-${Date.now()}.json`;
+    const path = join(rulesDir, `rules-bad-${Date.now()}.json`);
     writeFileSync(path, "not json");
     expect(loadRules(path)).toEqual({ mode: "ask" });
     unlinkSync(path);

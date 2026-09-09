@@ -114,11 +114,12 @@ describe("sandbox gate (write/edit/read hard checks)", () => {
 
   test("relative and escaping tool paths resolve against the session cwd", async () => {
     const [handler] = mountGate(enabledSnapshot());
+    // Enough ../ levels to clamp at / regardless of how deep tmpdir() is.
     const blocked = await handler({
       type: "tool_call",
       toolName: "write",
       toolCallId: "t7",
-      input: { path: "../../etc/passwd", content: "x" },
+      input: { path: "../../../../../../../../../../etc/passwd", content: "x" },
     });
     expect(blocked?.block).toBe(true);
   });

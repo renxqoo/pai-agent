@@ -172,7 +172,9 @@ describe("write policy matrix (through the real resolver)", () => {
   });
 
   test("outside every root is blocked", () => {
-    expect(gate(join(OUTSIDE, "evil.ts"))).toContain("outside allowed paths");
+    // A path under tmpdir() can itself sit under the /tmp allow root (TMPDIR
+    // often points there); /etc is outside every root on every platform.
+    expect(gate("/etc/evil.ts")).toContain("outside allowed paths");
   });
 
   test("denyWrite basename and glob at any depth", () => {

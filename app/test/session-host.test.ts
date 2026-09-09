@@ -1,4 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   AgentSession,
   AgentSessionRuntime,
@@ -164,6 +167,18 @@ describe("F-2: session-replacing operations serialize", () => {
 });
 
 const PERMISSION_THREAD = "perm-live-read-test";
+
+// Sidecar rules must never touch the developer's real agent dir: bind a
+// throwaway one for this file (getAgentDir reads the env per call).
+const agentDir = mkdtempSync(join(tmpdir(), "pai-cli-session-host-"));
+const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+process.env.PI_CODING_AGENT_DIR = agentDir;
+
+afterAll(() => {
+  if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+  rmSync(agentDir, { recursive: true, force: true });
+});
 
 afterAll(() => {
   clearSidecarRules(PERMISSION_THREAD);
