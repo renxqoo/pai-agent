@@ -20,7 +20,9 @@ import {
   type GrandchildTaskSpec,
   type LiveProgress,
   readIntEnv,
+  RELAY_ALWAYS_MAX_BYTES,
   RELAY_BUFFER_CAP_BYTES,
+  relayAlwaysFormOf,
   RESULT_CONTENT_CAP_BYTES,
   STDERR_CAP_BYTES,
   SUBAGENT_KILL_GRACE_MS,
@@ -46,6 +48,10 @@ class GrandchildRunner {
   private readonly state: DriverState;
   private child: WorkerHandle | undefined;
   private aborted = false;
+  /** A terminal event was relayed or synthesized (exactly one per task). */
+  private terminalEmitted = false;
+  /** At least one event reached the client (the fallback would not be a phantom row). */
+  private clientVisible = false;
   private steerSeq = 0;
   private startTimer: ReturnType<typeof setTimeout> | undefined;
   private staleSweep: ReturnType<typeof setInterval> | undefined;
@@ -92,13 +98,45 @@ class GrandchildRunner {
   }
 
   start(): GrandchildDriver {
-    const result = this.run().finally(() => this.teardown());
+    const result = this.run().finally(async () => {
+      // Teardown first: the grandchild must be closed so its own terminal
+      // event (if any) has been relayed before the fallback decides.
+      await this.teardown();
+      this.emitTerminalIfMissing();
+    });
     return {
       result,
       resolveUi: (requestId, payload) => this.resolveUi(requestId, payload),
       steer: (message) => this.steer(message),
       progress: () => this.progress(),
     };
+  }
+
+  /** Fallback terminal event: a task whose events reached the client but that
+   * died without relaying `agent_settled` (kill, crash, stale watchdog) would
+   * otherwise leave the client's subagent status stuck at working. The parent
+   * owns this fallback; tasks the client never saw stay silent (no phantom
+   * row). The hook is best-effort: a throwing sink must not reject the result
+   * or skip teardown (teardown already ran). */
+  private emitTerminalIfMissing(): void {
+    if (this.terminalEmitted || !this.clientVisible) return;
+    this.terminalEmitted = true;
+    try {
+      this.hooks.onEvent({ type: "agent_settled" });
+    } catch (error) {
+      this.reportTerminalFailure(error);
+    }
+  }
+
+  /** Best-effort diagnostic for a throwing terminal sink; stderr itself may
+   * be gone (destroyed pipe), and a rejection here would strand the task's
+   * settle accounting. */
+  private reportTerminalFailure(error: unknown): void {
+    try {
+      this.hooks.writeStderr(`pai-cli subagent terminal event relay failed: ${String(error)}\n`);
+    } catch {
+      // stderr is gone too: nothing left to report to.
+    }
   }
 
   /** Stage 7: fire one steer line into the grandchild and await its ack.
@@ -429,9 +467,24 @@ class GrandchildRunner {
 
   private relay(line: string, event: PaiEvent): void {
     const size = Buffer.byteLength(line, "utf8");
+    const always = relayAlwaysFormOf(event);
+    if (always !== undefined) {
+      // Exactly one terminal event per task: repeats are dropped.
+      if (this.terminalEmitted) return;
+      const normalized = size > RELAY_ALWAYS_MAX_BYTES;
+      const wire = normalized ? always : event;
+      this.state.relayBytes += normalized
+        ? Buffer.byteLength(JSON.stringify(always), "utf8")
+        : size;
+      this.hooks.onEvent(wire);
+      this.terminalEmitted = true;
+      this.clientVisible = true;
+      return;
+    }
     if (this.state.relayBytes + size <= RELAY_BUFFER_CAP_BYTES) {
       this.state.relayBytes += size;
       this.hooks.onEvent(event);
+      this.clientVisible = true;
     } else {
       this.state.truncated = true;
     }

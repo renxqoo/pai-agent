@@ -224,7 +224,7 @@ hub 发 `{"type":"ui_request","requestId":..,"threadId":..,"method":..,...}`：
 
 模型面工具（task/task_out/task_wait/task_stop）不是对客户端的协议命令，但对客户端有三个可见投影：
 
-1. **`subagent_event` 帧**：每个子 agent 的完整事件流（流式文本、工具调用、agent_settled）实时转发，任务面板按 `subagentId` 分组。后台排队（queued）任务在 spawn 前没有任何事件——回执经 tool result 消息事件可读。
+1. **`subagent_event` 帧**：每个子 agent 的事件流（流式文本、工具调用、终态事件）实时转发，任务面板按 `subagentId` 分组。终态事件 `agent_settled` 有两条保证：① 不因父侧中继预算（256KB/任务，超限置 `truncated:true`）被丢弃（其字节仍计入累计，上界 256KB + 4KB；超 4KB 的异常帧只转发无负载规范形态）；② 父侧为每个**已产生事件**的子 agent 兜底补发——孙进程被杀/崩溃/看门狗终止时不会自行发终态事件，父侧在任务终态合成一条，客户端因此不会永久停在「进行中」。未产生事件的子 agent（spawn 前失败）对客户端不可见，不发终态事件。后台排队（queued）任务在 spawn 前没有任何事件——回执经 tool result 消息事件可读。
 2. **心跳 `subagents` 计数**：在途 = queued + running（留存结果不计入），任务面板的「在途」因此含排队任务。
 3. **完成通知是 user-role 消息**：后台任务 settle 后，pai 以**用户角色**注入一条 `[task-notification] subagent <id> (<agent>) completed|failed|stopped.` + 产出摘要（≤8KB）消息并触发一个新的模型回合。三个可观察含义：
    - 你会在 `get_messages`/事件流里看到一条**自己没有发送过**的 user 消息及其触发的模型回合（正常行为，非伪造）；

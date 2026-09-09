@@ -7,6 +7,9 @@ import {
   type GrandchildHooks,
   type GrandchildResult,
   type GrandchildTaskSpec,
+  RELAY_ALWAYS_MAX_BYTES,
+  RELAY_BUFFER_CAP_BYTES,
+  relayAlwaysFormOf,
   startGrandchildTask,
 } from "../src/backend/pi-coding-agent/subagent-process.ts";
 import type { SpawnWorkerDeps, SpawnWorkerFn, WorkerHandle } from "../src/worker-process.ts";
@@ -247,6 +250,11 @@ function lineStartsWith(lines: string[], prefix: string): boolean {
   return lines.some((l) => l.startsWith(prefix));
 }
 
+/** message_update 帧（delta 长度为唯一变量）：预算回归用例据其实测行字节数。 */
+function updateLineOf(deltaLength: number): string {
+  return `{"type":"event","threadId":"g-sess-1","event":{"type":"message_update","delta":"${"x".repeat(deltaLength)}"}}`;
+}
+
 function lineIncludes(lines: string[], needle: string): boolean {
   return lines.some((l) => l.includes(needle));
 }
@@ -454,6 +462,196 @@ describe("relay mechanics", () => {
     expect(result.truncated).toBe(true);
     expect(log.events.length).toBeLessThan(8);
     expect(result.eventsRelayed).toBe(8); // counted even when not relayed
+  }, 15_000);
+
+  test("regression: exhausted relay budget still delivers agent_settled (client status would stick at working)", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    const driver = startGrandchildTask({
+      spec: spec(),
+      hooks: hooks(log),
+      spawnWorker: fake.spawn,
+    });
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-start"'));
+    fake.child.feed(START_OK);
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-prompt"'));
+    fake.child.feed(PROMPT_OK);
+    const relayed: string[] = [];
+    const feed = (line: string, type: string): void => {
+      fake.child.feed(line);
+      relayed.push(type);
+    };
+    // Exhaust the budget EXACTLY: fill with 60KB deltas, then one final line
+    // sized to the remaining budget. Sizing is derived from the line itself
+    // (delta length is the only variable), so the test cannot drift from the
+    // production accounting.
+    const base = Buffer.byteLength(updateLineOf(0));
+    let remaining = RELAY_BUFFER_CAP_BYTES;
+    while (remaining > 60 * 1024) {
+      const line = updateLineOf(60 * 1024);
+      feed(line, "message_update");
+      remaining -= Buffer.byteLength(line);
+    }
+    const final = updateLineOf(remaining - base);
+    expect(Buffer.byteLength(final)).toBe(remaining);
+    feed(final, "message_update");
+    // Budget is now exactly full: a non-exempt event is dropped as before.
+    feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"dropped"}]}}}',
+      "message_end",
+    );
+    feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}',
+      "agent_settled",
+    );
+    fake.child.close();
+    const result = await driver.result;
+    expect(result.truncated).toBe(true);
+    // Received-but-not-relayed accounting stays exact: only the over-budget
+    // message_end was dropped.
+    expect(result.eventsRelayed).toBe(log.events.length + 1);
+    // Exact relayed sequence (typo-proof): every budget-fitting delta plus the
+    // terminal event, and nothing else — the over-budget message_end is gone.
+    expect(log.events.map((e) => e.type)).toEqual(relayed.filter((type) => type !== "message_end"));
+  }, 15_000);
+
+  test("oversized agent_settled is normalized to the canonical payload-free form", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    const driver = startGrandchildTask({
+      spec: spec(),
+      hooks: hooks(log),
+      spawnWorker: fake.spawn,
+    });
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-start"'));
+    fake.child.feed(START_OK);
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-prompt"'));
+    fake.child.feed(PROMPT_OK);
+    const payload = "x".repeat(RELAY_ALWAYS_MAX_BYTES + 1);
+    fake.child.feed(
+      `{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled","payload":"${payload}"}}`,
+    );
+    // The normalized event must not eat the remaining budget: a following
+    // non-exempt event is still relayed.
+    fake.child.feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"after"}]}}}',
+    );
+    fake.child.close();
+    await driver.result;
+    expect(log.events[0]).toEqual({ type: "agent_settled" });
+    expect(log.events.map((e) => e.type)).toEqual(["agent_settled", "message_end"]);
+  }, 15_000);
+
+  test("relay exemption is the payload-free terminal set (contract pin)", () => {
+    expect(relayAlwaysFormOf({ type: "agent_settled" })).toEqual({ type: "agent_settled" });
+    expect(relayAlwaysFormOf({ type: "agent_end", messages: [] })).toBeUndefined();
+    expect(relayAlwaysFormOf({ type: "message_end" })).toBeUndefined();
+  });
+
+  test("regression: crashed grandchild still gets a terminal event (client status would stick at working)", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    const driver = await reachRunning(fake, hooks(log));
+    fake.child.feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"message_update","delta":"partial"}}',
+    );
+    await step(() => log.events.length === 1);
+    // Dies without agent_settled: no terminal event from the grandchild.
+    fake.child.close();
+    const result = await driver.result;
+    expect(result.isError).toBe(true);
+    expect(log.events.map((e) => e.type)).toEqual(["message_update", "agent_settled"]);
+  }, 15_000);
+
+  test("aborted grandchild still gets a terminal event after partial output", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    const controller = new AbortController();
+    const driver = startGrandchildTask({
+      spec: spec(),
+      hooks: hooks(log),
+      signal: controller.signal,
+      spawnWorker: fake.spawn,
+    });
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-start"'));
+    fake.child.feed(START_OK);
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-prompt"'));
+    fake.child.feed(PROMPT_OK);
+    fake.child.feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"message_update","delta":"partial"}}',
+    );
+    await step(() => log.events.length === 1);
+    controller.abort();
+    fake.child.close();
+    const result = await driver.result;
+    expect(result.aborted).toBe(true);
+    expect(log.events.map((e) => e.type)).toEqual(["message_update", "agent_settled"]);
+  }, 15_000);
+
+  test("a grandchild that never produced an event gets no terminal event (no phantom client row)", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    const driver = startGrandchildTask({
+      spec: spec(),
+      hooks: hooks(log),
+      spawnWorker: fake.spawn,
+    });
+    await step(() => lineStartsWith(fake.child.lines, '{"id":"g-start"'));
+    fake.child.close();
+    const result = await driver.result;
+    expect(result.isError).toBe(true);
+    expect(log.events).toEqual([]);
+  }, 15_000);
+
+  test("a normal run emits exactly one terminal event (no duplicate synthesis)", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    const driver = await reachRunning(fake, hooks(log));
+    fake.child.feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}}',
+    );
+    fake.child.feed('{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}');
+    fake.child.close();
+    await driver.result;
+    expect(log.events.filter((e) => e.type === "agent_settled")).toHaveLength(1);
+  }, 15_000);
+
+  test("a duplicate agent_settled from the child is dropped (exactly-once terminal)", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    const driver = await reachRunning(fake, hooks(log));
+    fake.child.feed('{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}');
+    fake.child.feed('{"type":"event","threadId":"g-sess-1","event":{"type":"agent_settled"}}');
+    fake.child.close();
+    await driver.result;
+    expect(log.events.filter((e) => e.type === "agent_settled")).toHaveLength(1);
+  }, 15_000);
+
+  test("a throwing terminal hook does not reject the result or skip teardown", async () => {
+    const fake = fakeSpawner();
+    const log = { events: [], uiRequests: [] };
+    let attempted = false;
+    const throwing: GrandchildHooks = {
+      ...hooks(log),
+      onEvent: (event) => {
+        if (event.type === "agent_settled") {
+          attempted = true;
+          throw new Error("hook boom");
+        }
+        log.events.push(event);
+      },
+    };
+    const driver = await reachRunning(fake, throwing);
+    fake.child.feed(
+      '{"type":"event","threadId":"g-sess-1","event":{"type":"message_update","delta":"partial"}}',
+    );
+    await step(() => log.events.length === 1);
+    fake.child.close();
+    // The fallback terminal relay throws inside the hook; the result must still
+    // resolve (registry settle accounting depends on it) and teardown must run.
+    const result = await driver.result;
+    expect(attempted).toBe(true);
+    expect(result.isError).toBe(true);
   }, 15_000);
 });
 

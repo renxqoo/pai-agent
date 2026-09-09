@@ -232,7 +232,7 @@ src/
 纯增量（36 命令、8 帧），对外接口：[api.md](api.md)；实施与审查细节存于本地工作目录 `plans/`（不入库，本节为自足摘要）。要点：
 
 - **每线程权限 sidecar**：`get/set_permission_rules`（host 本地、严格校验、`rules:null` 清除）；判定链 injected→sidecar→全局热读；fork/clone 复制。
-- **子 agent 子系统**：`task` 工具（single/parallel/chain + `background:true`）→ 每任务一个 ephemeral 孙 worker（深度 1、in-memory、untrusted）；agent 定义 `.md` 热发现（项目级仅 trusted）；预算：≤8/调用、全局活孙 ≤4、在飞 ≤8（registry 同步闸门）、留存 ≤16（按完成序逐出）、通知/消息/中继/产出/stderr 五级字节上限。
+- **子 agent 子系统**：`task` 工具（single/parallel/chain + `background:true`）→ 每任务一个 ephemeral 孙 worker（深度 1、in-memory、untrusted）；agent 定义 `.md` 热发现（项目级仅 trusted）；预算：≤8/调用、全局活孙 ≤4、在飞 ≤8（registry 同步闸门）、留存 ≤16（按完成序逐出）、通知/消息/中继/产出/stderr 五级字节上限。中继 256KB/任务上限只丢弃非终态事件：无负载的 `agent_settled` 恒转发（其字节仍计入累计，上界 +4KB/任务；超限异常帧只转发无负载规范形态），且父侧对**已产生事件**的子 agent 兜底合成终态事件（被杀/崩溃/看门狗终止也有终态，客户端不会停在「进行中」）。
 - **通知唤起链**：后台任务 settle → `[task-notification]` user-role 消息经回合边界投递（串行单飞；成功路径链式；失败回队 ≤3 次后 stderr 丢弃；streaming/compacting 挂起；killed/前台不通知；task_wait 抑制并回收已排队项）；worker isBusy 含在飞与待投递双窗口（retire 免疫）。
 - **agent 通信三扇门**：`subagent/steer` 命令 + `task_steer` 工具（同管线，running-only）；孙内置 `report`/`send`（深度 1 无 task 工具；tools 白名单自动合并）→ `subagent_message` 帧（父重盖身份）+ 信封入通知队列（项目级 agent 标注 unverified data；10 条×8KB 双侧预算）；`task_send` 兄弟路由（父中介，`[from: lead]` 信封）。
 - **U2 停止语义**：`abort`/`thread/stop`/shutdown → killAll（前台+后台+通知队列+抑制集）。

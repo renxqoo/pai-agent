@@ -16,6 +16,21 @@ export const RESULT_CONTENT_CAP_BYTES = 50 * 1024;
 export const RELAY_BUFFER_CAP_BYTES = 256 * 1024;
 export const STDERR_CAP_BYTES = 32 * 1024;
 
+/** Per-task accounting cap for budget-exempt terminal events: the relay
+ * buffer bound is `RELAY_BUFFER_CAP_BYTES + RELAY_ALWAYS_MAX_BYTES`. */
+export const RELAY_ALWAYS_MAX_BYTES = 4 * 1024;
+
+/** Canonical payload-free wire form of a budget-exempt terminal event, or
+ * undefined when the relay budget applies. Terminal events are payload-free
+ * by contract; the driver forwards the first one per task (repeats are
+ * dropped, exactly-once) and synthesizes one when the grandchild never
+ * delivered it. The client's subagent status machine has no other terminal
+ * signal on the normal path (api.md §7.5). `agent_end` is deliberately
+ * absent: its `messages` payload can reach megabytes. */
+export function relayAlwaysFormOf(event: PaiEvent): PaiEvent | undefined {
+  return event.type === "agent_settled" ? { type: "agent_settled" } : undefined;
+}
+
 export { readIntEnv };
 
 export interface GrandchildTaskSpec {
