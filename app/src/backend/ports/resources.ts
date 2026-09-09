@@ -18,6 +18,9 @@ export interface PaiAgentDefinition {
 export interface PaiResources {
   /** Effective agent dir (PAI_BACKEND-bundled conventions live under it). */
   agentDir(): string;
+  /** models.json path (set_model_override merge target; same file the
+   * bundle's ModelRuntime loads — one derivation per bundle). */
+  modelsJsonPath(): string;
   /** Global permission-rules.json path (hot-read file truth). */
   rulesPath(): string;
   /** thread/resume admission error, or undefined when the path is allowed. */

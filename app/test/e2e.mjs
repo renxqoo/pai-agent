@@ -13,7 +13,7 @@
 // wake, host SIGKILL -> workers self-exit via stdin EOF.
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readdirSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -329,6 +329,40 @@ const waitAssistantContains = (threadId, needle, ms = 150_000) =>
   );
 }
 
+// --- 1b. model overrides (v0.9): merge write + hot refresh --------------------
+// Before thread/start so the whole journey below runs on the overridden
+// model — the resolve path (not just the response) must carry the values.
+{
+  const r = await send({
+    id: "e1b",
+    type: "set_model_override",
+    provider: "glm",
+    modelId,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  });
+  assert(
+    r.success && r.data.model.contextWindow === 200000 && r.data.model.maxTokens === 8192,
+    "set_model_override: applied on a custom provider",
+  );
+  const onDisk = JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8"));
+  const entry = onDisk.providers.glm.modelOverrides?.[modelId];
+  assert(
+    entry?.contextWindow === 200000 && entry?.maxTokens === 8192,
+    "set_model_override: merged into the seeded models.json",
+  );
+  assert(
+    onDisk.providers.broken !== undefined && onDisk.providers.glm2 !== undefined,
+    "set_model_override: untouched providers preserved",
+  );
+  const models = await send({ id: "e1c", type: "get_models" });
+  const glm = models.data.models.find((m) => m.provider === "glm" && m.id === modelId);
+  assert(
+    glm?.contextWindow === 200000 && glm?.maxTokens === 8192,
+    "get_models: override visible in the refreshed snapshot",
+  );
+}
+
 // --- 2. thread + metadata ------------------------------------------------------
 const start = await send({
   id: "e3",
@@ -348,6 +382,10 @@ const sessionFile = start.data.sessionPath;
   assert(
     s.data.sessionName === "e2e-journey" && s.data.model?.id === modelId,
     "get_state: name + model",
+  );
+  assert(
+    s.data.model?.contextWindow === 200000 && s.data.model?.maxTokens === 8192,
+    "get_state: thread resolved with the override values (v0.9)",
   );
 }
 
@@ -1565,6 +1603,26 @@ async function assertNoGrandchildren(hostPid, label) {
     );
   }
   await send({ id: "c2d", type: "thread/stop", threadId: tc.data.threadId });
+}
+
+// --- 12b. model override cleanup (v0.9) ------------------------------------------
+{
+  const r = await send({
+    id: "e12b",
+    type: "set_model_override",
+    provider: "glm",
+    modelId,
+    remove: true,
+  });
+  assert(
+    r.success && r.data.model.contextWindow === 128000,
+    "set_model_override remove: definition default restored (200000 -> 128000)",
+  );
+  const onDisk = JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8"));
+  assert(
+    onDisk.providers.glm.modelOverrides === undefined && onDisk.providers.broken !== undefined,
+    "set_model_override remove: section deleted, rest of the file intact",
+  );
 }
 
 // --- 13. leak scan + lifecycle ------------------------------------------------------

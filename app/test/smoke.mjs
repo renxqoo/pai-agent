@@ -246,6 +246,123 @@ await expectResponse(
   "set_model error",
 );
 
+// --- set_model_override (v0.9): merge write + hot refresh --------------------
+
+const MODELS_JSON = join(agentDir, "models.json");
+const OVERRIDE_TARGET = { provider: "anthropic", modelId: "claude-sonnet-4-5" };
+const readDiskOverrides = () => {
+  const onDisk = JSON.parse(readFileSync(MODELS_JSON, "utf8"));
+  return onDisk?.providers?.anthropic?.modelOverrides?.[OVERRIDE_TARGET.modelId];
+};
+
+await expectResponse(
+  {
+    id: "mo1",
+    type: "set_model_override",
+    ...OVERRIDE_TARGET,
+    contextWindow: 123456,
+    maxTokens: 4096,
+  },
+  (r) => {
+    assert(r.success, "set_model_override: accepted");
+    assert(
+      r.data?.model?.contextWindow === 123456 && r.data?.model?.maxTokens === 4096,
+      "set_model_override: response carries effective values",
+    );
+  },
+  "set_model_override set",
+);
+{
+  const entry = readDiskOverrides();
+  assert(
+    entry?.contextWindow === 123456 && entry?.maxTokens === 4096,
+    "set_model_override: models.json merged on disk",
+  );
+}
+
+await expectResponse(
+  { id: "mo2", type: "set_model_override", ...OVERRIDE_TARGET, contextWindow: null },
+  (r) => {
+    assert(
+      r.success && r.data?.model?.contextWindow === 1000000 && r.data?.model?.maxTokens === 4096,
+      "set_model_override: null clears one field, falls back to definition value",
+    );
+  },
+  "set_model_override clear field",
+);
+{
+  const entry = readDiskOverrides();
+  assert(
+    entry?.contextWindow === undefined && entry?.maxTokens === 4096,
+    "set_model_override: cleared field gone from disk",
+  );
+}
+
+await expectResponse(
+  { id: "mo3", type: "set_model_override", ...OVERRIDE_TARGET, remove: true },
+  (r) => {
+    assert(
+      r.success && r.data?.model?.contextWindow === 1000000 && r.data?.model?.maxTokens === 64000,
+      "set_model_override: remove restores definition values",
+    );
+  },
+  "set_model_override remove",
+);
+{
+  const onDisk = JSON.parse(readFileSync(MODELS_JSON, "utf8"));
+  assert(
+    onDisk?.providers?.anthropic?.modelOverrides === undefined,
+    "set_model_override: empty section deleted",
+  );
+}
+
+await expectResponse(
+  {
+    id: "mo4",
+    type: "set_model_override",
+    provider: "anthropic",
+    modelId: "no-such-model",
+    contextWindow: 1,
+  },
+  (r) => {
+    assert(
+      !r.success && /Model not found/.test(r.error ?? ""),
+      "set_model_override: unknown model rejected",
+    );
+  },
+  "set_model_override unknown model",
+);
+await expectResponse(
+  { id: "mo5", type: "set_model_override", ...OVERRIDE_TARGET, contextWindow: -5 },
+  (r) => {
+    assert(
+      !r.success && /positive integer/.test(r.error ?? ""),
+      "set_model_override: negative rejected",
+    );
+  },
+  "set_model_override negative",
+);
+await expectResponse(
+  { id: "mo6", type: "set_model_override", ...OVERRIDE_TARGET, remove: true, maxTokens: 5 },
+  (r) => {
+    assert(
+      !r.success && /cannot be combined/.test(r.error ?? ""),
+      "set_model_override: remove+field rejected",
+    );
+  },
+  "set_model_override remove+field",
+);
+await expectResponse(
+  { id: "mo7", type: "set_model_override", ...OVERRIDE_TARGET },
+  (r) => {
+    assert(
+      !r.success && /nothing to set/.test(r.error ?? ""),
+      "set_model_override: empty payload rejected",
+    );
+  },
+  "set_model_override empty payload",
+);
+
 await expectResponse(
   { id: "16", type: "thread/list_saved", cwd: "/tmp" },
   (r) => {

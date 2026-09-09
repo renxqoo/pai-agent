@@ -5,14 +5,14 @@
 
 ## 裁决（2026-09-07，用户确认）
 
-| #   | 决策         | 内容                                                                                                                   |
-| --- | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| D1  | **用户裁决** | 登录能力 v1 直接做全：API key + OAuth，统一走 `auth/login` 命令                                                        |
-| D2  | **用户裁决** | `agentDir` 指向 Electron `app.getPath("userData")/agent`，彻底脱离 `~/.pi`                                             |
-| D3  | **用户裁决** | 严格隔离：spawn hub 时清洗全部 provider key 环境变量，凭据只认 app 内登录                                              |
-| D4  | 默认裁决     | key 只存 hub 侧 auth.json（pi 管 schema/加密权限/token 刷新），Electron 不留副本、不写该文件                           |
-| D5  | 默认裁决     | 遥测与外联关闭：`enableInstallTelemetry: false` + `PI_SKIP_VERSION_CHECK=1`（不用 `PI_OFFLINE`，保留模型目录刷新能力） |
-| D6  | 默认裁决     | `settings.json` 单一写入者 = Electron；hub 只读（改设置 → 写文件 → 重启 hub 生效）                                     |
+| #   | 决策         | 内容                                                                                                                                                                                                                                                                                    |
+| --- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | **用户裁决** | 登录能力 v1 直接做全：API key + OAuth，统一走 `auth/login` 命令                                                                                                                                                                                                                         |
+| D2  | **用户裁决** | `agentDir` 指向 Electron `app.getPath("userData")/agent`，彻底脱离 `~/.pi`                                                                                                                                                                                                              |
+| D3  | **用户裁决** | 严格隔离：spawn hub 时清洗全部 provider key 环境变量，凭据只认 app 内登录                                                                                                                                                                                                               |
+| D4  | 默认裁决     | key 只存 hub 侧 auth.json（pi 管 schema/加密权限/token 刷新），Electron 不留副本、不写该文件                                                                                                                                                                                            |
+| D5  | 默认裁决     | 遥测与外联关闭：`enableInstallTelemetry: false` + `PI_SKIP_VERSION_CHECK=1`（不用 `PI_OFFLINE`，保留模型目录刷新能力）                                                                                                                                                                  |
+| D6  | 默认裁决     | `settings.json` 单一写入者 = Electron；hub 只读（改设置 → 写文件 → 重启 hub 生效）。`models.json` 的 `modelOverrides` 节写入者 = hub（v0.9 `set_model_override` 命令，窄合并 + 快照热刷新，无需重启）；Electron 编辑其余节时避免与该命令并发写同一文件，hub 重写会把注释规范化为纯 JSON |
 
 ## 事实基础（已核实，带出处）
 

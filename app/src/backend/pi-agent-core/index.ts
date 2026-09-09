@@ -19,6 +19,7 @@ import {
   handleAuthRemoveKey,
   handleAuthSetApiKey,
 } from "../pi-coding-agent/host-auth.ts";
+import { modelsJsonPath } from "../pi-coding-agent/models-path.ts";
 import { rulesPath } from "../pi-coding-agent/permission-gate.ts";
 import { createCodingToolset } from "../tools/coding/index.ts";
 import { createToolPermissionGate, TOOL_ASK_TIMEOUT_MS } from "../tools/coding/permission-gate.ts";
@@ -27,6 +28,7 @@ import { createToolPermissionGate, TOOL_ASK_TIMEOUT_MS } from "../tools/coding/p
 const PROBE_CAPABILITIES: ReadonlySet<CapabilityBit> = new Set<CapabilityBit>([
   "model.list",
   "model.auth",
+  "model.config",
   "image",
 ]);
 
@@ -53,6 +55,7 @@ export function agentCoreVersion(): string {
 function sharedResources(): HostBackend["resources"] {
   return {
     agentDir: () => getAgentDir(),
+    modelsJsonPath,
     rulesPath,
     // Unreachable: session.resume/listSaved/agents are capability-gated off.
     resumePathError: () => "Session file must be inside the agent sessions directory",
@@ -62,7 +65,7 @@ function sharedResources(): HostBackend["resources"] {
 }
 
 export async function createAgentCoreHostBackend(): Promise<HostBackend> {
-  const modelRuntime = await ModelRuntime.create();
+  const modelRuntime = await ModelRuntime.create({ modelsPath: modelsJsonPath() });
   return {
     id: "pi-agent-core",
     capabilities: PROBE_CAPABILITIES,

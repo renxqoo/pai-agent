@@ -30,7 +30,7 @@ spawn("pai-cli", [], {
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
 - 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、thread/list、prompt、abort、get_state、get_commands、get_host_info、ui_response、get_permission_rules、set_permission_rules——共 11 个，任何后端恒可用）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
 
-## 3. 命令总览（38 个）
+## 3. 命令总览（39 个）
 
 | 组               | 命令                                                                                                                 |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -38,7 +38,7 @@ spawn("pai-cli", [], {
 | 对话驱动         | prompt、steer、follow_up、abort、clear_queue、compact                                                                |
 | 状态与历史       | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages |
 | 会话树/分叉      | fork、clone、navigate_tree                                                                                           |
-| 模型             | get_models、set_model、set_thinking_level、get_thinking_levels                                                       |
+| 模型             | get_models、set_model、set_model_override（v0.9）、set_thinking_level、get_thinking_levels                           |
 | 凭据             | auth/list、auth/set_api_key、auth/remove_key                                                                         |
 | 直执行           | bash、abort_bash                                                                                                     |
 | 对话框           | ui_response                                                                                                          |
@@ -114,6 +114,7 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 **`get_models`** — 全部可用模型（含各 provider）。自定义 provider（agentDir 的 `models.json`，支持 `"$ENV_VAR"` 引用 key）自动出现在这里。
 **`set_model`** — 每 thread 独立切换。字段：`provider`+`modelId`。
+**`set_model_override`**（v0.9）— 全局持久覆写模型上下文窗口/输出上限，落盘 agentDir `models.json` 的 `modelOverrides` 节并热刷新 host 模型快照（`get_models` 立即可见；后续 thread/start / set_model / resume 解析即用新值；**已在运行的线程不热切换**，下次 set_model 或新线程生效；host 重启后仍生效）。字段：`provider`+`modelId`（须为已定义模型，凭据无关；host 快照未见过时先做一次磁盘级刷新重试——app 刚写入 models.json 的新 provider 无需重启 host）、`contextWindow?`/`maxTokens?`（正整数；`null` = 仅清除该字段，回落到模型定义值）、`remove?`（true = 删除该模型整条覆写；不存在的条目幂等成功）。响应：`{model}`（刷新后按定义级解析的完整模型对象，含生效值，可直接确认）。校验失败（非正整数、remove 与字段同给、全缺省、JSON 不可解析）回 `success:false` 且**不写文件**；写后若加载器拒绝合并结果（如文件他处 schema 错误——此时文件已被窄合并写入）回 `override not applied: ...`。注意：host 重写会把带注释的 models.json 规范化为纯 JSON（注释丢失）；host 与 app 各自只做窄合并写时避免并发写同一文件。能力位 `model.config`（默认与 probe 后端有；外部后端无 → 诚实失败）。
 **`set_thinking_level` / `get_thinking_levels`** — 思考档位（off/minimal/low/medium/high/xhigh/max，以模型支持为准）。
 
 ### 凭据（v0.2，API key）

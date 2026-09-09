@@ -7,7 +7,7 @@ import {
 } from "../src/backend/capabilities.ts";
 import { THREAD_SCOPED_COMMANDS } from "../src/protocol.ts";
 
-/** The full external command set (api.md §3: 38 commands). */
+/** The full external command set (api.md §3: 39 commands). */
 const ALL_COMMANDS = [
   ...THREAD_SCOPED_COMMANDS,
   "thread/start",
@@ -17,6 +17,7 @@ const ALL_COMMANDS = [
   "thread/list_saved",
   "get_models",
   "set_model",
+  "set_model_override",
   "auth/list",
   "auth/set_api_key",
   "auth/remove_key",
@@ -28,9 +29,9 @@ const ALL_COMMANDS = [
 ] as const;
 
 describe("capability tables", () => {
-  test("every one of the 38 commands is classified exactly once", () => {
+  test("every one of the 39 commands is classified exactly once", () => {
     const unique = new Set(ALL_COMMANDS);
-    expect(unique.size).toBe(38);
+    expect(unique.size).toBe(39);
     for (const command of unique) {
       const classified = CORE_COMMANDS.has(command) || command in COMMAND_CAPABILITIES;
       expect(classified).toBeTrue();

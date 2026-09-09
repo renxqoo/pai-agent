@@ -24,6 +24,7 @@ import { checkPermission } from "./permission-gate.ts";
 import { rulesPath } from "./permission-gate.ts";
 import { discoverAgents } from "./agent-definitions.ts";
 import { handleAuthList, handleAuthRemoveKey, handleAuthSetApiKey } from "./host-auth.ts";
+import { modelsJsonPath } from "./models-path.ts";
 import { createUiContext } from "./ui-context.ts";
 
 /** The full capability set: every bit (sandbox degradation stays visible
@@ -53,6 +54,7 @@ const FULL_CAPABILITIES: ReadonlySet<CapabilityBit> = new Set<CapabilityBit>([
   "subagents",
   "model.auth",
   "model.list",
+  "model.config",
   "image",
   "extensions.project",
   "resources.agents",
@@ -85,7 +87,7 @@ export function resumePathError(sessionPath: string): string | undefined {
 }
 
 export async function createCodingAgentHostBackend(): Promise<HostBackend> {
-  const modelRuntime = await ModelRuntime.create();
+  const modelRuntime = await ModelRuntime.create({ modelsPath: modelsJsonPath() });
   return {
     id: "pi-coding-agent",
     capabilities: FULL_CAPABILITIES,
@@ -113,6 +115,7 @@ export async function createCodingAgentHostBackend(): Promise<HostBackend> {
     },
     resources: {
       agentDir: () => getAgentDir(),
+      modelsJsonPath,
       rulesPath,
       resumePathError,
       listSaved: async (cwd) => ({ sessions: await SessionManager.list(cwd) }),

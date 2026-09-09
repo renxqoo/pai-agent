@@ -18,6 +18,7 @@ import type {
   HubFrame,
   SessionModel,
   SetModelCmd,
+  SetModelOverrideCmd,
   SetPermissionRulesCmd,
   ThreadListCmd,
   ThreadListSavedCmd,
@@ -27,6 +28,7 @@ import type {
   UiResponseCmd,
 } from "./protocol.ts";
 import { THREAD_SCOPED_COMMANDS } from "./protocol.ts";
+import { handleSetModelOverride } from "./model-overrides.ts";
 import { readNonNegativeIntEnv } from "./int-env.ts";
 import { responseFailure, responseSuccess } from "./frames.ts";
 import type { RegisterInflight } from "./inflight-registry.ts";
@@ -305,6 +307,16 @@ export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, Ho
     "thread/list_saved": handleListSaved,
     get_models: handleGetModels,
     set_model: handleSetModel,
+    set_model_override: (deps, cmd, id) =>
+      handleSetModelOverride(
+        {
+          emit: deps.emit,
+          modelRuntime: deps.backend.modelRuntime,
+          modelsJsonPath: deps.backend.resources.modelsJsonPath,
+        },
+        cmd as SetModelOverrideCmd,
+        id,
+      ),
     "auth/list": handleAuthListCommand,
     "auth/set_api_key": handleAuthSetApiKeyCommand,
     "auth/remove_key": handleAuthRemoveKeyCommand,

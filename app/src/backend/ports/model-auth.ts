@@ -15,9 +15,16 @@ import type {
   SessionModel,
 } from "../../protocol.ts";
 
-/** The model-resolution face (snapshot is the find source). */
+/** The model-resolution face (snapshot is the find source). v0.9: the
+ * members mirror the concrete ModelRuntime API so the runtime satisfies
+ * the port structurally — getModel is definition-level (credentials do
+ * not gate it), getError surfaces models.json load errors, refresh
+ * re-reads the file and recomposes the listed providers. */
 export interface PaiModelRuntime {
   getAvailableSnapshot(): ReadonlyArray<SessionModel>;
+  getModel(provider: string, modelId: string): SessionModel | undefined;
+  getError(): string | undefined;
+  refresh(options: { providers?: readonly string[]; allowNetwork?: boolean }): Promise<unknown>;
 }
 
 /** Handler deps shared by the auth trio (frames + long-op registry). */

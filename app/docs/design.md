@@ -301,3 +301,13 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 ### 环境旋钮（v0.8 新增）
 
 `PAI_BACKEND`（缺省 `pi-coding-agent`）：host 级后端选择；worker/孙进程继承同一后端（孙进程 spawn 走同一注册表）。
+
+## 契约 v0.9 增补：模型参数覆写（2026-09-09，已实施；方案 docs/plans/2026-09-09-model-overrides.md）
+
+对外增量：新命令 `set_model_override`（38 → **39** 命令；帧数不变）、新能力位 `model.config`（能力位封闭集 28 → **29**；默认与 probe 后端声明，外部后端空集诚实失败——与 `get_models` 对外部后端口径一致）。
+
+- **语义（用户裁决：全局持久化）**：app 经协议覆写任意已定义模型（凭据无关的 `getModel` 级校验）的 `contextWindow`/`maxTokens`，host 窄合并写 agentDir `models.json` 的 `providers[provider].modelOverrides[modelId]` 节（原子写：tmp+rename；读侧镜像上游 JSONC 宽容——BOM/`//` 注释/尾逗号，重写后规范化为纯 JSON，注释丢失已文档化），随后 `refresh({providers:[provider], allowNetwork:false})` 热刷新快照（模型目录不外联；auth 检查仍可能为已登录 OAuth provider 刷新 token，错误被内部吸收不影响命令结果），响应带刷新后解析的完整模型对象。**写后正向验证**：解析值 ≠ 设定值 → `override not applied`（捕获加载器拒绝合并结果的静默失效，例如文件他处 schema 错误）；不依赖 `getError()`（其混入网络可用性噪声）。模型预检未命中时先做一次同参数磁盘刷新重试（app 刚落盘的新 provider 免重启即可覆写，subagent-tool 先例）。
+- **并发预算**：host 命令并发派发，models.json 读改写在模块级单写者 promise 链上串行；无跨进程锁（与上游 models.json 无锁一致），app 侧约定不与命令并发写同文件。
+- **字段语义**：`null` 清单字段（清空后空条目自删，文件不长墓碑）；`remove:true` 删整条（幂等成功）；`remove` 与字段同给/全缺省/非正整数 → 校验失败不写文件。
+- **生效边界**：已在运行的线程不热切换（模型对象在解析时注入 worker，既有 set_model 语义）；下次 set_model/新线程/resume 生效。live 线程在线换模型仍走既有 `set_model` 通道。
+- **不处理**（方案 §问题域）：会话级临时覆写、contextWindow/maxTokens 以外字段、provider 增删与模型定义编辑（仍归 app 直接落盘）、worker 侧改动（解析单一真相在 host 不变）。

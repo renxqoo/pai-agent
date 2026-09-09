@@ -14,6 +14,7 @@ import {
   ModelRuntime,
   VERSION as CODING_AGENT_VERSION,
 } from "@earendil-works/pi-coding-agent";
+import { modelsJsonPath } from "./pi-coding-agent/models-path.ts";
 import {
   agentCoreVersion,
   createAgentCoreHostBackend,
@@ -89,7 +90,7 @@ async function createExternalHostBackend(id: string): Promise<HostBackend> {
   const unsupported = (): never => {
     throw new Error(`External backend ${id} does not support this command`);
   };
-  const modelRuntime = await ModelRuntime.create();
+  const modelRuntime = await ModelRuntime.create({ modelsPath: modelsJsonPath() });
   return {
     id,
     capabilities: new Set(),
@@ -102,6 +103,7 @@ async function createExternalHostBackend(id: string): Promise<HostBackend> {
     },
     resources: {
       agentDir: () => getAgentDir(),
+      modelsJsonPath,
       rulesPath,
       resumePathError: () => "Session file must be inside the agent sessions directory",
       listSaved: async () => ({ sessions: [] }),

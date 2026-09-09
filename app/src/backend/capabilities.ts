@@ -1,7 +1,7 @@
 /**
  * Capability negotiation tables (design.md v0.8; plan §1.4.2). Single truth
  * for: the closed capability-bit set, the core command set every backend
- * must implement, and the command → required-bits mapping for all 38
+ * must implement, and the command → required-bits mapping for all 39
  * protocol commands. Commands absent from the mapping are core. Advisory
  * bits (image, dialogs, permission.soft, sandbox.fs, extensions.project,
  * resources.skills) describe enforcement depth rather than gating a command.
@@ -32,6 +32,7 @@ export const CAPABILITY_BITS = [
   "subagents",
   "model.auth",
   "model.list",
+  "model.config",
   "image",
   "extensions.project",
   "resources.agents",
@@ -73,6 +74,7 @@ export const COMMAND_CAPABILITIES: Readonly<Record<string, readonly CapabilityBi
   clone: ["session.clone"],
   navigate_tree: ["session.navigate"],
   get_models: ["model.list"],
+  set_model_override: ["model.config"],
   set_model: ["session.model.set"],
   set_thinking_level: ["thinkingLevels"],
   get_thinking_levels: ["thinkingLevels"],

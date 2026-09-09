@@ -195,6 +195,18 @@ export interface GetModelsCmd {
   type: "get_models";
 }
 
+/** v0.9: persist per-model overrides (models.json modelOverrides) and hot
+ * refresh the host snapshot. `null` clears one field; `remove` deletes the
+ * whole override entry (idempotent). */
+export interface SetModelOverrideCmd {
+  type: "set_model_override";
+  provider: string;
+  modelId: string;
+  contextWindow?: number | null;
+  maxTokens?: number | null;
+  remove?: boolean;
+}
+
 export interface SetThinkingLevelCmd {
   type: "set_thinking_level";
   threadId: string;
@@ -417,6 +429,7 @@ export type HubCommand =
   | (GetMessagesCmd & { id?: string })
   | (SetModelCmd & { id?: string })
   | (GetModelsCmd & { id?: string })
+  | (SetModelOverrideCmd & { id?: string })
   | (SetThinkingLevelCmd & { id?: string })
   | (GetThinkingLevelsCmd & { id?: string })
   | (AuthListCmd & { id?: string })
