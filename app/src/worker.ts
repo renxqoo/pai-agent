@@ -107,6 +107,7 @@ function buildContext(deps: {
     sessions,
     broker,
     emit: deps.emit,
+    capabilities: deps.backend.capabilities,
     bashTimeoutMs: readNonNegativeIntEnv("PAI_BASH_TIMEOUT_MS", BASH_TIMEOUT_MS_DEFAULT),
     resolveGrant: deps.resolveGrant,
     registerInflight: deps.registry.register,

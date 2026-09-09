@@ -9,23 +9,23 @@
 
 ### 命令（stdin → hub），全部可选携带 `id`
 
-| type                                         | 字段                                                | 语义                                             |
-| -------------------------------------------- | --------------------------------------------------- | ------------------------------------------------ |
-| `thread/start`                               | `cwd?` `provider?`+`modelId?` `trusted?`            | 新建对话；默认 cwd=hub cwd；`trusted` 默认 false |
-| `thread/resume`                              | `sessionPath` `cwd?` `trusted?`                     | 恢复；本 hub 内已打开同一文件 → failure          |
-| `thread/stop`                                | `threadId`                                          | dispose；幂等（未知 id 也 success）              |
-| `thread/list` / `thread/list_saved`          | `threadId` 无 / `cwd?`                              | 活跃线程 / 落盘会话列表                          |
-| `prompt`                                     | `threadId` `message` `streamingBehavior?` `images?` | fire-and-accept                                  |
-| `steer` / `follow_up`                        | `threadId` `message` `images?`                      | 入队                                             |
-| `abort` / `compact`                          | `threadId`（`customInstructions?`）                 |                                                  |
-| `get_state` / `get_messages`                 | `threadId`                                          |                                                  |
-| `set_model` / `get_models`                   | `provider`+`modelId` / 无                           | 模型目录全局共享                                 |
-| `set_thinking_level` / `get_thinking_levels` | `threadId` `level?`                                 |                                                  |
-| `ui_response`                                | `requestId` `payload`                               | 答复对话框；**总是**回 ack                       |
+| type                                         | 字段                                                | 语义                                                           |
+| -------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------- |
+| `thread/start`                               | `cwd?` `provider?`+`modelId?` `trusted?`            | 新建对话；默认 cwd=hub cwd；`trusted` 默认 false               |
+| `thread/resume`                              | `sessionPath` `cwd?` `trusted?`                     | 恢复；本 hub 内已打开同一文件 → failure                        |
+| `thread/stop`                                | `threadId`                                          | dispose；幂等（未知 id 也 success）                            |
+| `thread/list` / `thread/list_saved`          | `threadId` 无 / `cwd?`                              | 活跃线程 / 落盘会话列表                                        |
+| `prompt`                                     | `threadId` `message` `streamingBehavior?` `images?` | fire-and-accept；行首 `/compact` 例外（v0.11，见「恰好一次」） |
+| `steer` / `follow_up`                        | `threadId` `message` `images?`                      | 入队                                                           |
+| `abort` / `compact`                          | `threadId`（`customInstructions?`）                 |                                                                |
+| `get_state` / `get_messages`                 | `threadId`                                          |                                                                |
+| `set_model` / `get_models`                   | `provider`+`modelId` / 无                           | 模型目录全局共享                                               |
+| `set_thinking_level` / `get_thinking_levels` | `threadId` `level?`                                 |                                                                |
+| `ui_response`                                | `requestId` `payload`                               | 答复对话框；**总是**回 ack                                     |
 
 ### 帧与响应（stdout ← hub）
 
-1. **恰好一次**：每个携带 `id` 的命令（含 `ui_response`）恰好产生一个 `response` 帧，`id` 回显；`success` 与 `data?|error` 互斥。`prompt` 的 response 在**接受时刻**经 SDK preflight 钩子发出；接受前的失败成为 failure response；接受后的失败走事件流（与 pi RPC 语义一致）。非对象 JSON（`null`、数组、标量）→ 无 id 的 parse failure。
+1. **恰好一次**：每个携带 `id` 的命令（含 `ui_response`）恰好产生一个 `response` 帧，`id` 回显；`success` 与 `data?|error` 互斥。`prompt` 的 response 在**接受时刻**经 SDK preflight 钩子发出；接受前的失败成为 failure response；接受后的失败走事件流（与 pi RPC 语义一致）。**例外（v0.11）**：命中 `/compact` 拦截的 prompt 不走 preflight——响应时序同 `compact` 命令（长操作完成才回包；语义见「契约 v0.11 增补」）。非对象 JSON（`null`、数组、标量）→ 无 id 的 parse failure。
 2. **事件帧** `{type:"event", threadId, event}`：每个 `AgentSessionEvent` 恰好一帧；帧序=事件序；任意两帧不交错（stdout 写入串行化保证）。`message_update` 帧**剥离累积快照**（`message` 与 `assistantMessageEvent.partial`），每 delta 帧大小恒定（与 pi RPC 的 json-event 语义一致）。
 3. **对话框** `ui_request` 恰好发出一次；settle 恰好一次（`ui_response` 到达 / 超时 / abort signal），超时与取消取默认值（confirm=false，select/input=undefined）；晚到的 `ui_response` 静默忽略。
 4. **心跳** `heartbeat` 每 1s 一帧，进程存活期间不间断。
@@ -94,7 +94,7 @@ threadId 恒等于当前 session 的 sessionId。**fork/clone 后 session 被替
 | `clone`             | `threadId`                                                                                                                           | 在当前 leaf 处复制分叉（= fork at leaf；无 leaf → failure）                                                     |
 | `navigate_tree`     | `threadId`, `targetId`, `summarize?`/`customInstructions?`/`replaceInstructions?`/`label?`                                           | 会话内跳转                                                                                                      |
 | `get_fork_messages` | `threadId`                                                                                                                           | 可分叉的用户消息列表                                                                                            |
-| `get_commands`      | `threadId`                                                                                                                           | 斜杠命令/skills 枚举（extension/prompt/skill 三源）                                                             |
+| `get_commands`      | `threadId`                                                                                                                           | 斜杠命令/skills 枚举（extension/prompt/skill/builtin 四源，v0.11）                                              |
 | `bash`              | `threadId`, `command`, `excludeFromContext?`                                                                                         | 直执行 shell：结果在 response；流式输出经既有 `event` 帧（`bash_execution_update`，带 command 的 `id`）自动下发 |
 | `abort_bash`        | `threadId`                                                                                                                           | 中止运行中的 bash                                                                                               |
 
@@ -296,7 +296,7 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 
 ### skill 调用指针化（hub 预改写）
 
-`prompt`/`steer`/`follow_up` 的消息在 host 侧先经纯函数改写（唯一真相 `src/skill-pointer.ts`）：`/skill:name [args]` → `[name](url:filePath)`（args 以空行相接；description 不内联——系统提示的 available_skills 清单与 app 技能清单已携带）。改写后文本不再以 `/skill:` 开头，worker 内建的全量 SKILL.md 展开自然跳过——会话真相与模型上下文都不再内联正文，模型用 read/bash 自行加载文件。未知技能名时不改写（worker 内建展开为回退路径）。`resources.skills` 能力位语义不变（数据源声明面）。
+`prompt`/`steer`/`follow_up` 的消息在 worker 侧（`worker-commands.ts` 的处理器内）先经纯函数改写（唯一真相 `src/skill-pointer.ts`）：`/skill:name [args]` → `[name](url:filePath)`（args 以空行相接；description 不内联——系统提示的 available_skills 清单与 app 技能清单已携带）。改写后文本不再以 `/skill:` 开头，worker 内建的全量 SKILL.md 展开自然跳过——会话真相与模型上下文都不再内联正文，模型用 read/bash 自行加载文件。未知技能名时不改写（worker 内建展开为回退路径）。`resources.skills` 能力位语义不变（数据源声明面）。
 
 ### 环境旋钮（v0.8 新增）
 
@@ -322,3 +322,16 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 - **bash 拒绝检测与重跑**（用户裁决，接受副作用可能重复）：`initialize` 开 `enableLogMonitor`；`wrapWithSandbox` 以唯一 commandId 归因（上游键按前 100 字符比较——复用键会串归因，必须唯一 id）；跑后按违规行分类（探针实测：`sysctl-read`/`mach-lookup` 为噪声须过滤，见方案 §十）。确认后**重跑一次**裸命令，输出流注入标记行；拒绝维持失败。
 - **孙进程 / 无 UI fail-closed**：后台 agent 不产生弹框（社工面）；`onViolation` 对它们无行为差异。
 - 后端口径：实现仍在 worker 内联扩展（sandbox.bash/sandbox.fs 能力位语义不变）；`permission.soft` 弹框通道复用。
+
+## 契约 v0.11 增补：压缩命令 hub 化（2026-09-10，已实施）
+
+对外零破坏增量：39 命令 / 8 帧 / 能力位封闭集均不变。`/compact` 从「客户端本地命令」收敛为 hub 目录下发 + prompt 通路拦截（与 skill 触发同型：`get_commands` 条目 + hub 编排层处理），命令目录真相单一回归 hub（客户端本地注册表下线）。
+
+- **get_commands 第四源 `builtin`**：固定条目 `{name:"compact", description:"Manually compact the session context", source:"builtin"}`（文案镜像 SDK `BUILTIN_SLASH_COMMANDS` 同名条目——该常量未从包根导出；name 无前导斜杠，与三源约定一致）。条目按 `session.compact` 能力位门控（判定面 `WorkerContext.capabilities`，buildContext 组装时来自 backend）——不支持的后端目录里没有该条目（pi-agent-core 恒无，命令目录如实反映能力面）。
+- **prompt 通路拦截语义**（「恰好一次」条款的例外路径，词法单一真相处 `src/compact-invocation.ts`）：
+  - 词法：严格行首、大小写敏感——`message === "/compact"` 或 `/^\/compact\s/`；`customInstructions` = 后随文本 trim 首尾（内部空白原样），空串归 undefined；不命中（`/compactfoo`、`/compact-x`、前导空白、`/COMPACT`、文中段）原样作为消息发送，与未知 `/xxx` 一致。
+  - 响应时序同 `compact` 命令（长操作完成才回包，非 fire-and-accept）：拦截路径注册 inflight（`abortCompaction`；shutdown 中止语义继承），成功回 `CompactionResult`、失败回 failure error string（响应 command 字段仍为 `prompt`）。`streamingBehavior` 在拦截路径不消费——无效值（非 `"steer"`/`"followUp"`）仍按 prompt 命令的既有形状校验先行拒绝。
+  - 携非空 `images` → failure（固定英文句 `Compact command does not accept images`）；压缩中（`session.isCompacting`）→ failure `Compaction already in progress`；能力不支持 → **不拦截**（原样作为消息发送；目录本无条目，手输属未知命令）。
+  - **拦截优先于 pi 扩展命令**（hub 编排层先于 SDK `_tryExecuteExtensionCommand`；与 skill 指针化同层同优先级）——扩展注册 `compact` 命令的冲突场景属边缘，落档此裁决；该场景下目录会同时列出扩展条目（经 prompt 通路不可达）与 builtin 条目，已知重复面，后续按需收敛。
+- **并发预算**：`isCompacting` 判定与 `compact()` 调用之间存在受理窗口（SDK 到 `compact()` 内首个 await 才置压缩态）——窗口内二次提交直达 SDK；SDK 手动压缩**无互斥**（审查实证：同批双 `/compact` 可各自完成压缩；`Already compacted` 仅在会话末条已是 compaction 时触发），即窗口内可双压缩——与 `compact` 命令自身的同一窗口，属已接受的兜底语义，后续批次如需收紧再议。流式中的拦截路径不预置流态判定（SDK `compact()` 先 abort 当前轮再压缩，行为如实透传）。
+- **不处理**（归属）：TUI 与 pi rpc-mode 的 `/compact`（SDK 既有机制，保持不动）；其他 builtin 命令（/subagents 等）提升进目录——仅入驻 compact 一条，后续按需逐条同型；pi-agent-core 后端的压缩支持（unsupported 照旧）；`reason` 结构化词表（hub 全局改造）；自动压缩（threshold/overflow）与 branch summary。
