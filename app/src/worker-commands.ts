@@ -482,6 +482,13 @@ const handleGetSandboxState: Handler = async (ctx, cmd, id) => {
     filesystem: state.snapshot.config.filesystem,
     source: state.snapshot.source,
     ...(state.runtime.active ? { bashSandboxed: true } : { bashSandboxed: false }),
+    // v0.10: confirm posture + live session exemptions (list form; caps and
+    // lifecycle live in the gate — api.md §sandbox).
+    onViolation: state.snapshot.config.onViolation,
+    sessionExemptions: {
+      writePaths: [...state.exemptions.writePaths],
+      bashCommands: [...state.exemptions.bashCommands],
+    },
   });
 };
 

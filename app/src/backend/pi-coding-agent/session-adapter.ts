@@ -26,7 +26,12 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createPermissionGate, effectiveRules } from "./permission-gate.ts";
-import { type SandboxGateState, createSandboxGate, snapshotSandboxConfig } from "./sandbox-gate.ts";
+import {
+  type SandboxGateState,
+  createSandboxGate,
+  freshExemptions,
+  snapshotSandboxConfig,
+} from "./sandbox-gate.ts";
 import { stripCumulativeSnapshot } from "../ports/event-strip.ts";
 import type { PaiEvent } from "../../protocol.ts";
 import type { SpawnShaping } from "../ports/session.ts";
@@ -158,7 +163,8 @@ function makeRuntimeFactory(deps: {
 }
 
 /** Sandbox gate wiring: grandchildren additionally protect the parent
- * conversation's project sandbox file (batch-2 review P3). */
+ * conversation's project sandbox file (batch-2 review P3) and never
+ * escalate confirmable violations to dialogs (v0.10 fail-closed). */
 function sandboxGateDeps(factory: {
   trusted: boolean;
   cwd: string;
@@ -172,6 +178,7 @@ function sandboxGateDeps(factory: {
     cwd,
     state: sandboxState,
     writeStderr,
+    ...(shaping?.subagent === true ? { subagent: true } : {}),
     ...(shaping?.parentProtectedPaths !== undefined
       ? { parentProtectedPaths: shaping.parentProtectedPaths }
       : {}),
@@ -312,6 +319,7 @@ export class SessionHost {
   private readonly sandboxState: SandboxGateState = {
     snapshot: snapshotSandboxConfig({ trusted: false, cwd: process.cwd(), env: {} }),
     runtime: { active: false },
+    exemptions: freshExemptions(),
   };
   /** Grandchild gate anchor: the parent conversation whose ruleset is
    * re-read on every decision. */

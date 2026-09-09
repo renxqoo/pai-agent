@@ -311,3 +311,14 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 - **字段语义**：`null` 清单字段（清空后空条目自删，文件不长墓碑）；`remove:true` 删整条（幂等成功）；`remove` 与字段同给/全缺省/非正整数 → 校验失败不写文件。
 - **生效边界**：已在运行的线程不热切换（模型对象在解析时注入 worker，既有 set_model 语义）；下次 set_model/新线程/resume 生效。live 线程在线换模型仍走既有 `set_model` 通道。
 - **不处理**（方案 §问题域）：会话级临时覆写、contextWindow/maxTokens 以外字段、provider 增删与模型定义编辑（仍归 app 直接落盘）、worker 侧改动（解析单一真相在 host 不变）。
+
+## 契约 v0.10 增补：沙箱违规确认流程（2026-09-10，已实施；方案 docs/plans/2026-09-10-sandbox-escalation.md）
+
+对外零破坏增量：39 命令 / 8 帧不变；`onViolation:"deny"`（或无 UI / 孙进程 / 弹框失败）路径与 v0.7 **行为等价**。核心修订：沙箱第二防线从「恒物理硬拒」改为「默认用户在环的硬边界」（判定顺序不变量仍成立——权限门先、沙箱后；沙箱的确认层是其后置裁决，不是前置咨询）。
+
+- **配置**：sandbox.json 增 `onViolation:"ask"|"deny"`（缺省 `"ask"`，用户裁决；坏值按未设置）。可确认面唯一真相处 api.md §沙箱表：write/edit 的 allowWrite 越界与 denyWrite 命中、bash 的 OS 拒绝（非零退出 + file-write/network-outbound 违规行）；**恒硬拦地板**（批 1 审查 P1/P2）：protected paths（效应空间比较——词法串会被符号链接 cwd 击穿）与「denyRead 命中且分类另有写违规」（凭据目录不进弹框；分类干净的写入保持 v0.7 放行，ask 姿态永不比 deny 松）。
+- **三选对话框**：复用扩展 UI `select`（既有 ui_request 帧 method，无协议改动）：`Allow once` / `Allow for this session` / `Deny`；超时 300s、abort、取消、未知值、对话框通道异常一律 Deny（fail-closed）。
+- **会话内豁免**（用户裁决）：write/edit 按效应空间精确路径（不折叠——折叠在大写敏感卷/NFC-NFD 混用下会并键，fail-open）、bash 按精确命令串；上界 64/32（满后仍弹框）；随会话快照生命周期（fork/clone/rebind 清空）、不落盘；`get_sandbox_state` 增量回显 `onViolation` + `sessionExemptions`。
+- **bash 拒绝检测与重跑**（用户裁决，接受副作用可能重复）：`initialize` 开 `enableLogMonitor`；`wrapWithSandbox` 以唯一 commandId 归因（上游键按前 100 字符比较——复用键会串归因，必须唯一 id）；跑后按违规行分类（探针实测：`sysctl-read`/`mach-lookup` 为噪声须过滤，见方案 §十）。确认后**重跑一次**裸命令，输出流注入标记行；拒绝维持失败。
+- **孙进程 / 无 UI fail-closed**：后台 agent 不产生弹框（社工面）；`onViolation` 对它们无行为差异。
+- 后端口径：实现仍在 worker 内联扩展（sandbox.bash/sandbox.fs 能力位语义不变）；`permission.soft` 弹框通道复用。

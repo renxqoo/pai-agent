@@ -20,10 +20,16 @@ import type { PaiSessionHost, PaiSandboxState, PaiThread, SpawnShaping } from ".
 
 const DISABLED_SANDBOX: PaiSandboxState = {
   snapshot: {
-    config: { enabled: false, network: { allowedDomains: [], deniedDomains: [] }, filesystem: {} },
+    config: {
+      enabled: false,
+      onViolation: "deny",
+      network: { allowedDomains: [], deniedDomains: [] },
+      filesystem: {},
+    },
     source: "global",
   },
   runtime: { active: false },
+  exemptions: { writePaths: new Set<string>(), bashCommands: new Set<string>() },
 };
 
 /** Lift one native AgentEvent into wire events (settled synthesized). */

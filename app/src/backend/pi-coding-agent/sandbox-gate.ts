@@ -23,13 +23,15 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
+import { resolveMatchPath } from "../../gate-path.ts";
 import {
   type SandboxConfig,
+  classifyWriteViolation,
   loadSandboxConfig,
+  pathWithin,
   readViolation,
   resolveToolPath,
   sandboxDisabledByEnv,
-  writeViolation,
 } from "../../sandbox-config.ts";
 import {
   type SandboxRuntimeState,
@@ -49,14 +51,35 @@ export interface SandboxSnapshot {
   protectedPaths: string[];
 }
 
+/** Session-scoped "don't ask again" grants (v0.10, user ruling): keys are
+ * EXACT effect-space paths (write/edit — deliberately unfolded: folding
+ * merges distinct files on case-sensitive volumes / mixed normalization,
+ * a fail-open collision; same-file variants already unify through realpath)
+ * and exact command strings (bash). Cleared whenever the snapshot is rebuilt
+ * (fork/clone/rebind); never persisted. Caps keep the sets bounded — past
+ * the cap we keep asking. */
+export interface SandboxExemptions {
+  writePaths: Set<string>;
+  bashCommands: Set<string>;
+}
+
+export const WRITE_EXEMPTION_CAP = 64;
+export const BASH_EXEMPTION_CAP = 32;
+
+export function freshExemptions(): SandboxExemptions {
+  return { writePaths: new Set(), bashCommands: new Set() };
+}
+
 /** Per-session observable state (get_sandbox_state reads this). */
 export interface SandboxGateState {
   snapshot: SandboxSnapshot;
   runtime: SandboxRuntimeState;
+  exemptions: SandboxExemptions;
 }
 
 const DISABLED_SANDBOX_CONFIG: SandboxConfig = {
   enabled: false,
+  onViolation: "deny",
   network: { allowedDomains: [], deniedDomains: [] },
   filesystem: { denyRead: [], allowWrite: [], denyWrite: [] },
 };
@@ -79,12 +102,15 @@ export function snapshotSandboxConfig(options: {
   // (adversarial review P6): the sandboxed writer must not be able to weaken
   // a future session's snapshot. Grandchildren additionally protect the
   // PARENT conversation's project file — their task cwd may be a subdirectory
-  // (batch-2 review P3).
+  // (batch-2 review P3). Entries resolve into EFFECT SPACE (realpath of the
+  // deepest existing ancestor): tool paths arrive realpathed, so a lexical
+  // entry would miss through any symlinked cwd/agentDir and the confirm
+  // flow's hard floor would go confirmable (escalation review P1).
   const protectedPaths = [
     join(agentDir, "sandbox.json"),
     join(cwd, ".pi", "sandbox.json"),
     ...parentProtectedPaths,
-  ];
+  ].map((entry) => resolveMatchPath(cwd, entry));
   return { config, source, protectedPaths };
 }
 
@@ -94,6 +120,9 @@ export interface SandboxGateDeps {
   /** Mutable state holder owned by the session (get_sandbox_state reads it). */
   state: SandboxGateState;
   writeStderr: (text: string) => void;
+  /** Subagent (grandchild) spawns NEVER escalate to dialogs (social-
+   * engineering surface): all confirmable violations stay hard-blocked. */
+  subagent?: boolean;
   /** Extra implicit denyWrite paths (grandchildren pass the parent's
    * conversation project file here — batch-2 review P3). */
   parentProtectedPaths?: string[];
@@ -103,16 +132,143 @@ export interface SandboxGateDeps {
   initializeRuntime?: typeof initializeSandboxRuntime;
 }
 
-/** The in-process write/edit/read hard-check handler (layer 1). */
+/** v0.10 three-way dialog choices (exact-match parsed; anything else —
+ * timeout, cancel, unknown value — settles as Deny / fail-closed). */
+export const SANDBOX_CHOICE_ONCE = "Allow once";
+export const SANDBOX_CHOICE_SESSION = "Allow for this session";
+export const SANDBOX_CHOICE_DENY = "Deny";
+export const SANDBOX_DIALOG_TIMEOUT_MS = 300_000;
+
+export type SandboxDialogChoice = typeof SANDBOX_CHOICE_ONCE | typeof SANDBOX_CHOICE_SESSION;
+
+/** Minimal dialog surface the confirm flow needs (satisfied by the pi
+ * tool_call ctx and by test doubles). */
+export interface SandboxDialogAsk {
+  (title: string): Promise<SandboxDialogChoice | undefined>;
+}
+
+/** Resolve one confirmable violation through the three-way dialog honoring
+ * session exemptions; undefined = keep blocked, "allowed" = pass through. */
+async function confirmViolation(deps: {
+  ask: SandboxDialogAsk;
+  title: string;
+  exemptionKey: string;
+  exemptions: Set<string>;
+  cap: number;
+}): Promise<"allowed" | "blocked"> {
+  const { ask, title, exemptionKey, exemptions, cap } = deps;
+  if (exemptions.has(exemptionKey)) return "allowed";
+  const choice = await ask(title);
+  if (choice === SANDBOX_CHOICE_ONCE) return "allowed";
+  if (choice === SANDBOX_CHOICE_SESSION) {
+    if (exemptions.size < cap) exemptions.add(exemptionKey);
+    return "allowed";
+  }
+  return "blocked";
+}
+
+/** Dialog-capable slice of the pi tool_call ctx (structural — tests
+ * satisfy it with a plain double). */
+interface SandboxUiContext {
+  hasUI: boolean;
+  signal?: AbortSignal;
+  ui: {
+    select: (
+      title: string,
+      options: string[],
+      opts?: { timeout?: number; signal?: AbortSignal },
+    ) => Promise<string | undefined>;
+  };
+}
+
+/** Three-way dialog + session-exemption resolution for one confirmable
+ * write/edit violation (v0.10): undefined = pass, else the hard block. */
+async function escalateWriteViolation(deps: {
+  violation: { kind: "outside-allow" | "deny-write"; entry?: string; reason: string };
+  resolved: string;
+  state: SandboxGateState;
+  uiCtx: SandboxUiContext;
+}): Promise<{ block: boolean; reason: string } | undefined> {
+  const { violation, resolved, state, uiCtx } = deps;
+  const ask: SandboxDialogAsk = async (title) => {
+    let choice: string | undefined;
+    try {
+      choice = await uiCtx.ui.select(
+        title,
+        [SANDBOX_CHOICE_ONCE, SANDBOX_CHOICE_SESSION, SANDBOX_CHOICE_DENY],
+        { timeout: SANDBOX_DIALOG_TIMEOUT_MS, ...(uiCtx.signal ? { signal: uiCtx.signal } : {}) },
+      );
+    } catch {
+      return; // a throwing dialog channel settles fail-closed (Deny)
+    }
+    return choice === SANDBOX_CHOICE_ONCE || choice === SANDBOX_CHOICE_SESSION ? choice : undefined;
+  };
+  const title =
+    violation.kind === "outside-allow"
+      ? `Sandbox: write outside allowed paths (${resolved})`
+      : `Sandbox: denyWrite match ${violation.entry} (${resolved})`;
+  const outcome = await confirmViolation({
+    ask,
+    title,
+    exemptionKey: resolved,
+    exemptions: state.exemptions.writePaths,
+    cap: WRITE_EXEMPTION_CAP,
+  });
+  return outcome === "allowed" ? undefined : { block: true, reason: violation.reason };
+}
+
+/** denyRead check: undefined passes, else the v0.7 hard block. */
+function readCheck(
+  policy: SandboxConfig["filesystem"],
+  cwd: string,
+  resolved: string,
+): { block: boolean; reason: string } | undefined {
+  const reason = readViolation(policy, cwd, resolved);
+  return reason === undefined ? undefined : { block: true, reason };
+}
+
+/** Hard floors decide confirmability: NEVER dialog when the target is a
+ * protected policy file (effect-space compare — escalation review P1), a
+ * denyRead root with a write violation (P2), the posture is deny, the spawn
+ * is a subagent, or no dialog-capable UI is present. */
+function confirmContextFor(deps: {
+  policy: SandboxConfig["filesystem"];
+  cwd: string;
+  config: SandboxConfig;
+  subagent: boolean;
+  protectedPaths: string[];
+  resolved: string;
+  ctx: SandboxUiContext | undefined;
+}): SandboxUiContext | undefined {
+  const { policy, cwd, config, subagent, protectedPaths, resolved, ctx } = deps;
+  if (config.onViolation !== "ask" || subagent) return undefined;
+  if (protectedPaths.some((entry) => pathWithin(resolved, entry))) return undefined;
+  // Credential trees stay out of the click-to-allow flow. The floor only
+  // tightens the dialog decision — a write that classifies clean
+  // (denyRead∩allowWrite configs) keeps the v0.7 pass-through, so the "deny
+  // posture ≡ v0.7" invariant holds and ask is never looser than deny.
+  if (readViolation(policy, cwd, resolved) !== undefined) return undefined;
+  return ctx !== undefined && ctx.hasUI ? ctx : undefined;
+}
+
+/** The in-process write/edit/read hard-check handler (layer 1), with the
+ * v0.10 confirm escalation for write/edit violations. */
 function hardCheckHandler(deps: {
   policy: SandboxConfig["filesystem"];
   cwd: string;
-}): (event: {
-  toolName: string;
-  input: unknown;
-}) => { block: boolean; reason: string } | undefined {
-  const { policy, cwd } = deps;
-  return (event) => {
+  config: SandboxConfig;
+  state: SandboxGateState;
+  subagent: boolean;
+  protectedPaths: string[];
+}): (
+  event: {
+    toolName: string;
+    input: unknown;
+  },
+  ctx?: SandboxUiContext,
+) => Promise<{ block: boolean; reason: string } | undefined> {
+  const { policy, cwd, config, state, subagent, protectedPaths } = deps;
+  return async (event, ctx) => {
     const tool = event.toolName as "write" | "edit" | "read";
     if (tool !== "write" && tool !== "edit" && tool !== "read") return;
     const input =
@@ -120,14 +276,22 @@ function hardCheckHandler(deps: {
         ? (event.input as Record<string, unknown>)
         : {};
     const resolved = resolveToolPath(cwd, String(input.path ?? ""));
-    const reason =
-      tool === "read"
-        ? readViolation(policy, cwd, resolved)
-        : writeViolation(policy, cwd, resolved);
-    if (reason !== undefined) {
-      return { block: true, reason };
+    if (tool === "read") return readCheck(policy, cwd, resolved);
+    const violation = classifyWriteViolation(policy, cwd, resolved);
+    if (violation === undefined) return;
+    const uiCtx = confirmContextFor({
+      policy,
+      cwd,
+      config,
+      subagent,
+      protectedPaths,
+      resolved,
+      ctx,
+    });
+    if (uiCtx === undefined) {
+      return { block: true, reason: violation.reason };
     }
-    return;
+    return escalateWriteViolation({ violation, resolved, state, uiCtx });
   };
 }
 
@@ -178,6 +342,9 @@ function mountBashSandbox(
 export function createSandboxGate(deps: SandboxGateDeps): InlineExtension {
   const { cwd, state } = deps;
   state.snapshot = deps.snapshot ?? snapshotSandboxConfig({ ...deps, trusted: deps.trusted, cwd });
+  // Snapshot rebuild (spawn/fork/clone/rebind) ⇒ fresh session exemptions:
+  // "this session" grants never survive a conversation replacement.
+  state.exemptions = freshExemptions();
   const initializeRuntime = deps.initializeRuntime ?? initializeSandboxRuntime;
   return (pi: ExtensionAPI): void => {
     const { config } = state.snapshot;
@@ -193,7 +360,17 @@ export function createSandboxGate(deps: SandboxGateDeps): InlineExtension {
       state.runtime = { active: false };
       return; // inert: PAI_SANDBOX=off or enabled:false
     }
-    pi.on("tool_call", hardCheckHandler({ policy: filesystem, cwd }));
+    pi.on(
+      "tool_call",
+      hardCheckHandler({
+        policy: filesystem,
+        cwd,
+        config,
+        state,
+        subagent: deps.subagent === true,
+        protectedPaths: state.snapshot.protectedPaths,
+      }),
+    );
     mountBashSandbox(pi, {
       cwd,
       config: { ...config, filesystem },

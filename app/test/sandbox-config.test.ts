@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   DEFAULT_SANDBOX_CONFIG,
+  classifyWriteViolation,
   loadSandboxConfig,
   readViolation,
   resolveToolPath,
@@ -243,5 +244,64 @@ describe("read policy matrix", () => {
   });
   test("ordinary project reads pass", () => {
     expect(readViolation(policy, PROJ, resolveToolPath(PROJ, "src/main.ts"))).toBeUndefined();
+  });
+});
+
+describe("onViolation (v0.10 confirm posture)", () => {
+  test("default is ask", () => {
+    const { config } = loadSandboxConfig({
+      agentDir: "/agent",
+      cwd: PROJ,
+      trusted: false,
+      readJson: () => null,
+    });
+    expect(config.onViolation).toBe("ask");
+  });
+
+  test("global deny wins; trusted project overrides global; bad values are skipped", () => {
+    const readJson = (path: string) => {
+      if (path === "/agent/sandbox.json") return { onViolation: "deny" };
+      if (path === join(PROJ, ".pi", "sandbox.json")) return { onViolation: "ask" };
+      return null;
+    };
+    const untrusted = loadSandboxConfig({
+      agentDir: "/agent",
+      cwd: PROJ,
+      trusted: false,
+      readJson,
+    });
+    expect(untrusted.config.onViolation).toBe("deny");
+    const trusted = loadSandboxConfig({ agentDir: "/agent", cwd: PROJ, trusted: true, readJson });
+    expect(trusted.config.onViolation).toBe("ask");
+    for (const bad of ["ASK", "ask ", 1, null, true]) {
+      const { config } = loadSandboxConfig({
+        agentDir: "/agent",
+        cwd: PROJ,
+        trusted: false,
+        readJson: (p) => (p === "/agent/sandbox.json" ? { onViolation: bad } : null),
+      });
+      expect(config.onViolation).toBe("ask"); // bad = unset → default
+    }
+  });
+});
+
+describe("write violation classification (v0.10 confirmability)", () => {
+  const policy = DEFAULT_SANDBOX_CONFIG.filesystem;
+  test("outside-allow kind carries the v0.7 reason verbatim", () => {
+    const resolved = resolveToolPath(PROJ, "/etc/pai-test.txt");
+    const violation = classifyWriteViolation(policy, PROJ, resolved);
+    expect(violation?.kind).toBe("outside-allow");
+    expect(violation?.reason).toBe(`Sandbox policy: write outside allowed paths (${resolved})`);
+  });
+  test("deny-write kind carries the matched entry", () => {
+    const violation = classifyWriteViolation(policy, PROJ, resolveToolPath(PROJ, ".env"));
+    expect(violation?.kind).toBe("deny-write");
+    expect(violation?.entry).toBe(".env");
+    expect(violation?.reason).toContain("denyWrite match .env");
+  });
+  test("allowed writes classify to undefined; wrapper stays reason-compatible", () => {
+    const inside = resolveToolPath(PROJ, "src/a.ts");
+    expect(classifyWriteViolation(policy, PROJ, inside)).toBeUndefined();
+    expect(writeViolation(policy, PROJ, inside)).toBeUndefined();
   });
 });

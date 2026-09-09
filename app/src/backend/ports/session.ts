@@ -112,11 +112,13 @@ export interface PaiThread {
   sessionPath: string | undefined;
 }
 
-/** Sandbox observability snapshot (v0.7 get_sandbox_state payload face). */
+/** Sandbox observability snapshot (v0.7 get_sandbox_state payload face;
+ * onViolation + exemptions are the v0.10 additions — serialized list form). */
 export interface PaiSandboxState {
   snapshot: {
     config: {
       enabled: boolean;
+      onViolation: "ask" | "deny";
       network: unknown;
       filesystem: unknown;
     };
@@ -125,6 +127,13 @@ export interface PaiSandboxState {
   runtime: {
     active: boolean;
     degraded?: string;
+  };
+  /** Session-scoped "don't ask again" grants (empty on backends without the
+   * confirm escalation, e.g. the probe). In-process Sets; the wire face
+   * (get_sandbox_state) serializes them to lists. */
+  exemptions: {
+    writePaths: Set<string>;
+    bashCommands: Set<string>;
   };
 }
 

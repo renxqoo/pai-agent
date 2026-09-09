@@ -153,6 +153,7 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 - 全局 `<agentDir>/sandbox.json`；项目级 `<cwd>/.pi/sandbox.json` **仅 `trusted:true` 线程合并**（防恶意仓库自我松绑）；坏文件降级默认永不抛错；分节合并、数组整体替换。
 - **默认 `enabled:true`**（用户裁决：默认开启可关）。默认策略：网络白名单 = 回环 + npm/pypi/github 系域名；`denyRead: ["~/.ssh","~/.aws","~/.gnupg"]`；`allowWrite: [".","/tmp"]`（"." = 会话 cwd）；`denyWrite: [".env",".env.*","*.pem","*.key"]`。两份 sandbox.json 自身恒为 write 工具的 denyWrite（防篡改未来会话快照）。
+- **`onViolation:"ask"|"deny"`（v0.10，缺省 `"ask"`）**：可确认违规（下表）的处理姿态。`"ask"` = 三选弹框（§6 select）；`"deny"` = v0.7 直接拦截行为。坏值按未设置（回落缺省）。
 - 机器级逃生舱：`PAI_SANDBOX=off|0|false` 强制全局关闭。
 
 **语义**（两层强制，一道防线在权限门之后）：
@@ -162,7 +163,24 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 - **read**：`denyRead` 命中 → block。
 - 权限门先裁决（弹窗展示原始命令），沙箱后强制；权限门 block 的调用到不了沙箱。
 
-**`get_sandbox_state`** — 字段 `threadId`。→ `{enabled, platform, degraded?, network, filesystem, source:"global"|"global+project", bashSandboxed:boolean}`（bashSandboxed = OS 层实际生效；enabled:true 但 bashSandboxed:false 即降级态）。
+**违规确认流程（v0.10，`onViolation:"ask"` 时的可确认面）**：
+
+| 违规                                                                  | `"ask"`（缺省）                      | `"deny"`     |
+| --------------------------------------------------------------------- | ------------------------------------ | ------------ |
+| write/edit：`allowWrite` 越界或 `denyWrite` 命中                      | 三选弹框                             | 直接 block   |
+| write/edit：sandbox.json 保护路径命中（效应空间比较，含符号链接形态） | **恒直接 block**                     | 直接 block   |
+| write/edit：`denyRead` 命中**且另有写违规**                           | **恒直接 block**（凭据目录不进弹框） | 直接 block   |
+| write/edit：仅 `denyRead` 命中、分类干净（denyRead∩allowWrite 配置）  | 放行（v0.7 判定不变）                | 放行（v0.7） |
+| read 工具：`denyRead` 命中                                            | 恒直接 block                         | 直接 block   |
+| bash：OS 拒绝且非零退出且该命令有 file-write/network-outbound 违规行  | 三选弹框（拒绝 = 维持命令失败现状）  | 维持失败     |
+| bash：违规行含 denyRead 根的 file-read 拒绝                           | 恒维持失败                           | 维持失败     |
+| 子 agent（孙进程）/ 无 UI 客户端 / 弹框超时、取消或通道异常           | fail-closed（不弹框，维持拦截/失败） | 同左         |
+
+- 三选 = `Allow once` / `Allow for this session` / `Deny`（select 帧，§6）；超时 300s、abort、取消、未知值、对话框异常一律 Deny。
+- 「本会话不再问」豁免：write/edit 按效应空间精确路径（不折叠）、bash 按精确命令串；上限 64 / 32 条，满后继续弹框；会话快照重建（fork/clone/rebind）即清空，不落盘。
+- bash 确认后**重跑一次**（无沙箱包裹）：输出流先注入 `[pai] rerunning without sandbox (user-approved)`；两次运行的输出先后拼接进工具结果；拒绝则注入 `[pai] sandbox denied; rerun declined` 并维持原失败结果。命令可能已部分执行——副作用可能重复（用户裁决接受）。
+
+**`get_sandbox_state`** — 字段 `threadId`。→ `{enabled, platform, degraded?, network, filesystem, source:"global"|"global+project", bashSandboxed:boolean, onViolation:"ask"|"deny", sessionExemptions:{writePaths:string[], bashCommands:string[]}}`（bashSandboxed = OS 层实际生效；enabled:true 但 bashSandboxed:false 即降级态；onViolation + sessionExemptions 为 v0.10 增——后者回应当前会话豁免清单）。
 
 ### 子 agent 通信（v0.5 stage 7）
 

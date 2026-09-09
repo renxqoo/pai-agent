@@ -35,8 +35,15 @@ export interface SandboxFsPolicy {
   denyWrite: string[];
 }
 
+/** Handling posture for CONFIRMABLE violations (v0.10): "ask" escalates to a
+ * three-way user dialog (Allow once / Allow for this session / Deny), "deny"
+ * keeps the v0.7 hard-block. Protected paths and denyRead matches are never
+ * confirmable regardless of this field. */
+export type SandboxOnViolation = "ask" | "deny";
+
 export interface SandboxConfig {
   enabled: boolean;
+  onViolation: SandboxOnViolation;
   network: SandboxNetworkPolicy;
   filesystem: SandboxFsPolicy;
 }
@@ -45,6 +52,7 @@ export type SandboxSource = "global" | "global+project";
 
 export const DEFAULT_SANDBOX_CONFIG: SandboxConfig = {
   enabled: true,
+  onViolation: "ask",
   network: {
     // Loopback first: local dev registries and the hermetic e2e mock server
     // must work out of the box; then the package/CI hosts pi's example ships.
@@ -75,9 +83,15 @@ const UNICODE_SPACES = /[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000
 const CASE_FOLDED_PLATFORM = process.platform === "darwin" || process.platform === "win32";
 
 /** Comparison key: NFC always; case-folded where the filesystem folds. */
-function fold(value: string): string {
+export function foldForComparison(value: string): string {
   const normalized = value.normalize("NFC");
   return CASE_FOLDED_PLATFORM ? normalized.toLowerCase() : normalized;
+}
+
+/** Containment test in folded space; the filesystem root contains everything.
+ * Public for the gate's protected-path hard-block and exemption keys. */
+export function pathWithin(path: string, dir: string): boolean {
+  return within(path, dir);
 }
 
 /** Mirror of pi's tool-path input normalization (paths.ts normalizePath). */
@@ -113,15 +127,15 @@ function entryEffectSpace(cwd: string, entry: string): string {
 
 /** Containment in folded space; the filesystem root contains everything. */
 function within(path: string, dir: string): boolean {
-  const foldedDir = fold(dir);
+  const foldedDir = foldForComparison(dir);
   if (foldedDir === "/" || foldedDir === "") return true;
-  const foldedPath = fold(path);
+  const foldedPath = foldForComparison(path);
   return foldedPath === foldedDir || foldedPath.startsWith(`${foldedDir}${sep}`);
 }
 
 /** Glob match in folded space. */
 function foldedGlob(pattern: string, value: string): boolean {
-  return globMatches(fold(pattern), fold(value));
+  return globMatches(foldForComparison(pattern), foldForComparison(value));
 }
 
 /** Machine-level kill switch (PAI_SANDBOX=off|0|false, case-insensitive). */
@@ -152,6 +166,7 @@ function stringArray(value: unknown): string[] | undefined {
 function copyDefault(): SandboxConfig {
   return {
     enabled: DEFAULT_SANDBOX_CONFIG.enabled,
+    onViolation: DEFAULT_SANDBOX_CONFIG.onViolation,
     network: { ...DEFAULT_SANDBOX_CONFIG.network },
     filesystem: { ...DEFAULT_SANDBOX_CONFIG.filesystem },
   };
@@ -161,10 +176,15 @@ function copyDefault(): SandboxConfig {
 function mergeConfig(base: SandboxConfig, override: Record<string, unknown>): SandboxConfig {
   const merged: SandboxConfig = {
     enabled: base.enabled,
+    onViolation: base.onViolation,
     network: { ...base.network },
     filesystem: { ...base.filesystem },
   };
   if (typeof override.enabled === "boolean") merged.enabled = override.enabled;
+  // Bad values are treated as unset (fall back to the inherited/default ask).
+  if (override.onViolation === "ask" || override.onViolation === "deny") {
+    merged.onViolation = override.onViolation;
+  }
   const { network, filesystem: fs } = override;
   if (typeof network === "object" && network !== null) {
     const { allowedDomains, deniedDomains } = network as Record<string, unknown>;
@@ -227,30 +247,61 @@ function denyEntryMatches(entry: string, cwd: string, resolvedPath: string): boo
     return !entry.startsWith("~") && !isAbsolute(entry) && foldedGlob(entry, base);
   }
   if (within(resolvedPath, expanded)) return true;
-  return fold(base) === fold(entry);
+  return foldForComparison(base) === foldForComparison(entry);
 }
 
 /**
- * Write policy for one effect-space-resolved absolute path: undefined when
- * allowed, otherwise the violation reason. Allowed = inside some allowWrite
- * entry AND outside every denyWrite match. Glob entries in allowWrite are
- * ignored (a globbed write boundary is a footgun).
+ * Classified write violation for one effect-space-resolved absolute path:
+ * undefined when allowed. `kind` drives v0.10 confirmability (outside-allow
+ * and deny-write are dialog-escalatable; the GATE additionally hard-blocks
+ * protected-path targets regardless of the matched entry string). `reason`
+ * strings are byte-identical to the v0.7 block messages.
  */
+export interface WriteViolation {
+  kind: "outside-allow" | "deny-write";
+  /** deny-write: the matched denyWrite entry (raw policy string). */
+  entry?: string;
+  reason: string;
+}
+
+/**
+ * Write policy classification: allowed = inside some allowWrite entry AND
+ * outside every denyWrite match. Glob entries in allowWrite are ignored (a
+ * globbed write boundary is a footgun).
+ */
+export function classifyWriteViolation(
+  policy: SandboxFsPolicy,
+  cwd: string,
+  resolvedPath: string,
+): WriteViolation | undefined {
+  const insideRoot = policy.allowWrite
+    .filter((entry) => !entry.includes("*"))
+    .some((entry) => within(resolvedPath, entryEffectSpace(cwd, entry)));
+  if (!insideRoot) {
+    return {
+      kind: "outside-allow",
+      reason: `Sandbox policy: write outside allowed paths (${resolvedPath})`,
+    };
+  }
+  for (const entry of policy.denyWrite) {
+    if (denyEntryMatches(entry, cwd, resolvedPath)) {
+      return {
+        kind: "deny-write",
+        entry,
+        reason: `Sandbox policy: denyWrite match ${entry} (${resolvedPath})`,
+      };
+    }
+  }
+  return undefined;
+}
+
+/** Write policy: undefined when allowed, otherwise the violation reason. */
 export function writeViolation(
   policy: SandboxFsPolicy,
   cwd: string,
   resolvedPath: string,
 ): string | undefined {
-  const insideRoot = policy.allowWrite
-    .filter((entry) => !entry.includes("*"))
-    .some((entry) => within(resolvedPath, entryEffectSpace(cwd, entry)));
-  if (!insideRoot) return `Sandbox policy: write outside allowed paths (${resolvedPath})`;
-  for (const entry of policy.denyWrite) {
-    if (denyEntryMatches(entry, cwd, resolvedPath)) {
-      return `Sandbox policy: denyWrite match ${entry} (${resolvedPath})`;
-    }
-  }
-  return undefined;
+  return classifyWriteViolation(policy, cwd, resolvedPath)?.reason;
 }
 
 /** Read policy: undefined when allowed, otherwise the violation reason. */
