@@ -27,6 +27,7 @@ import { resolveMatchPath } from "../../gate-path.ts";
 import {
   type SandboxConfig,
   classifyWriteViolation,
+  denyReadRootVariants,
   loadSandboxConfig,
   pathWithin,
   readViolation,
@@ -35,6 +36,7 @@ import {
 } from "../../sandbox-config.ts";
 import {
   type SandboxRuntimeState,
+  type BashRerunDeps,
   createSandboxedBashOperations,
   initializeSandboxRuntime,
   resetSandboxRuntime,
@@ -295,6 +297,86 @@ function hardCheckHandler(deps: {
   };
 }
 
+/** Bash confirm-rerun wiring (v0.10): built per execution context — the
+ * agent tool passes the turn's abort signal, direct execution goes
+ * timeout-only (the permission gate's direct-bash ask is signal-free the
+ * same way). Undefined = the v0.7 behavior (denial stays a failure). */
+function bashRerunDeps(deps: {
+  config: SandboxConfig;
+  subagent: boolean;
+  state: SandboxGateState;
+  cwd: string;
+  ui: SandboxUiContext["ui"] | undefined;
+  signal?: AbortSignal;
+}): BashRerunDeps | undefined {
+  const { config, subagent, state, cwd, ui, signal } = deps;
+  if (config.onViolation !== "ask" || subagent || ui === undefined) return undefined;
+  return {
+    confirmRerun: async (command) => {
+      let choice: string | undefined;
+      try {
+        choice = await ui.select(
+          `Sandbox denied this command — re-run without sandbox? (${command})`,
+          [SANDBOX_CHOICE_ONCE, SANDBOX_CHOICE_SESSION, SANDBOX_CHOICE_DENY],
+          { timeout: SANDBOX_DIALOG_TIMEOUT_MS, ...(signal ? { signal } : {}) },
+        );
+      } catch {
+        return; // a throwing dialog channel settles fail-closed
+      }
+      if (choice === SANDBOX_CHOICE_ONCE) return "once";
+      if (choice === SANDBOX_CHOICE_SESSION) return "session";
+      return;
+    },
+    isExempted: (command) => state.exemptions.bashCommands.has(command),
+    onSessionGrant: (command) => {
+      if (state.exemptions.bashCommands.size < BASH_EXEMPTION_CAP) {
+        state.exemptions.bashCommands.add(command);
+      }
+    },
+    denyReadRoots: denyReadRootVariants(config.filesystem, cwd),
+  };
+}
+
+/** The sandboxed bash tool replacement (schema intact; execution routes
+ * through the wrapped BashOperations); inert until the runtime is active.
+ * ToolDefinition.execute receives the ExtensionContext as its FIFTH
+ * argument — the AgentTool type from createBashTool only declares four, but
+ * the runtime passes them all, so the dialog surface is read from args[4]
+ * directly (no toolCallId bookkeeping). */
+function registerSandboxedBashTool(
+  pi: ExtensionAPI,
+  deps: {
+    cwd: string;
+    config: SandboxConfig;
+    state: SandboxGateState;
+    subagent: boolean;
+    localBash: ReturnType<typeof createBashTool>;
+  },
+): void {
+  const { cwd, config, state, subagent, localBash } = deps;
+  pi.registerTool({
+    ...localBash,
+    label: "bash (sandboxed)",
+    async execute(...args: unknown[]) {
+      const [toolCallId, params, signal, onUpdate] = args as Parameters<typeof localBash.execute>;
+      if (!state.runtime.active) {
+        return localBash.execute(toolCallId, params, signal, onUpdate);
+      }
+      const ctx = args[4] as { hasUI: boolean; ui: SandboxUiContext["ui"] } | undefined;
+      const rerun = bashRerunDeps({
+        config,
+        subagent,
+        state,
+        cwd,
+        ui: ctx !== undefined && ctx.hasUI ? ctx.ui : undefined,
+        ...(signal !== undefined ? { signal } : {}),
+      });
+      const sandboxed = createBashTool(cwd, { operations: createSandboxedBashOperations(rerun) });
+      return sandboxed.execute(toolCallId, params, signal, onUpdate);
+    },
+  });
+}
+
 /** The OS-layer bash wiring (layer 2): tool replacement + user_bash capture. */
 function mountBashSandbox(
   pi: ExtensionAPI,
@@ -302,6 +384,7 @@ function mountBashSandbox(
     cwd: string;
     config: SandboxConfig;
     state: SandboxGateState;
+    subagent: boolean;
     writeStderr: (text: string) => void;
     initializeRuntime: typeof initializeSandboxRuntime;
   },
@@ -317,25 +400,27 @@ function mountBashSandbox(
   pi.on("session_shutdown", async () => {
     await resetSandboxRuntime();
   });
-  // Replace the built-in bash tool with the sandboxed twin (schema intact;
-  // execution routes through the wrapped BashOperations). Registered once
-  // per session; inert until the runtime reports active.
-  pi.registerTool({
-    ...localBash,
-    label: "bash (sandboxed)",
-    async execute(...args: Parameters<typeof localBash.execute>) {
-      if (!state.runtime.active) {
-        return localBash.execute(...args);
-      }
-      const sandboxed = createBashTool(cwd, { operations: createSandboxedBashOperations() });
-      return sandboxed.execute(...args);
-    },
+  registerSandboxedBashTool(pi, {
+    cwd,
+    config,
+    state,
+    subagent: deps.subagent,
+    localBash,
   });
   // Direct execution (the protocol `bash` command): hand the sandboxed
-  // operations to the existing user_bash pipeline in worker-commands.
-  pi.on("user_bash", () => {
+  // operations to the existing user_bash pipeline in worker-commands. The
+  // user_bash event ctx carries the session UI (timeout-only ask — the
+  // direct-bash permission ask is signal-free the same way).
+  pi.on("user_bash", (_event, ctx) => {
     if (!state.runtime.active) return;
-    return { operations: createSandboxedBashOperations() };
+    const rerun = bashRerunDeps({
+      config,
+      subagent: deps.subagent,
+      state,
+      cwd,
+      ui: ctx !== undefined && ctx.hasUI ? ctx.ui : undefined,
+    });
+    return { operations: createSandboxedBashOperations(rerun) };
   });
 }
 
@@ -375,6 +460,7 @@ export function createSandboxGate(deps: SandboxGateDeps): InlineExtension {
       cwd,
       config: { ...config, filesystem },
       state,
+      subagent: deps.subagent === true,
       writeStderr: deps.writeStderr,
       initializeRuntime,
     });

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import {
   DEFAULT_SANDBOX_CONFIG,
   classifyWriteViolation,
+  denyReadRootVariants,
   loadSandboxConfig,
   readViolation,
   resolveToolPath,
@@ -303,5 +304,24 @@ describe("write violation classification (v0.10 confirmability)", () => {
     const inside = resolveToolPath(PROJ, "src/a.ts");
     expect(classifyWriteViolation(policy, PROJ, inside)).toBeUndefined();
     expect(writeViolation(policy, PROJ, inside)).toBeUndefined();
+  });
+});
+
+describe("denyReadRootVariants (v0.10 bash floor — both observable path forms)", () => {
+  test("each denyRead entry yields its lexical expansion AND effect-space realpath", () => {
+    const policy = { ...DEFAULT_SANDBOX_CONFIG.filesystem, denyRead: ["~/.ssh"] };
+    const variants = denyReadRootVariants(policy, PROJ);
+    const home = process.env.HOME ?? "";
+    // Lexical: ~/ expanded, no realpath.
+    expect(variants).toContain(join(home, ".ssh"));
+    // Effect space: realpathed (on macOS the home dir itself may sit behind
+    // a symlink — assert by resolving the same way).
+    expect(variants).toContain(realpathSync(join(home, ".ssh")));
+  });
+
+  test("relative entries expand against the session cwd lexically", () => {
+    const policy = { ...DEFAULT_SANDBOX_CONFIG.filesystem, denyRead: ["secrets"] };
+    const variants = denyReadRootVariants(policy, PROJ);
+    expect(variants).toContain(join(PROJ, "secrets"));
   });
 });

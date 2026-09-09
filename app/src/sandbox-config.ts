@@ -317,3 +317,29 @@ export function readViolation(
   }
   return undefined;
 }
+
+/** Effect-space form of the denyRead entries (v0.10 bash violation filter:
+ * file-read denials touching these roots suppress the rerun offer). */
+export function denyReadEffectRoots(policy: SandboxFsPolicy, cwd: string): string[] {
+  return policy.denyRead.map((entry) => entryEffectSpace(cwd, entry));
+}
+
+/** denyRead roots in BOTH observable forms — effect space (realpathed) and
+ * lexical expansion (~ / relative resolved, no realpath): tools and shells
+ * echo the path exactly as given (/var/... on macOS), while the effect
+ * space is /private/var/... — a floor that matches only one form leaks. */
+/** Lexical expansion without realpath: "~"→home, relative→cwd-joined. */
+function lexicalEntry(entry: string, cwd: string): string {
+  if (entry === "~") return homedir();
+  if (entry.startsWith("~/")) return join(homedir(), entry.slice(2));
+  return isAbsolute(entry) ? entry : join(cwd, entry);
+}
+
+export function denyReadRootVariants(policy: SandboxFsPolicy, cwd: string): string[] {
+  const variants = new Set<string>();
+  for (const entry of policy.denyRead) {
+    variants.add(entryEffectSpace(cwd, entry));
+    variants.add(lexicalEntry(entry, cwd));
+  }
+  return [...variants];
+}
