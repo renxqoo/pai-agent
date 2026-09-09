@@ -127,6 +127,9 @@ export interface CompactionSettings {
 	enabled: boolean;
 	reserveTokens: number;
 	keepRecentTokens: number;
+	/** Reserve as a percentage of each model's context window (0-100 exclusive).
+	 * When valid it overrides reserveTokens, so the trigger point scales per model. */
+	reservePercent?: number;
 }
 
 export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
@@ -234,7 +237,18 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
  */
 export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {
 	if (!settings.enabled) return false;
-	return contextTokens > contextWindow - settings.reserveTokens;
+	return contextTokens > contextWindow - effectiveReserveTokens(contextWindow, settings);
+}
+
+/** Flat reserveTokens by default; a valid reservePercent (0-100 exclusive)
+ * replaces it with a window-proportional reserve. Invalid percents fall back
+ * to the flat value rather than silently disabling compaction. */
+export function effectiveReserveTokens(contextWindow: number, settings: CompactionSettings): number {
+	const percent = settings.reservePercent;
+	if (percent !== undefined && Number.isFinite(percent) && percent > 0 && percent < 100) {
+		return Math.floor((contextWindow * percent) / 100);
+	}
+	return settings.reserveTokens;
 }
 
 // ============================================================================

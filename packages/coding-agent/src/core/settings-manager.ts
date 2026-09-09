@@ -13,6 +13,7 @@ import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dis
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
+	reservePercent?: number; // optional: reserve as % of each model's contextWindow (0-100 exclusive); overrides reserveTokens
 	keepRecentTokens?: number; // default: 20000
 }
 
@@ -850,11 +851,25 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionReservePercent(): number | undefined {
+		const percent = this.settings.compaction?.reservePercent;
+		// 0-100 exclusive；非法值按未设置处理（回落 reserveTokens），不让坏输入静默关闭压缩
+		return percent !== undefined && Number.isFinite(percent) && percent > 0 && percent < 100 ? percent : undefined;
+	}
+
+	getCompactionSettings(): {
+		enabled: boolean;
+		reserveTokens: number;
+		keepRecentTokens: number;
+		reservePercent?: number;
+	} {
 		return {
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			...(this.getCompactionReservePercent() !== undefined
+				? { reservePercent: this.getCompactionReservePercent() }
+				: {}),
 		};
 	}
 
