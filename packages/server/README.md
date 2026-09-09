@@ -34,8 +34,9 @@ async function startServer(
   const host: ServerHost = {
     serverServices,
     async resolveSession(sessionId, context) {
-      const matches = (await sessions.list(undefined, context))
-        .filter((metadata) => metadata.id === sessionId);
+      const matches = (await sessions.list(undefined, context)).filter(
+        (metadata) => metadata.id === sessionId,
+      );
       if (matches.length === 0) {
         throw new SessionNotFoundError(`Unknown session: ${sessionId}`);
       }

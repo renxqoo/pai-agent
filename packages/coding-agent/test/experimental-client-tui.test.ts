@@ -110,9 +110,15 @@ describe("experimental client TUI", () => {
 	] as const)(
 		"opens a %s Session directly and exercises the full lifecycle only for a new Session",
 		async (kind, command, sessionId, creates) => {
-			const directoryState = replicatedState<SessionDirectoryState>({ revision: 1, sessions: [session("one", 1)] });
+			const directoryState = replicatedState<SessionDirectoryState>({
+				revision: 1,
+				sessions: [session("one", 1)],
+			});
 			const attachment = replicatedState<SessionAttachmentState>({ status: "detached" });
-			const connectionState = replicatedState<ServerConnectionState>({ status: "connected", since: "now" });
+			const connectionState = replicatedState<ServerConnectionState>({
+				status: "connected",
+				since: "now",
+			});
 			const modelsState = replicatedState<ModelsState>({
 				catalog: {
 					revision: 1,

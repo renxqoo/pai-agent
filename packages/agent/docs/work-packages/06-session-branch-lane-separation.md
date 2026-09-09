@@ -129,10 +129,7 @@ Owns global registries/configuration, hooks, events, lifecycle, and a map of Age
 ```ts
 export interface SessionReader {
   getEntries(ids: string[], context: Context): Promise<Map<string, Entry>>;
-  getValue<T>(
-    address: Value<T>,
-    context: Context,
-  ): Promise<StoredValue<T> | undefined>;
+  getValue<T>(address: Value<T>, context: Context): Promise<StoredValue<T> | undefined>;
   scanValues<T>(prefix: Value<T>, context: Context): Promise<StoredValue<T>[]>;
   readList<T>(
     address: ValueList<T>,
@@ -165,14 +162,8 @@ export type SessionMutationCallback<TResult> = (
 export interface Branch {
   readonly name: string;
   getTipId(context: Context): Promise<string | null>;
-  findEntries(
-    query: BranchScan | undefined,
-    context: Context,
-  ): Promise<Entry[]>;
-  findEntry(
-    query: BranchScan | undefined,
-    context: Context,
-  ): Promise<Entry | undefined>;
+  findEntries(query: BranchScan | undefined, context: Context): Promise<Entry[]>;
+  findEntry(query: BranchScan | undefined, context: Context): Promise<Entry | undefined>;
   appendMessage(message: AgentMessage, context: Context): Promise<string>;
   appendCustomEntry(
     customType: string,
@@ -196,53 +187,28 @@ export interface Session<
   // Direct reads. No mutation-line acquisition.
   getEntry(id: string, context: Context): Promise<Entry | undefined>;
   getStats(context: Context): Promise<SessionStats>;
-  findEntries(
-    query: EntryQuery | undefined,
-    context: Context,
-  ): Promise<Entry[]>;
-  findEntry(
-    query: EntryQuery | undefined,
-    context: Context,
-  ): Promise<Entry | undefined>;
+  findEntries(query: EntryQuery | undefined, context: Context): Promise<Entry[]>;
+  findEntry(query: EntryQuery | undefined, context: Context): Promise<Entry | undefined>;
   getName(context: Context): Promise<string | undefined>;
   getLabel(targetId: string, context: Context): Promise<string | undefined>;
 
   // Existing Branch acquisition performs durable I/O and therefore receives Context.
   branch(name: string, context: Context): Promise<Branch | undefined>;
-  createBranch(
-    name: string,
-    at: string | null,
-    context: Context,
-  ): Promise<Branch>;
+  createBranch(name: string, at: string | null, context: Context): Promise<Branch>;
 
   // Transportable explicit scope; RemoteSession maps begin/read/commit/end over RPC.
   beginMutation(context: Context): Promise<SessionMutation>;
 
   // Trusted sharp edge. The callback holds the sole Session mutation line.
-  mutate<TResult>(
-    mutation: SessionMutationCallback<TResult>,
-    context: Context,
-  ): Promise<TResult>;
+  mutate<TResult>(mutation: SessionMutationCallback<TResult>, context: Context): Promise<TResult>;
 
   // One-write conveniences implemented through mutate().
-  setValue<T>(
-    address: Value<T>,
-    next: NoInfer<T>,
-    context: Context,
-  ): Promise<void>;
+  setValue<T>(address: Value<T>, next: NoInfer<T>, context: Context): Promise<void>;
   deleteValue<T>(address: Value<T>, context: Context): Promise<void>;
-  appendList<T>(
-    address: ValueList<T>,
-    element: NoInfer<T>,
-    context: Context,
-  ): Promise<void>;
+  appendList<T>(address: ValueList<T>, element: NoInfer<T>, context: Context): Promise<void>;
   deleteList<T>(address: ValueList<T>, context: Context): Promise<void>;
   setName(name: string | undefined, context: Context): Promise<void>;
-  setLabel(
-    targetId: string,
-    label: string | undefined,
-    context: Context,
-  ): Promise<void>;
+  setLabel(targetId: string, label: string | undefined, context: Context): Promise<void>;
 
   close(context: Context): Promise<void>;
 }
@@ -259,14 +225,8 @@ export interface AgentLane {
   readonly name: string;
 
   getTipId(context: Context): Promise<string | null>;
-  findEntries(
-    query: BranchScan | undefined,
-    context: Context,
-  ): Promise<Entry[]>;
-  findEntry(
-    query: BranchScan | undefined,
-    context: Context,
-  ): Promise<Entry | undefined>;
+  findEntries(query: BranchScan | undefined, context: Context): Promise<Entry[]>;
+  findEntry(query: BranchScan | undefined, context: Context): Promise<Entry | undefined>;
   appendMessage(message: AgentMessage, context: Context): Promise<string>;
   appendCustomEntry(
     customType: string,
@@ -275,15 +235,9 @@ export interface AgentLane {
   ): Promise<string>;
 
   getLastResult(context: Context): Promise<LaneLastResult | undefined>;
-  accept(
-    request: OperationRequest,
-    context: Context,
-  ): Promise<OperationAdmissionResult>;
+  accept(request: OperationRequest, context: Context): Promise<OperationAdmissionResult>;
   drive(options: DriveOptions, context: Context): Promise<DriveResult>;
-  requestAbort(
-    operationId: string,
-    context: Context,
-  ): Promise<AbortRequestResult>;
+  requestAbort(operationId: string, context: Context): Promise<AbortRequestResult>;
   inspectExecution(context: Context): Promise<LaneExecutionInfo>;
   // Existing convenience, queue, configuration, idle, and watch methods remain.
 }
@@ -299,26 +253,16 @@ export interface AcquireLaneOptions {
   createAt?: string | null;
 }
 
-export interface AgentHarness<
-  TContext extends object | undefined = object | undefined,
-> {
+export interface AgentHarness<TContext extends object | undefined = object | undefined> {
   lane(name: string, context: Context): Promise<AgentLane>;
-  lane(
-    name: string,
-    options: AcquireLaneOptions,
-    context: Context,
-  ): Promise<AgentLane>;
+  lane(name: string, options: AcquireLaneOptions, context: Context): Promise<AgentLane>;
   lanes(context: Context): Promise<LaneInfo[]>;
 
   // Session-global metadata wrappers preserve existing value_update events.
   getName(context: Context): Promise<string | undefined>;
   setName(name: string | undefined, context: Context): Promise<void>;
   getLabel(targetId: string, context: Context): Promise<string | undefined>;
-  setLabel(
-    targetId: string,
-    label: string | undefined,
-    context: Context,
-  ): Promise<void>;
+  setLabel(targetId: string, label: string | undefined, context: Context): Promise<void>;
 
   // Existing global tools/resources/options/settings/hooks/events/watchSession/close surface.
 }
@@ -443,9 +387,7 @@ Both return the entry id reserved before their mutation.
 Replace inheritance with composition:
 
 ```ts
-export class Harness<
-  TContext extends object | undefined,
-> implements AgentHarness<TContext> {
+export class Harness<TContext extends object | undefined> implements AgentHarness<TContext> {
   readonly session: Session;
   readonly models: Models;
   readonly hooks: HookRegistry;

@@ -25,18 +25,18 @@ and a byte counter on every chunk.
 ```ts
 const next = t.state.content[0].text + chunk;
 t.state.content[0].text = next.length > CAP ? next.slice(next.length - CAP) : next;
-t.state.truncation.totalBytes += chunk.length;    // <- the other path
+t.state.truncation.totalBytes += chunk.length; // <- the other path
 ```
 
 ### Evidence
 
 50 KB window, 200-byte chunks, no flush in between:
 
-| held-back writes | ops | bytes |
-| --- | --- | --- |
-| 1 | 3 | 0.3 KB |
-| 100 | 201 | 26 KB |
-| **1000** | **2001** | **264 KB** |
+| held-back writes | ops      | bytes      |
+| ---------------- | -------- | ---------- |
+| 1                | 3        | 0.3 KB     |
+| 100              | 201      | 26 KB      |
+| **1000**         | **2001** | **264 KB** |
 
 Without interleaving the same workload gives 1 op and 51 KB. The window is
 bounded at 50 KB; the ops describing it are not.
@@ -62,7 +62,7 @@ here because it was not verified to the standard the rest of this unit meets.
    `d`, which must survive or the key changes position on reinsertion (§5.1).
 2. Consecutive `a` merge. Once the merged append is **strictly longer** than the
    value, the window has been sliding and the append is the more expensive
-   spelling, so collapse to `s`. Strictly: while a string is still *growing*
+   spelling, so collapse to `s`. Strictly: while a string is still _growing_
    toward its cap the append equals the value, and collapsing there would resend
    the whole string every batch.
 3. `t` and `a` on one path **commute** — the truncate drops from the front, the
@@ -72,7 +72,7 @@ here because it was not verified to the standard the rest of this unit meets.
    path becomes its current value".
 
 **The trap that prototype hit.** Slots emit in first-touch order, which loses the
-fact that a child write happened *before* a later parent write:
+fact that a child write happened _before_ a later parent write:
 
 ```
 script  : a={x:1}; a.b=99; a={c:2}
@@ -114,9 +114,9 @@ CPU profile of a 20 000-write rolling-window loop, node, flush at the end:
 
 And the flattening is directly observable:
 
-| `overlap()` on a 50 KB window | µs |
-| --- | --- |
-| the same two strings reused | 37 |
+| `overlap()` on a 50 KB window       | µs      |
+| ----------------------------------- | ------- |
+| the same two strings reused         | 37      |
 | **a fresh sliced string each call** | **149** |
 
 An earlier benchmark reported 29 µs because it reused two already-flattened
@@ -130,7 +130,7 @@ so it can emit the ops directly rather than assigning a new string and having th
 tracker search for the difference:
 
 ```ts
-out.append(chunk);       // -> ["t", path, dropped], ["a", path, chunk]
+out.append(chunk); // -> ["t", path, dropped], ["a", path, chunk]
 ```
 
 Two integers — chars appended, chars evicted — describe everything that happened
@@ -157,10 +157,10 @@ which no probe strategy avoids.
 `overlap` dominates so completely that nothing else shows in a profile. But two
 benchmarks disagree in a way that points at path depth:
 
-| | µs per write |
-| --- | --- |
-| top-level path (`{ text }`) | 63 |
-| nested path (`{ content: [{ text }] }`) | 244 |
+|                                         | µs per write |
+| --------------------------------------- | ------------ |
+| top-level path (`{ text }`)             | 63           |
+| nested path (`{ content: [{ text }] }`) | 244          |
 
 4x for depth alone. Each nested property access wraps a child proxy and builds a
 cache key by joining the path, so a read of `content[0].text` allocates on every

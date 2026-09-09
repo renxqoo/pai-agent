@@ -12,7 +12,9 @@ describe("regression: issue 6019 explicit provider retry messages", () => {
 		["openai", openAIExplicitRetryMessage],
 		["bedrock", bedrockExplicitRetryMessage],
 	])("retries %s explicit retry guidance", async (_provider, errorMessage) => {
-		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
+		const harness = await createHarness({
+			settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
+		});
 		try {
 			harness.setResponses([
 				fauxAssistantMessage("", { stopReason: "error", errorMessage }),

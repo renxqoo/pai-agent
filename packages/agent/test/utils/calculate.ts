@@ -35,6 +35,9 @@ export const calculateTool: AgentTool<typeof calculateSchema, undefined> = {
 export function createCalculateToolWithUsage(usage: Usage): AgentTool<typeof calculateSchema, undefined> {
 	return {
 		...calculateTool,
-		execute: async (_toolCallId: string, args: CalculateParams) => ({ ...calculate(args.expression), usage }),
+		execute: async (_toolCallId: string, args: CalculateParams) => ({
+			...calculate(args.expression),
+			usage,
+		}),
 	};
 }

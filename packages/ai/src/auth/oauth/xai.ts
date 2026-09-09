@@ -185,7 +185,10 @@ async function pollForTokens(device: XaiDeviceCode, signal: AbortSignal): Promis
 			}
 			if (error === "slow_down") {
 				const interval = response.body.interval;
-				return { status: "slow_down", intervalSeconds: typeof interval === "number" ? interval : undefined };
+				return {
+					status: "slow_down",
+					intervalSeconds: typeof interval === "number" ? interval : undefined,
+				};
 			}
 			if (error === "access_denied" || error === "authorization_denied") {
 				return { status: "failed", message: "xAI device authorization was denied" };
@@ -193,7 +196,10 @@ async function pollForTokens(device: XaiDeviceCode, signal: AbortSignal): Promis
 			if (error === "expired_token") {
 				return { status: "failed", message: "xAI device code expired" };
 			}
-			return { status: "failed", message: requestFailure("device token polling", response).message };
+			return {
+				status: "failed",
+				message: requestFailure("device token polling", response).message,
+			};
 		},
 	});
 }

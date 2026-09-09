@@ -293,7 +293,11 @@ describe("AgentSession auto-compaction queue resume", () => {
 		session.agent.state.messages = [
 			{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() - 1000 },
 			successfulAssistant,
-			{ role: "user", content: [{ type: "text", text: "another prompt" }], timestamp: Date.now() + 500 },
+			{
+				role: "user",
+				content: [{ type: "text", text: "another prompt" }],
+				timestamp: Date.now() + 500,
+			},
 			errorAssistant,
 		];
 
@@ -420,9 +424,17 @@ describe("AgentSession auto-compaction queue resume", () => {
 
 		// Agent state has the kept assistant (pre-compaction) and the error (post-compaction)
 		session.agent.state.messages = [
-			{ role: "user", content: [{ type: "text", text: "kept user msg" }], timestamp: preCompactionTimestamp - 1000 },
+			{
+				role: "user",
+				content: [{ type: "text", text: "kept user msg" }],
+				timestamp: preCompactionTimestamp - 1000,
+			},
 			keptAssistant,
-			{ role: "user", content: [{ type: "text", text: "new prompt" }], timestamp: Date.now() - 500 },
+			{
+				role: "user",
+				content: [{ type: "text", text: "new prompt" }],
+				timestamp: Date.now() - 500,
+			},
 			errorAssistant,
 		];
 

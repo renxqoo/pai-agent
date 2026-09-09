@@ -36,13 +36,29 @@ export type TelemetryAttributeDefinition = TelemetryAttributeMetadata &
 		| { type: "string"; values?: readonly string[]; examples?: readonly string[] }
 		| { type: "number"; values?: readonly number[]; examples?: readonly number[] }
 		| { type: "boolean"; values?: readonly boolean[]; examples?: readonly boolean[] }
-		| { type: "string[]"; elementValues?: readonly string[]; examples?: readonly (readonly string[])[] }
-		| { type: "number[]"; elementValues?: readonly number[]; examples?: readonly (readonly number[])[] }
-		| { type: "boolean[]"; elementValues?: readonly boolean[]; examples?: readonly (readonly boolean[])[] }
+		| {
+				type: "string[]";
+				elementValues?: readonly string[];
+				examples?: readonly (readonly string[])[];
+		  }
+		| {
+				type: "number[]";
+				elementValues?: readonly number[];
+				examples?: readonly (readonly number[])[];
+		  }
+		| {
+				type: "boolean[]";
+				elementValues?: readonly boolean[];
+				examples?: readonly (readonly boolean[])[];
+		  }
 	);
 
-export type TelemetryStartAttributeDefinition = TelemetryAttributeDefinition & { required: boolean };
-export type TelemetryEventAttributeDefinition = TelemetryAttributeDefinition & { required: boolean };
+export type TelemetryStartAttributeDefinition = TelemetryAttributeDefinition & {
+	required: boolean;
+};
+export type TelemetryEventAttributeDefinition = TelemetryAttributeDefinition & {
+	required: boolean;
+};
 
 export interface TelemetryEventDefinition {
 	description: string;
@@ -173,7 +189,9 @@ export type TelemetrySchemaSpanEndAttributes<
 type SchemaSpanEvents<
 	Schema extends TelemetrySchemaDefinition,
 	Name extends TelemetrySchemaSpanName<Schema>,
-> = SchemaSpan<Schema, Name> extends { events: infer Events extends Record<string, TelemetryEventDefinition> }
+> = SchemaSpan<Schema, Name> extends {
+	events: infer Events extends Record<string, TelemetryEventDefinition>;
+}
 	? Events
 	: Record<never, never>;
 

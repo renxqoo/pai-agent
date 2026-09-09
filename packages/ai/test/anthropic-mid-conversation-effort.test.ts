@@ -28,7 +28,14 @@ function managedModel(provider = "anthropic"): Model<"anthropic-messages"> {
 		provider,
 		baseUrl: "http://127.0.0.1:9",
 		reasoning: true,
-		thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "medium", high: "high", max: "max" },
+		thinkingLevelMap: {
+			off: null,
+			minimal: "low",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			max: "max",
+		},
 		input: ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 200000,
@@ -82,7 +89,11 @@ async function capture(
 	return { payload, message };
 }
 
-const user = (text: string, timestamp: number) => ({ role: "user" as const, content: text, timestamp });
+const user = (text: string, timestamp: number) => ({
+	role: "user" as const,
+	content: text,
+	timestamp,
+});
 
 function effortMessages(payload: CapturedPayload): WireMessage[] {
 	return payload.messages.filter((message) => message.role === "system");

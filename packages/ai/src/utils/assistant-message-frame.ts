@@ -171,7 +171,11 @@ export class AssistantMessageFrameEncoder {
 					coveredChars: content.text.length,
 					deltaChars: 0,
 				});
-				return { type: "text_start", contentIndex: event.contentIndex, content: cloneTextContent(content) };
+				return {
+					type: "text_start",
+					contentIndex: event.contentIndex,
+					content: cloneTextContent(content),
+				};
 			}
 			case "text_delta":
 				return this.encodeTextDelta(event.contentIndex, event.delta, "text");
@@ -233,7 +237,11 @@ export class AssistantMessageFrameEncoder {
 					catchupJson: "",
 					snapshotArguments: caughtUp ? "" : snapshotArguments,
 				});
-				return { type: "toolcall_start", contentIndex: event.contentIndex, toolCall: cloneToolCall(content) };
+				return {
+					type: "toolcall_start",
+					contentIndex: event.contentIndex,
+					toolCall: cloneToolCall(content),
+				};
 			}
 			case "toolcall_delta": {
 				const state = this.block(event.contentIndex, "toolCall");
@@ -392,7 +400,10 @@ export function reduceAssistantMessageFrames(frames: Iterable<AssistantMessageFr
 				if (frame.content.type !== "text") {
 					throw new Error(`text_start frame contains ${frame.content.type} content`);
 				}
-				appendBlock(message, states, frame.contentIndex, frame.content, { kind: "text", ended: false });
+				appendBlock(message, states, frame.contentIndex, frame.content, {
+					kind: "text",
+					ended: false,
+				});
 				break;
 			case "text_delta": {
 				const { block } = activeBlock(message, states, frame.contentIndex, "text", frame.type);

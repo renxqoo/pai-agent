@@ -168,7 +168,9 @@ function parseLegacyV3Entry(line: string, lineNumber: number): LegacyV3Entry {
 	try {
 		entry = JSON.parse(line) as LegacyV3Entry;
 	} catch (error) {
-		throw new Error(`Invalid legacy v3 JSONL record at line ${lineNumber}: not valid JSON`, { cause: error });
+		throw new Error(`Invalid legacy v3 JSONL record at line ${lineNumber}: not valid JSON`, {
+			cause: error,
+		});
 	}
 	const recordType: unknown = entry.type;
 	if (

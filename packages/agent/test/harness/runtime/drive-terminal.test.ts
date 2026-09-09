@@ -74,7 +74,9 @@ async function seedLeftovers(session: Session, operationId: string, state: Opera
 		storedValues.setValue(storedValues.operationMeta(operationId), meta(operationId, state)),
 		storedValues.setValue(storedValues.operationState(operationId), state),
 		storedValues.setValue(storedValues.operationToolArgs(operationId, "step", 0), { value: true }),
-		storedValues.setValue(storedValues.operationToolMemo(operationId, "invocation", "memo"), { value: true }),
+		storedValues.setValue(storedValues.operationToolMemo(operationId, "invocation", "memo"), {
+			value: true,
+		}),
 		storedValues.setValue(storedValues.operationPreparation(operationId, "task"), {
 			kind: "branch_summary",
 			messages: [],

@@ -266,7 +266,10 @@ describe("viewport layout", () => {
 			renderLayoutFrame(automatic, 6, 4, () => {}).lines.every((line) => !/[│┃]/.test(stripTerminalSequences(line))),
 		);
 
-		const alwaysFitting = new ScrollView(fittingContent, { scrollbar: "always", scrollbarThumbStyle });
+		const alwaysFitting = new ScrollView(fittingContent, {
+			scrollbar: "always",
+			scrollbarThumbStyle,
+		});
 		const alwaysFittingFrame = renderLayoutFrame(alwaysFitting, 6, 4, () => {});
 		assert.strictEqual(alwaysFittingFrame.root.children[0]?.rect.width, 5);
 		assert.ok(visible(alwaysFittingFrame.lines).every((line) => line.endsWith("┃")));

@@ -777,7 +777,13 @@ export async function compactWithRequest(
 		if (messagesToSummarize.length > 0) {
 			const historyResult = await generateSummaryWithRequest(
 				messagesToSummarize,
-				{ model, reserveTokens: settings.reserveTokens, customInstructions, previousSummary, thinkingLevel },
+				{
+					model,
+					reserveTokens: settings.reserveTokens,
+					customInstructions,
+					previousSummary,
+					thinkingLevel,
+				},
 				request,
 				context,
 			);
@@ -799,7 +805,13 @@ export async function compactWithRequest(
 	} else {
 		const summaryResult = await generateSummaryWithRequest(
 			messagesToSummarize,
-			{ model, reserveTokens: settings.reserveTokens, customInstructions, previousSummary, thinkingLevel },
+			{
+				model,
+				reserveTokens: settings.reserveTokens,
+				customInstructions,
+				previousSummary,
+				thinkingLevel,
+			},
 			request,
 			context,
 		);

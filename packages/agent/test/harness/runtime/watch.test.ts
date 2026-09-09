@@ -175,7 +175,12 @@ describe("runtime lane watch", () => {
 			intent: { kind: "run", promptEntryIds: [] },
 		};
 		await commit(session, [
-			sessionWrites.insertEntry({ id: "source", parentId: null, type: "message", message: sourceMessage }),
+			sessionWrites.insertEntry({
+				id: "source",
+				parentId: null,
+				type: "message",
+				message: sourceMessage,
+			}),
 			...Object.values(ids).map((id) =>
 				storedValues.setValue(
 					storedValues.pendingEntry(id),
@@ -204,7 +209,13 @@ describe("runtime lane watch", () => {
 			{ entryId: ids.next, kind: "nextRun", type: "message", message: { content: ids.next } },
 			{ entryId: ids.steer, kind: "steer", type: "message", message: { content: ids.steer } },
 			{ entryId: ids.follow, kind: "followUp", type: "message", message: { content: ids.follow } },
-			{ entryId: ids.write, kind: "write", type: "custom", customType: "note", data: { id: ids.write } },
+			{
+				entryId: ids.write,
+				kind: "write",
+				type: "custom",
+				customType: "note",
+				data: { id: ids.write },
+			},
 		]);
 		expect(watch.snapshot.operation).toMatchObject({
 			id: operationId,
@@ -316,7 +327,12 @@ describe("runtime lane watch", () => {
 		};
 		const assistant = fauxAssistantMessage([
 			{ type: "text", text: "before" },
-			{ type: "toolCall", id: "call-completed", name: "completed", arguments: { source: "completed" } },
+			{
+				type: "toolCall",
+				id: "call-completed",
+				name: "completed",
+				arguments: { source: "completed" },
+			},
 			{ type: "toolCall", id: "call-running", name: "read", arguments: { source: "running" } },
 			{
 				type: "toolCall",
@@ -325,12 +341,22 @@ describe("runtime lane watch", () => {
 				arguments: { source: "without-checkpoint" },
 			},
 			{ type: "toolCall", id: "call-ready", name: "real", arguments: { source: "real" } },
-			{ type: "toolCall", id: "call-synthetic", name: "missing", arguments: { source: "synthetic" } },
+			{
+				type: "toolCall",
+				id: "call-synthetic",
+				name: "missing",
+				arguments: { source: "synthetic" },
+			},
 			{ type: "toolCall", id: "call-planned", name: "planned", arguments: { source: "planned" } },
 		]);
 		const toolOperationId = toolSession.idGenerator.next();
 		await commit(toolSession, [
-			sessionWrites.insertEntry({ id: "assistant", parentId: null, type: "message", message: assistant }),
+			sessionWrites.insertEntry({
+				id: "assistant",
+				parentId: null,
+				type: "message",
+				message: assistant,
+			}),
 			storedValues.setValue(storedValues.operationMeta(toolOperationId), {
 				operationId: toolOperationId,
 				lane: "main",
@@ -355,7 +381,12 @@ describe("runtime lane watch", () => {
 							replay: "never",
 						},
 						{ status: "outcome_ready", sourceIndex: 4, resultEntryId: "ready", terminate: true },
-						{ status: "outcome_ready", sourceIndex: 5, resultEntryId: "synthetic", terminate: false },
+						{
+							status: "outcome_ready",
+							sourceIndex: 5,
+							resultEntryId: "synthetic",
+							terminate: false,
+						},
 						{ status: "planned", sourceIndex: 6, resultEntryId: "planned" },
 					],
 				},
@@ -373,9 +404,15 @@ describe("runtime lane watch", () => {
 					timestamp: 2,
 				},
 			}),
-			storedValues.setValue(storedValues.operationToolArgs(toolOperationId, "turn", 2), { path: "file" }),
-			storedValues.setValue(storedValues.operationToolArgs(toolOperationId, "turn", 3), { path: "output" }),
-			storedValues.setValue(storedValues.operationToolArgs(toolOperationId, "turn", 4), { path: "settled" }),
+			storedValues.setValue(storedValues.operationToolArgs(toolOperationId, "turn", 2), {
+				path: "file",
+			}),
+			storedValues.setValue(storedValues.operationToolArgs(toolOperationId, "turn", 3), {
+				path: "output",
+			}),
+			storedValues.setValue(storedValues.operationToolArgs(toolOperationId, "turn", 4), {
+				path: "settled",
+			}),
 			storedValues.setValue(storedValues.pendingToolOutput(toolOperationId, "result"), {
 				content: [{ type: "text", text: "partial" }],
 				details: { bytes: 1 },
@@ -486,7 +523,14 @@ describe("runtime lane watch", () => {
 						assistantEntryId: "assistant",
 						configuration,
 						turnId: "turn",
-						calls: [{ status: "outcome_ready", sourceIndex: 0, resultEntryId: "result", terminate: false }],
+						calls: [
+							{
+								status: "outcome_ready",
+								sourceIndex: 0,
+								resultEntryId: "result",
+								terminate: false,
+							},
+						],
 					},
 				}),
 				storedValues.setValue(storedValues.branchTip("main"), "assistant"),

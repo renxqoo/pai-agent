@@ -270,7 +270,9 @@ describe("SettingsManager", () => {
 			await manager.flush();
 
 			expect(manager.getProjectSettings()).toEqual({});
-			expect(JSON.parse(readFileSync(projectSettingsPath, "utf-8"))).toEqual({ packages: ["npm:existing"] });
+			expect(JSON.parse(readFileSync(projectSettingsPath, "utf-8"))).toEqual({
+				packages: ["npm:existing"],
+			});
 		});
 
 		it("should read default project trust from global settings only", () => {

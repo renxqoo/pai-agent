@@ -22,7 +22,9 @@ describe("clipboard commands", () => {
 		const timer = setInterval(() => ticks++, 10);
 		try {
 			expect(
-				await runClipboardCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { timeoutMs: 200 }),
+				await runClipboardCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+					timeoutMs: 200,
+				}),
 			).toBeUndefined();
 			expect(ticks).toBeGreaterThan(5);
 		} finally {

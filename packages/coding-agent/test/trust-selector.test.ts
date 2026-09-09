@@ -47,7 +47,10 @@ describe("TrustSelectorComponent", () => {
 
 		selector.handleInput("\n");
 
-		expect(onSelect).toHaveBeenCalledWith({ trusted: true, updates: [{ path: "/project", decision: true }] });
+		expect(onSelect).toHaveBeenCalledWith({
+			trusted: true,
+			updates: [{ path: "/project", decision: true }],
+		});
 	});
 
 	it("labels saved ancestor decisions as inherited", () => {

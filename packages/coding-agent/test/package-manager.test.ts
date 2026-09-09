@@ -44,7 +44,14 @@ interface PackageManagerInternals {
 		scope: "user" | "project" | "temporary",
 	): string;
 	getGitInstallPath(
-		source: { type: "git"; repo: string; host: string; path: string; pinned: boolean; ref?: string },
+		source: {
+			type: "git";
+			repo: string;
+			host: string;
+			path: string;
+			pinned: boolean;
+			ref?: string;
+		},
 		scope: "user" | "project" | "temporary",
 	): string;
 }
@@ -779,7 +786,9 @@ Content`,
 
 			await packageManager.install(source);
 
-			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], { cwd: targetDir });
+			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], {
+				cwd: targetDir,
+			});
 		});
 
 		it("should remove a newly created checkout when git clone fails", async () => {
@@ -838,12 +847,16 @@ Content`,
 
 			await packageManager.install(source);
 
-			expect(runCommandSpy).toHaveBeenCalledWith("git", ["fetch", "origin", "v2"], { cwd: targetDir });
+			expect(runCommandSpy).toHaveBeenCalledWith("git", ["fetch", "origin", "v2"], {
+				cwd: targetDir,
+			});
 			expect(runCommandSpy).toHaveBeenCalledWith("git", ["reset", "--hard", "FETCH_HEAD^{commit}"], {
 				cwd: targetDir,
 			});
 			expect(runCommandSpy).toHaveBeenCalledWith("git", ["clean", "-fdx"], { cwd: targetDir });
-			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], { cwd: targetDir });
+			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], {
+				cwd: targetDir,
+			});
 		});
 
 		it("should reconcile an existing git checkout to its update target when installing without a ref", async () => {
@@ -929,7 +942,9 @@ Content`,
 
 			await packageManager.update(source);
 
-			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], { cwd: targetDir });
+			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], {
+				cwd: targetDir,
+			});
 		});
 
 		it("should repair missing git package dependencies when the checkout is already current", async () => {
@@ -954,7 +969,9 @@ Content`,
 
 			await packageManager.update(source);
 
-			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], { cwd: targetDir });
+			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], {
+				cwd: targetDir,
+			});
 			expect(runCommandSpy).not.toHaveBeenCalledWith("git", ["clean", "-fdx"], { cwd: targetDir });
 		});
 
@@ -986,7 +1003,9 @@ Content`,
 
 			await expect(packageManager.update(source)).rejects.toThrow("simulated clean failure");
 
-			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], { cwd: targetDir });
+			expect(runCommandSpy).toHaveBeenCalledWith("npm", ["install", "--omit=dev"], {
+				cwd: targetDir,
+			});
 		});
 
 		it("should use plain install through npmCommand argv when updating git package dependencies", async () => {
@@ -1623,8 +1642,12 @@ Content`,
 
 		it("should expand positive glob manifest entries before collecting skills", async () => {
 			const pkgDir = join(tempDir, "skill-manifest-glob-pkg");
-			mkdirSync(join(pkgDir, "plugins/pdf-to-markdown/skills/pdf-to-markdown"), { recursive: true });
-			mkdirSync(join(pkgDir, "plugins/nutrient-dws/skills/document-processor-api"), { recursive: true });
+			mkdirSync(join(pkgDir, "plugins/pdf-to-markdown/skills/pdf-to-markdown"), {
+				recursive: true,
+			});
+			mkdirSync(join(pkgDir, "plugins/nutrient-dws/skills/document-processor-api"), {
+				recursive: true,
+			});
 			writeFileSync(
 				join(pkgDir, "plugins/pdf-to-markdown/skills/pdf-to-markdown", "SKILL.md"),
 				"---\nname: pdf-to-markdown\ndescription: PDF to Markdown\n---\nContent",
@@ -1852,8 +1875,14 @@ Content`,
 				]),
 			);
 			expect(runCommandSpy).not.toHaveBeenCalled();
-			expect(states[join(pkgDir, "extensions", "foo.ts")]).toEqual({ enabled: false, scope: "project" });
-			expect(states[join(pkgDir, "extensions", "bar.ts")]).toEqual({ enabled: true, scope: "user" });
+			expect(states[join(pkgDir, "extensions", "foo.ts")]).toEqual({
+				enabled: false,
+				scope: "project",
+			});
+			expect(states[join(pkgDir, "extensions", "bar.ts")]).toEqual({
+				enabled: true,
+				scope: "user",
+			});
 		});
 
 		it("should resolve autoload-disabled package entries as positive-only without a global package", async () => {
@@ -1865,7 +1894,11 @@ Content`,
 			writeFileSync(join(pkgDir, "extensions", "bar.ts"), "export default function() {}");
 			writeFileSync(join(pkgDir, "skills", "foo", "SKILL.md"), "# Foo\n");
 			settingsManager.setProjectPackages([
-				{ source: relative(join(tempDir, ".pi"), pkgDir), autoload: false, extensions: ["+extensions/foo.ts"] },
+				{
+					source: relative(join(tempDir, ".pi"), pkgDir),
+					autoload: false,
+					extensions: ["+extensions/foo.ts"],
+				},
 			]);
 
 			const result = await packageManager.resolve();

@@ -253,7 +253,10 @@ export class SettingsList implements Component {
 		return this.searchEnabled ? this.filteredItems : this.items;
 	}
 
-	private getVisibleRange(displayItems: readonly SettingItem[]): { startIndex: number; endIndex: number } {
+	private getVisibleRange(displayItems: readonly SettingItem[]): {
+		startIndex: number;
+		endIndex: number;
+	} {
 		const startIndex = Math.max(
 			0,
 			Math.min(this.selectedIndex - Math.floor(this.maxVisible / 2), displayItems.length - this.maxVisible),

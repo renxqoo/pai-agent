@@ -43,7 +43,10 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two"), fauxAssistantMessage("three")]);
 
 		const authStorage = AuthStorage.inMemory();
-		await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		await authStorage.modify(faux.getModel().provider, async () => ({
+			type: "api_key",
+			key: "faux-key",
+		}));
 		const modelRuntime = await ModelRuntime.create({
 			credentials: authStorage,
 			modelsPath: join(tempDir, "models.json"),
@@ -238,7 +241,11 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		await runtimeHost.session.bindExtensions({});
 		expect(events).toEqual([
 			{ type: "session_before_fork", entryId: userMessage.entryId, position: "before" },
-			{ type: "session_shutdown", reason: "fork", targetSessionFile: runtimeHost.session.sessionFile },
+			{
+				type: "session_shutdown",
+				reason: "fork",
+				targetSessionFile: runtimeHost.session.sessionFile,
+			},
 			{ type: "session_start", reason: "fork", previousSessionFile },
 		]);
 

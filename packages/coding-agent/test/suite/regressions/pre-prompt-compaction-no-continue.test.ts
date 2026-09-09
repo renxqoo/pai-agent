@@ -50,7 +50,10 @@ describe("pre-prompt compaction regression", () => {
 			timestamp: now - 1000,
 		});
 		const lengthStopAssistant: AssistantMessage = {
-			...fauxAssistantMessage("length-stop assistant response", { stopReason: "length", timestamp: now - 500 }),
+			...fauxAssistantMessage("length-stop assistant response", {
+				stopReason: "length",
+				timestamp: now - 500,
+			}),
 			api: model.api,
 			provider: model.provider,
 			model: model.id,

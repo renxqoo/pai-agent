@@ -147,7 +147,10 @@ describe("Anthropic eager tool input streaming compatibility", () => {
 			{ supportsStrictTools: true },
 			createContext([schemaCompatibilityTool]),
 		);
-		const parameters = schemaCompatibilityTool.parameters as { properties?: unknown; required?: unknown };
+		const parameters = schemaCompatibilityTool.parameters as {
+			properties?: unknown;
+			required?: unknown;
+		};
 		expect(getFirstToolInputSchema(legacyRequest.body)).toEqual({
 			type: "object",
 			properties: parameters.properties,

@@ -402,7 +402,12 @@ export class ExperimentalClientTui implements Component {
 	#select(title: string, items: readonly SelectItem[], selectedValue?: string): Promise<string | undefined> {
 		if (this.#selection !== undefined) throw new Error("A slash command selector is already active");
 		return new Promise((resolve) => {
-			this.#selection = { title, items, ...(selectedValue === undefined ? {} : { selectedValue }), resolve };
+			this.#selection = {
+				title,
+				items,
+				...(selectedValue === undefined ? {} : { selectedValue }),
+				resolve,
+			};
 			this.#screen = "select";
 			this.#rebuild();
 		});

@@ -63,7 +63,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model);
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "high" });
 		expect(payload.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
 	});
@@ -78,7 +81,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model, { reasoning: "xhigh" });
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "xhigh" });
 		expect(payload.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
 	});
@@ -88,7 +94,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model);
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "high" });
 		expect(payload.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
 	});
@@ -98,7 +107,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model);
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "high" });
 		expect(payload.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
 	});
@@ -108,7 +120,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model);
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "high" });
 		expect(payload.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
 	});
@@ -118,7 +133,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model, { reasoning: "xhigh" });
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "xhigh" });
 		expect(payload.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
 	});
@@ -128,7 +146,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model, { reasoning: "xhigh" });
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "xhigh" });
 	});
 
@@ -142,7 +163,10 @@ describe("Bedrock thinking payload", () => {
 
 		const payload = await capturePayload(model);
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "enabled", budget_tokens: 16384 });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: 16384,
+		});
 		expect(payload.additionalModelRequestFields?.anthropic_beta).toEqual(["interleaved-thinking-2025-05-14"]);
 	});
 
@@ -206,7 +230,10 @@ describe("Application inference profile support", () => {
 
 		const payload = await capturePayload(model);
 
-		expect(payload.additionalModelRequestFields?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(payload.additionalModelRequestFields?.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
 		expect(payload.additionalModelRequestFields?.output_config).toEqual({ effort: "high" });
 	});
 

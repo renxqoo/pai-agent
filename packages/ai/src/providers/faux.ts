@@ -375,7 +375,12 @@ async function streamWithDeltas(
 					return;
 				}
 				(partial.content[index] as ThinkingContent).thinking += chunk;
-				stream.push({ type: "thinking_delta", contentIndex: index, delta: chunk, partial: { ...partial } });
+				stream.push({
+					type: "thinking_delta",
+					contentIndex: index,
+					delta: chunk,
+					partial: { ...partial },
+				});
 			}
 			stream.push({
 				type: "thinking_end",
@@ -398,9 +403,19 @@ async function streamWithDeltas(
 					return;
 				}
 				(partial.content[index] as TextContent).text += chunk;
-				stream.push({ type: "text_delta", contentIndex: index, delta: chunk, partial: { ...partial } });
+				stream.push({
+					type: "text_delta",
+					contentIndex: index,
+					delta: chunk,
+					partial: { ...partial },
+				});
 			}
-			stream.push({ type: "text_end", contentIndex: index, content: block.text, partial: { ...partial } });
+			stream.push({
+				type: "text_end",
+				contentIndex: index,
+				content: block.text,
+				partial: { ...partial },
+			});
 			continue;
 		}
 
@@ -414,10 +429,20 @@ async function streamWithDeltas(
 				stream.end(aborted);
 				return;
 			}
-			stream.push({ type: "toolcall_delta", contentIndex: index, delta: chunk, partial: { ...partial } });
+			stream.push({
+				type: "toolcall_delta",
+				contentIndex: index,
+				delta: chunk,
+				partial: { ...partial },
+			});
 		}
 		(partial.content[index] as ToolCall).arguments = block.arguments;
-		stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: { ...partial } });
+		stream.push({
+			type: "toolcall_end",
+			contentIndex: index,
+			toolCall: block,
+			partial: { ...partial },
+		});
 	}
 
 	if (message.stopReason === "pending") {

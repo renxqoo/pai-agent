@@ -31,7 +31,11 @@ vi.mock("child_process", () => ({
 	),
 	spawnSync: vi.fn((_command: string, args: readonly string[]) => {
 		if (args[1] === "symbolic-ref") {
-			return { status: resolvedBranch ? 0 : 1, stdout: resolvedBranch ? `${resolvedBranch}\n` : "", stderr: "" };
+			return {
+				status: resolvedBranch ? 0 : 1,
+				stdout: resolvedBranch ? `${resolvedBranch}\n` : "",
+				stderr: "",
+			};
 		}
 		return { status: 1, stdout: "", stderr: "" };
 	}),

@@ -36,7 +36,13 @@ describe("StorageBackedSession", () => {
 		const session = new StorageBackedSession(metadata, storage);
 		const data = { nested: ["original"] };
 		const transaction: Write[] = [
-			sessionWrites.insertEntry({ id: ENTRY_ID, parentId: null, type: "custom", customType: "note", data }),
+			sessionWrites.insertEntry({
+				id: ENTRY_ID,
+				parentId: null,
+				type: "custom",
+				customType: "note",
+				data,
+			}),
 			storedValues.setValue(storedValues.value<unknown>("test.value", "state"), data),
 		];
 
@@ -63,7 +69,12 @@ describe("StorageBackedSession", () => {
 			(mutator) =>
 				mutator.commit(
 					[
-						sessionWrites.insertEntry({ id: ENTRY_ID, parentId: null, type: "custom", customType: "note" }),
+						sessionWrites.insertEntry({
+							id: ENTRY_ID,
+							parentId: null,
+							type: "custom",
+							customType: "note",
+						}),
 						storedValues.setValue(scalar, "state"),
 						storedValues.appendList(events, "event"),
 						sessionWrites.insertUsage({
@@ -235,8 +246,18 @@ describe("StorageBackedSession", () => {
 		const session = new StorageBackedSession(metadata, storage);
 		const childId = "00000000-0000-7000-8000-000000000002";
 		await commitSession(session, [
-			sessionWrites.insertEntry({ id: ENTRY_ID, parentId: null, type: "custom", customType: "root" }),
-			sessionWrites.insertEntry({ id: childId, parentId: ENTRY_ID, type: "custom", customType: "child" }),
+			sessionWrites.insertEntry({
+				id: ENTRY_ID,
+				parentId: null,
+				type: "custom",
+				customType: "root",
+			}),
+			sessionWrites.insertEntry({
+				id: childId,
+				parentId: ENTRY_ID,
+				type: "custom",
+				customType: "child",
+			}),
 		]);
 
 		await expect(
@@ -280,7 +301,12 @@ describe("StorageBackedSession", () => {
 
 		await expect(
 			commitSession(session, [
-				sessionWrites.insertEntry({ id: ENTRY_ID, parentId: null, type: "message", message: pending }),
+				sessionWrites.insertEntry({
+					id: ENTRY_ID,
+					parentId: null,
+					type: "message",
+					message: pending,
+				}),
 			]),
 		).rejects.toThrow("Cannot persist a pending assistant message");
 		expect(storage.getCommitAttempts()).toEqual([]);
@@ -298,7 +324,12 @@ describe("StorageBackedSession", () => {
 			display: true,
 			timestamp: NOW,
 		};
-		const entry: NewEntry<MessageEntry> = { id: ENTRY_ID, parentId: null, type: "message", message };
+		const entry: NewEntry<MessageEntry> = {
+			id: ENTRY_ID,
+			parentId: null,
+			type: "message",
+			message,
+		};
 
 		const result = await commitSession(session, [sessionWrites.insertEntry(entry)]);
 
@@ -334,7 +365,12 @@ describe("StorageBackedSession", () => {
 		const storage = new InstrumentedStorage(new MemoryStorage({ now: () => NOW }));
 		const session = new StorageBackedSession(metadata, storage);
 		const transaction = [
-			sessionWrites.insertEntry({ id: ENTRY_ID, parentId: "missing", type: "custom", customType: "note" }),
+			sessionWrites.insertEntry({
+				id: ENTRY_ID,
+				parentId: "missing",
+				type: "custom",
+				customType: "note",
+			}),
 		] satisfies Write[];
 
 		await expect(
@@ -362,7 +398,9 @@ describe("StorageBackedSession", () => {
 	it("accepts an injected id generator for deterministic execution tests", async () => {
 		let next = 0;
 		const idGenerator = { next: (timestampMs?: number) => `${timestampMs ?? "now"}:${++next}` };
-		const session = new StorageBackedSession(metadata, new MemoryStorage({ now: () => NOW }), { idGenerator });
+		const session = new StorageBackedSession(metadata, new MemoryStorage({ now: () => NOW }), {
+			idGenerator,
+		});
 
 		expect(session.idGenerator).toBe(idGenerator);
 		expect(session.idGenerator.next(7)).toBe("7:1");

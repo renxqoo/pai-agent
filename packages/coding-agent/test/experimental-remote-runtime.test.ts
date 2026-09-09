@@ -528,8 +528,14 @@ describe("experimental durable server composition", () => {
 			.map((state) => state.status === "attaching" && state.sessionId === "demo-1")
 			.lastIndexOf(true);
 		expect(latestAttach).toBeGreaterThanOrEqual(0);
-		expect(states.slice(latestAttach)).not.toContainEqual({ status: "attached", sessionId: "demo-2" });
-		expect(states.slice(latestAttach)).not.toContainEqual({ status: "degraded", sessionId: "demo-2" });
+		expect(states.slice(latestAttach)).not.toContainEqual({
+			status: "attached",
+			sessionId: "demo-2",
+		});
+		expect(states.slice(latestAttach)).not.toContainEqual({
+			status: "degraded",
+			sessionId: "demo-2",
+		});
 		expect(errors).toEqual([]);
 	});
 
@@ -639,7 +645,9 @@ describe("experimental durable server composition", () => {
 		onTestFinished(() => spawn.mockRestore());
 		const { runtime } = await makeServer();
 		const client = await attachClient(runtime, "demo-1");
-		const services = createSessionServiceBinding(client, { services: [AgentController, SessionPlugins, Transcript] });
+		const services = createSessionServiceBinding(client, {
+			services: [AgentController, SessionPlugins, Transcript],
+		});
 		const controller = services.use(AgentController);
 		const transcript = services.use(Transcript);
 		await services.ready(BACKGROUND_CONTEXT);

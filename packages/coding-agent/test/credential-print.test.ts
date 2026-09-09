@@ -103,7 +103,9 @@ describe("credential print commands", () => {
 			credentials: false,
 			noRefresh: false,
 		});
-		expect(parseAuthCommand(["auth", "print-bearer-token"])).toMatchObject({ kind: "bearer_token" });
+		expect(parseAuthCommand(["auth", "print-bearer-token"])).toMatchObject({
+			kind: "bearer_token",
+		});
 		expect(parseAuthCommand(["auth", "print-bearer-token", "--min-expiry", "30m"])).toEqual({
 			kind: "bearer_token",
 			args: [],

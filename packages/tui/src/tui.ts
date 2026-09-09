@@ -318,7 +318,10 @@ type OverlayFocusRestorePolicy = "clear" | "preserve";
  */
 export class Container implements Component {
 	children: Component[] = [];
-	private mouseLayout?: { width: number; children: Array<{ component: Component; height: number }> };
+	private mouseLayout?: {
+		width: number;
+		children: Array<{ component: Component; height: number }>;
+	};
 
 	addChild(component: Component): void {
 		this.children.push(component);
@@ -346,7 +349,10 @@ export class Container implements Component {
 		const mouseChildren =
 			this.mouseLayout?.width === event.width
 				? this.mouseLayout.children
-				: this.children.map((component) => ({ component, height: component.render(event.width).length }));
+				: this.children.map((component) => ({
+						component,
+						height: component.render(event.width).length,
+					}));
 		let childY = 0;
 		for (const { component: child, height: childHeight } of mouseChildren) {
 			if (event.y >= childY && event.y < childY + childHeight) {
@@ -821,7 +827,10 @@ export abstract class TuiBase extends Container implements TUI {
 	}
 
 	/** Dispatch to the visually topmost overlay under the pointer. */
-	protected dispatchMouseToOverlay(event: TuiMouseEvent): { hit: boolean; result?: TuiMouseDispatchResult } {
+	protected dispatchMouseToOverlay(event: TuiMouseEvent): {
+		hit: boolean;
+		result?: TuiMouseDispatchResult;
+	} {
 		for (let index = this.renderedOverlayLayouts.length - 1; index >= 0; index--) {
 			const layout = this.renderedOverlayLayouts[index]!;
 			if (
@@ -1048,7 +1057,10 @@ export abstract class TuiBase extends Container implements TUI {
 			if (topVisible) {
 				this.setFocus(topVisible.component);
 			} else {
-				this.setFocusInternal({ component: focusedOverlay.preFocus, overlayFocusRestore: "preserve" });
+				this.setFocusInternal({
+					component: focusedOverlay.preFocus,
+					overlayFocusRestore: "preserve",
+				});
 			}
 		}
 
@@ -1286,7 +1298,13 @@ export abstract class TuiBase extends Container implements TUI {
 		for (const entry of this.overlayStack) entry.bounds = undefined;
 
 		// Pre-render all visible overlays and calculate positions
-		const rendered: { entry: OverlayStackEntry; overlayLines: string[]; row: number; col: number; w: number }[] = [];
+		const rendered: {
+			entry: OverlayStackEntry;
+			overlayLines: string[];
+			row: number;
+			col: number;
+			w: number;
+		}[] = [];
 		let minLinesNeeded = result.length;
 
 		const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));

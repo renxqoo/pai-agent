@@ -119,29 +119,29 @@ Use one axis-neutral entry type for both vertical and horizontal stacks.
 
 ```ts
 export interface StackEntryOptions {
-	/** Initial size on the stack's main axis. Defaults to "auto". */
-	basis?: number | "auto";
-	/** Share of positive remaining space. Defaults to 0. */
-	grow?: number;
-	/** Relative willingness to shrink when content overflows. Defaults to 1. */
-	shrink?: number;
-	/** Minimum allocated size on the main axis. Defaults to 0. */
-	minSize?: number;
-	/** Maximum allocated size on the main axis. */
-	maxSize?: number;
-	/** Conditionally omit this entry for a viewport size. */
-	visible?: (viewport: { width: number; height: number }) => boolean;
+  /** Initial size on the stack's main axis. Defaults to "auto". */
+  basis?: number | "auto";
+  /** Share of positive remaining space. Defaults to 0. */
+  grow?: number;
+  /** Relative willingness to shrink when content overflows. Defaults to 1. */
+  shrink?: number;
+  /** Minimum allocated size on the main axis. Defaults to 0. */
+  minSize?: number;
+  /** Maximum allocated size on the main axis. */
+  maxSize?: number;
+  /** Conditionally omit this entry for a viewport size. */
+  visible?: (viewport: { width: number; height: number }) => boolean;
 }
 
 export interface StackEntry extends StackEntryOptions {
-	component: Component;
+  component: Component;
 }
 
 export type StackChild = Component | StackEntry;
 
 export interface StackOptions {
-	gap?: number;
-	align?: "stretch" | "start" | "center" | "end";
+  gap?: number;
+  align?: "stretch" | "start" | "center" | "end";
 }
 ```
 
@@ -151,13 +151,13 @@ Use explicit fields in implementations. Do not use TypeScript parameter properti
 
 ```ts
 export class VStack implements Component {
-	constructor(children?: StackChild[], options?: StackOptions);
+  constructor(children?: StackChild[], options?: StackOptions);
 
-	addChild(component: Component, options?: StackEntryOptions): void;
-	removeChild(component: Component): void;
-	clear(): void;
-	invalidate(): void;
-	render(width: number): string[];
+  addChild(component: Component, options?: StackEntryOptions): void;
+  removeChild(component: Component): void;
+  clear(): void;
+  invalidate(): void;
+  render(width: number): string[];
 }
 ```
 
@@ -173,13 +173,13 @@ Behavior:
 
 ```ts
 export class HStack implements Component {
-	constructor(children?: StackChild[], options?: StackOptions);
+  constructor(children?: StackChild[], options?: StackOptions);
 
-	addChild(component: Component, options?: StackEntryOptions): void;
-	removeChild(component: Component): void;
-	clear(): void;
-	invalidate(): void;
-	render(width: number): string[];
+  addChild(component: Component, options?: StackEntryOptions): void;
+  removeChild(component: Component): void;
+  clear(): void;
+  invalidate(): void;
+  render(width: number): string[];
 }
 ```
 
@@ -195,28 +195,28 @@ Behavior:
 
 ```ts
 export interface ScrollViewOptions {
-	axis?: "vertical";
-	/** Follow content growth while positioned at the end. */
-	follow?: "none" | "end";
-	/** Designate this view as the fallback target for global scroll actions. */
-	primary?: boolean;
-	/** Bubble unused wheel delta to an outer scroll view. */
-	overscroll?: "chain" | "contain";
-	/** Reserved for a later visible scrollbar implementation. */
-	scrollbar?: "hidden" | "auto" | "always";
+  axis?: "vertical";
+  /** Follow content growth while positioned at the end. */
+  follow?: "none" | "end";
+  /** Designate this view as the fallback target for global scroll actions. */
+  primary?: boolean;
+  /** Bubble unused wheel delta to an outer scroll view. */
+  overscroll?: "chain" | "contain";
+  /** Reserved for a later visible scrollbar implementation. */
+  scrollbar?: "hidden" | "auto" | "always";
 }
 
 export class ScrollView implements Component {
-	constructor(component: Component, options?: ScrollViewOptions);
+  constructor(component: Component, options?: ScrollViewOptions);
 
-	get scrollTop(): number;
-	get isFollowingEnd(): boolean;
+  get scrollTop(): number;
+  get isFollowingEnd(): boolean;
 
-	scrollBy(lines: number): number;
-	scrollToStart(): void;
-	scrollToEnd(): void;
-	invalidate(): void;
-	render(width: number): string[];
+  scrollBy(lines: number): number;
+  scrollToStart(): void;
+  scrollToEnd(): void;
+  invalidate(): void;
+  render(width: number): string[];
 }
 ```
 
@@ -252,7 +252,7 @@ Add an explicit capability:
 
 ```ts
 export interface ViewportTUI extends TUI {
-	setLayoutRoot(component: Component | undefined): void;
+  setLayoutRoot(component: Component | undefined): void;
 }
 
 export function isViewportTUI(tui: TUI): tui is ViewportTUI;
@@ -272,38 +272,38 @@ Suggested module: `packages/tui/src/layout.ts`.
 
 ```ts
 interface LayoutConstraints {
-	width: number;
-	/** Undefined means unbounded height. */
-	height: number | undefined;
+  width: number;
+  /** Undefined means unbounded height. */
+  height: number | undefined;
 }
 
 interface LayoutRect {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 interface LayoutBox {
-	component: Component;
-	rect: LayoutRect;
-	clip: LayoutRect;
-	children: LayoutBox[];
-	parent?: LayoutBox;
-	/** Leaf-rendered lines. Keep the returned array by reference. */
-	lines?: readonly string[];
-	/** Present when this box represents a ScrollView viewport. */
-	scrollView?: ScrollView;
-	/** Z/layer ordering for hit testing when needed. */
-	layer: number;
+  component: Component;
+  rect: LayoutRect;
+  clip: LayoutRect;
+  children: LayoutBox[];
+  parent?: LayoutBox;
+  /** Leaf-rendered lines. Keep the returned array by reference. */
+  lines?: readonly string[];
+  /** Present when this box represents a ScrollView viewport. */
+  scrollView?: ScrollView;
+  /** Z/layer ordering for hit testing when needed. */
+  layer: number;
 }
 
 interface LayoutFrame {
-	root: LayoutBox;
-	width: number;
-	height: number;
-	lines: string[];
-	primaryScrollView?: ScrollView;
+  root: LayoutBox;
+  width: number;
+  height: number;
+  lines: string[];
+  primaryScrollView?: ScrollView;
 }
 ```
 
@@ -428,20 +428,20 @@ The transcript should be flexible and the dock should prefer intrinsic height:
 
 ```ts
 new VStack([
-	{
-		component: transcriptScrollView,
-		basis: 0,
-		grow: 1,
-		shrink: 1,
-		minSize: 1,
-	},
-	{
-		component: dock,
-		basis: "auto",
-		grow: 0,
-		shrink: 1,
-		minSize: 1,
-	},
+  {
+    component: transcriptScrollView,
+    basis: 0,
+    grow: 1,
+    shrink: 1,
+    minSize: 1,
+  },
+  {
+    component: dock,
+    basis: "auto",
+    grow: 0,
+    shrink: 1,
+    minSize: 1,
+  },
 ]);
 ```
 
@@ -501,12 +501,12 @@ Keep terminal mouse parsing in `TuiAltScreen`, but convert parsed sequences into
 
 ```ts
 interface TuiMouseEvent {
-	type: "press" | "release" | "move" | "wheel";
-	x: number;
-	y: number;
-	button: number;
-	deltaX: number;
-	deltaY: number;
+  type: "press" | "release" | "move" | "wheel";
+  x: number;
+  y: number;
+  button: number;
+  deltaX: number;
+  deltaY: number;
 }
 ```
 
@@ -744,23 +744,23 @@ Because `documentContainer` is visually transparent, its three children render e
 
 ```ts
 const transcript = new ScrollView(this.documentContainer, {
-	follow: "end",
-	primary: true,
-	overscroll: "chain",
+  follow: "end",
+  primary: true,
+  overscroll: "chain",
 });
 
 const dock = new VStack([
-	{ component: this.pendingMessagesContainer, shrink: 1, minSize: 0 },
-	{ component: this.statusContainer, shrink: 1, minSize: 0 },
-	{ component: this.widgetContainerAbove, shrink: 1, minSize: 0 },
-	{ component: this.editorContainer, shrink: 1, minSize: 3 },
-	{ component: this.widgetContainerBelow, shrink: 1, minSize: 0 },
-	{ component: this.footerContainer, shrink: 1, minSize: 1 },
+  { component: this.pendingMessagesContainer, shrink: 1, minSize: 0 },
+  { component: this.statusContainer, shrink: 1, minSize: 0 },
+  { component: this.widgetContainerAbove, shrink: 1, minSize: 0 },
+  { component: this.editorContainer, shrink: 1, minSize: 3 },
+  { component: this.widgetContainerBelow, shrink: 1, minSize: 0 },
+  { component: this.footerContainer, shrink: 1, minSize: 1 },
 ]);
 
 const root = new VStack([
-	{ component: transcript, basis: 0, grow: 1, shrink: 1, minSize: 1 },
-	{ component: dock, basis: "auto", grow: 0, shrink: 1, minSize: 1 },
+  { component: transcript, basis: 0, grow: 1, shrink: 1, minSize: 1 },
+  { component: dock, basis: "auto", grow: 0, shrink: 1, minSize: 1 },
 ]);
 
 viewportTui.setLayoutRoot(root);
@@ -803,7 +803,7 @@ Revisit this code:
 
 ```ts
 if (hadActiveStatusIndicator && !this.options.alt && this.ui.getClearOnShrink()) {
-	this.statusContainer.addChild(this.idleStatus);
+  this.statusContainer.addChild(this.idleStatus);
 }
 ```
 

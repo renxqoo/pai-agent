@@ -168,7 +168,12 @@ function buildGroups(resolved: ResolvedPaths, agentDir: string): ResourceGroup[]
 	});
 
 	// Sort subgroups within each group by type order, and items by name
-	const typeOrder: Record<ResourceType, number> = { extensions: 0, skills: 1, prompts: 2, themes: 3 };
+	const typeOrder: Record<ResourceType, number> = {
+		extensions: 0,
+		skills: 1,
+		prompts: 2,
+		themes: 3,
+	};
 	for (const group of groups) {
 		group.subgroups.sort((a, b) => typeOrder[a.type] - typeOrder[b.type]);
 		for (const subgroup of group.subgroups) {
@@ -803,8 +808,13 @@ class ResourceList implements Component, Focusable {
 	private createPackageOverrideSource(item: ResourceItem): PackageSource {
 		const source = item.metadata.source;
 		if (!isLocalPath(source)) return { source, autoload: false };
-		const sourcePath = resolvePath(source, this.getTopLevelBaseDir(this.getItemScope(item)), { trim: true });
-		return { source: relative(this.getTopLevelBaseDir("project"), sourcePath) || ".", autoload: false };
+		const sourcePath = resolvePath(source, this.getTopLevelBaseDir(this.getItemScope(item)), {
+			trim: true,
+		});
+		return {
+			source: relative(this.getTopLevelBaseDir("project"), sourcePath) || ".",
+			autoload: false,
+		};
 	}
 
 	private packageSourceStringMatches(

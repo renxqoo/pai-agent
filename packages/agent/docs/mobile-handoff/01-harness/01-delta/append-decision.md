@@ -20,11 +20,11 @@ The slice flattens once and comparison uses the native string path. Flush-time d
 
 Measured 2026-09-01 against `origin/dev` at `1a7bc80e7`, using `packages/chord/src/delta/index.ts` directly under Node 26.0.0 on an Apple M5 Max. Each workload used 3,000 warmups followed by 11 samples of 10,000 mutation-plus-flush iterations; a second process reproduced the result.
 
-| Workload | Median µs/flush, run 1 | Median µs/flush, run 2 |
-| --- | ---: | ---: |
-| 200 KB assistant string, append 8 characters | 18.68 | 17.81 |
-| 50 KB rolling window, slide 32 varied characters | 2.46 | 2.43 |
-| Transcript push, one small entry | 0.74 | 0.78 |
+| Workload                                         | Median µs/flush, run 1 | Median µs/flush, run 2 |
+| ------------------------------------------------ | ---------------------: | ---------------------: |
+| 200 KB assistant string, append 8 characters     |                  18.68 |                  17.81 |
+| 50 KB rolling window, slide 32 varied characters |                   2.46 |                   2.43 |
+| Transcript push, one small entry                 |                   0.74 |                   0.78 |
 
 The assistant tracker started with 200,000 varied characters, appended `" abcdef"`, and flushed each append. The rolling tracker started with 50,000 varied characters, then assigned `text.slice(32) + chunk` using a distinct 32-character `chunk:<base36 index>:durable-stream` value on every flush; every flush was asserted to emit `t` + `a`. The transcript tracker pushed `{ id: "e<index>", text: "message <index>" }` and asserted one `p` per flush. Setup and garbage collection were outside each timed loop.
 

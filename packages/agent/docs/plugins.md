@@ -49,8 +49,8 @@ The in-process unit is one facet:
 
 ```ts
 interface Facet {
-	readonly id: string;
-	setup(env: FacetEnvironment): void;
+  readonly id: string;
+  setup(env: FacetEnvironment): void;
 }
 ```
 
@@ -90,12 +90,12 @@ The loader abstraction is intentionally smaller than an extension manifest:
 
 ```ts
 interface LoadedFacets {
-	readonly facets: readonly Facet[];
-	dispose(): Promise<void>;
+  readonly facets: readonly Facet[];
+  dispose(): Promise<void>;
 }
 
 interface FacetLoader {
-	load(): Promise<LoadedFacets>;
+  load(): Promise<LoadedFacets>;
 }
 ```
 
@@ -121,7 +121,7 @@ The declaration lives in the shared contract module and creates nothing. Service
 
 ```ts
 interface ServiceSpawner<T> {
-	spawn(key: string, implementation: T): () => void;
+  spawn(key: string, implementation: T): () => void;
 }
 ```
 
@@ -161,23 +161,26 @@ The models service — the authority behind the model picker and thinking-level 
 
 ```ts
 export interface ModelRef {
-	provider: string;
-	modelId: string;
+  provider: string;
+  modelId: string;
 }
 
 export interface ModelsState {
-	catalog: { revision: number; availableModels: Array<ModelRef & { name: string; reasoning: boolean }> };
-	configuration: { model: ModelRef | null; thinkingLevel: "off" | "low" | "high" };
-	refresh:
-		| { status: "idle" | "refreshing" | "done" }
-		| { status: "warning"; errors: Record<string, string> };
+  catalog: {
+    revision: number;
+    availableModels: Array<ModelRef & { name: string; reasoning: boolean }>;
+  };
+  configuration: { model: ModelRef | null; thinkingLevel: "off" | "low" | "high" };
+  refresh:
+    | { status: "idle" | "refreshing" | "done" }
+    | { status: "warning"; errors: Record<string, string> };
 }
 
 export interface Models {
-	readonly state: ReplicatedState<ModelsState>;
-	cycleThinking(context: Context): Promise<void>;
-	refresh(context: Context): Promise<void>;
-	select(model: ModelRef, context: Context): Promise<void>;
+  readonly state: ReplicatedState<ModelsState>;
+  cycleThinking(context: Context): Promise<void>;
+  refresh(context: Context): Promise<void>;
+  select(model: ModelRef, context: Context): Promise<void>;
 }
 
 export const Models = defineService<Models>("pi.models");
@@ -191,48 +194,52 @@ The snippets below use the facet shape but compress application details.
 
 ```ts
 export const providersBuiltinSessionFacet = defineFacet({
-	id: "@pi/providers-builtin",
+  id: "@pi/providers-builtin",
 
-	setup(env) {
-		const providers = new ProviderRegistry(); // process-local, non-JSON
-		const state = env.replicatedState<ModelsState>(initialModelsState());
+  setup(env) {
+    const providers = new ProviderRegistry(); // process-local, non-JSON
+    const state = env.replicatedState<ModelsState>(initialModelsState());
 
-		env.provide(Models, {
-			state,
+    env.provide(Models, {
+      state,
 
-			async cycleThinking(context) {
-				const { catalog, configuration } = state.value;
-				if (configuration.model === null) return;
-				const spec = findSpec(catalog, configuration.model);
-				if (spec === undefined || !spec.reasoning) return;
-				state.set(
-					{
-						...state.value,
-						configuration: {
-							...configuration,
-							thinkingLevel: nextThinkingLevel(configuration.thinkingLevel),
-						},
-					},
-					context,
-				);
-			},
+      async cycleThinking(context) {
+        const { catalog, configuration } = state.value;
+        if (configuration.model === null) return;
+        const spec = findSpec(catalog, configuration.model);
+        if (spec === undefined || !spec.reasoning) return;
+        state.set(
+          {
+            ...state.value,
+            configuration: {
+              ...configuration,
+              thinkingLevel: nextThinkingLevel(configuration.thinkingLevel),
+            },
+          },
+          context,
+        );
+      },
 
-			async select(model, context) {
-				const spec = findSpec(state.value.catalog, model);
-				if (spec === undefined) throw new Error(`Unknown model: ${model.provider}/${model.modelId}`);
-				const thinkingLevel = spec.reasoning ? state.value.configuration.thinkingLevel : "off";
-				state.set({ ...state.value, configuration: { model, thinkingLevel } }, context);
-			},
+      async select(model, context) {
+        const spec = findSpec(state.value.catalog, model);
+        if (spec === undefined)
+          throw new Error(`Unknown model: ${model.provider}/${model.modelId}`);
+        const thinkingLevel = spec.reasoning ? state.value.configuration.thinkingLevel : "off";
+        state.set({ ...state.value, configuration: { model, thinkingLevel } }, context);
+      },
 
-			async refresh(context) {
-				state.set({ ...state.value, refresh: { status: "refreshing" } }, context);
-				const errors = await providers.refresh(context.abortSignal);
-				state.set({ ...state.value, catalog: providers.snapshot(), refresh: toRefreshStatus(errors) }, context);
-			},
-		});
+      async refresh(context) {
+        state.set({ ...state.value, refresh: { status: "refreshing" } }, context);
+        const errors = await providers.refresh(context.abortSignal);
+        state.set(
+          { ...state.value, catalog: providers.snapshot(), refresh: toRefreshStatus(errors) },
+          context,
+        );
+      },
+    });
 
-		env.onActivate(() => providers.rebuild());
-	},
+    env.onActivate(() => providers.rebuild());
+  },
 });
 ```
 
@@ -242,28 +249,28 @@ This shows the generic command-service pattern.
 
 ```ts
 export const modelSelectionTuiFacet = defineFacet({
-	id: "@pi/model-selection",
+  id: "@pi/model-selection",
 
-	setup(env) {
-		const models = env.use(Models);
-		const tui = env.use(Tui);
+  setup(env) {
+    const models = env.use(Models);
+    const tui = env.use(Tui);
 
-		tui.commands.register("models.select", async (context) => {
-			const current = models.state.value;
-			if (current === undefined) return;
-			const selected = await tui.select(
-				"Models",
-				current.catalog.availableModels.map((model) => ({
-					label: model.name,
-					value: { provider: model.provider, modelId: model.modelId },
-				})),
-				{ signal: context.abortSignal },
-			);
-			if (selected !== undefined) await models.select(selected, context);
-		});
-		tui.commands.register("models.cycle-thinking", (context) => models.cycleThinking(context));
-		env.own(models.state.subscribe((next) => renderModelSelector(next)));
-	},
+    tui.commands.register("models.select", async (context) => {
+      const current = models.state.value;
+      if (current === undefined) return;
+      const selected = await tui.select(
+        "Models",
+        current.catalog.availableModels.map((model) => ({
+          label: model.name,
+          value: { provider: model.provider, modelId: model.modelId },
+        })),
+        { signal: context.abortSignal },
+      );
+      if (selected !== undefined) await models.select(selected, context);
+    });
+    tui.commands.register("models.cycle-thinking", (context) => models.cycleThinking(context));
+    env.own(models.state.subscribe((next) => renderModelSelector(next)));
+  },
 });
 ```
 
@@ -292,20 +299,22 @@ This is the most important boundary in the design.
 
 ```ts
 interface ScopedSessionData {
-	readonly metadata: SessionMetadata;
-	getValue<T>(address: Value<T>, context: Context): Promise<StoredValue<T> | undefined>;
-	setValue<T>(address: Value<T>, value: T, context: Context): Promise<void>;
+  readonly metadata: SessionMetadata;
+  getValue<T>(address: Value<T>, context: Context): Promise<StoredValue<T> | undefined>;
+  setValue<T>(address: Value<T>, value: T, context: Context): Promise<void>;
 }
 
 interface AgentFacetScope {
-	readonly identity: SessionIdentity;
-	readonly session: ScopedSessionData;
-	readonly hooks: ScopedHooks;
-	lane(name: string, context: Context): Promise<AgentLaneFacetView>;
+  readonly identity: SessionIdentity;
+  readonly session: ScopedSessionData;
+  readonly hooks: ScopedHooks;
+  lane(name: string, context: Context): Promise<AgentLaneFacetView>;
 }
 
 const Agent = defineService<AgentFacetScope>("pi.local.agent", { local: true });
-const Providers = defineService<ProviderContributionRegistry>("pi.local.providers", { local: true });
+const Providers = defineService<ProviderContributionRegistry>("pi.local.providers", {
+  local: true,
+});
 const Tools = defineService<ToolContributionRegistry>("pi.local.tools", { local: true });
 ```
 
@@ -315,36 +324,41 @@ const Tools = defineService<ToolContributionRegistry>("pi.local.tools", { local:
 
 ```ts
 interface FacetEnvironment extends FacetLifecycle {
-	use<T>(service: Service<T>): T;
-	observe<T>(
-		service: Service<T>,
-		handler: (service: T, context: Context) => void | Promise<void>,
-	): void;
-	provide<T>(service: Service<T>, implementation: T): void;
-	provideMany<T>(service: Service<T>): ServiceSpawner<T>;
-	replicatedState<T>(initial: T): MutableReplicatedState<T>;
+  use<T>(service: Service<T>): T;
+  observe<T>(
+    service: Service<T>,
+    handler: (service: T, context: Context) => void | Promise<void>,
+  ): void;
+  provide<T>(service: Service<T>, implementation: T): void;
+  provideMany<T>(service: Service<T>): ServiceSpawner<T>;
+  replicatedState<T>(initial: T): MutableReplicatedState<T>;
 }
 
-type AttachmentState = { status: "detached" } | { status: "attaching" | "attached" | "degraded"; sessionId: string };
+type AttachmentState =
+  { status: "detached" } | { status: "attaching" | "attached" | "degraded"; sessionId: string };
 
 interface SelectItem<T> {
-	label: string;
-	description?: string;
-	value: T;
+  label: string;
+  description?: string;
+  value: T;
 }
 
 interface TuiModal {
-	select<T>(title: string, items: SelectItem<T>[]): Promise<T | undefined>;
-	input(title: string): Promise<string | undefined>;
-	close(): void;
+  select<T>(title: string, items: SelectItem<T>[]): Promise<T | undefined>;
+  input(title: string): Promise<string | undefined>;
+  close(): void;
 }
 
 interface TuiHost {
-	readonly attachment: ReplicatedState<AttachmentState>;
-	readonly commands: CommandContributions;
-	readonly toolRenderers: ToolRendererContributions;
-	acquireModal(signal: AbortSignal): Promise<TuiModal>;
-	select<T>(title: string, items: SelectItem<T>[], options: { signal: AbortSignal }): Promise<T | undefined>;
+  readonly attachment: ReplicatedState<AttachmentState>;
+  readonly commands: CommandContributions;
+  readonly toolRenderers: ToolRendererContributions;
+  acquireModal(signal: AbortSignal): Promise<TuiModal>;
+  select<T>(
+    title: string,
+    items: SelectItem<T>[],
+    options: { signal: AbortSignal },
+  ): Promise<T | undefined>;
 }
 
 const Tui = defineService<TuiHost>("pi.local.tui", { local: true });
@@ -364,12 +378,12 @@ The runtime form is:
 
 ```ts
 export function createAgentControllerRuntimeFacet(lane: AgentLane) {
-	return defineFacet({
-		id: "@pi/agent-controller-runtime",
-		setup(env) {
-			env.provide(AgentController, createAgentController(lane));
-		},
-	});
+  return defineFacet({
+    id: "@pi/agent-controller-runtime",
+    setup(env) {
+      env.provide(AgentController, createAgentController(lane));
+    },
+  });
 }
 ```
 
@@ -383,8 +397,8 @@ Not every dependency should be remotely reachable. A **local service** is a toke
 const Credentials = defineService<CredentialStore>("credentials", { local: true }); // get/set provider secrets
 
 interface Accounts {
-	readonly state: ReplicatedState<{ providers: Array<{ provider: string; configured: boolean }> }>;
-	remove(provider: string, context: Context): Promise<void>;
+  readonly state: ReplicatedState<{ providers: Array<{ provider: string; configured: boolean }> }>;
+  remove(provider: string, context: Context): Promise<void>;
 }
 const Accounts = defineService<Accounts>("pi.accounts");
 ```
@@ -397,17 +411,17 @@ The auth extension's Session facet uses `Credentials` directly; presentations se
 
 ```ts
 interface ReplicatedState<T> {
-	/** Borrowed immutable value, or `undefined` until hydration. Do not mutate or retain it. */
-	readonly value: T | undefined;
-	/** Listener values are borrowed and must not be mutated or retained. */
-	subscribe(listener: (value: T, context: Context) => void): () => void;
+  /** Borrowed immutable value, or `undefined` until hydration. Do not mutate or retain it. */
+  readonly value: T | undefined;
+  /** Listener values are borrowed and must not be mutated or retained. */
+  subscribe(listener: (value: T, context: Context) => void): () => void;
 }
 
 interface MutableReplicatedState<T> extends ReplicatedState<T> {
-	/** A providing state is always initialized. */
-	readonly value: T;
-	/** Transfers the JSON value to the state; the caller must not subsequently mutate it. */
-	set(value: T, context: Context): void;
+  /** A providing state is always initialized. */
+  readonly value: T;
+  /** Transfers the JSON value to the state; the caller must not subsequently mutate it. */
+  set(value: T, context: Context): void;
 }
 ```
 
@@ -442,11 +456,11 @@ Removing an extension removes its contribution and rebuilds; nothing runs an inv
 
 ```ts
 sessionContext.tools.add((draft) => {
-	draft.set("review_add", reviewAddTool);
-	draft.wrap("bash", (next) => async (invocation) => {
-		await authorize(invocation);
-		return next(invocation);
-	});
+  draft.set("review_add", reviewAddTool);
+  draft.wrap("bash", (next) => async (invocation) => {
+    await authorize(invocation);
+    return next(invocation);
+  });
 });
 ```
 
@@ -461,8 +475,11 @@ The model refresh shows the whole author-visible surface:
 ```ts
 const controller = new AbortController();
 await uiTelemetry.startSpan({ name: "ui.models.refresh" }, async (span) => {
-	const context = withAbortSignal(controller.signal, withTelemetryContext(span, BACKGROUND_CONTEXT));
-	await models.refresh(context);
+  const context = withAbortSignal(
+    controller.signal,
+    withTelemetryContext(span, BACKGROUND_CONTEXT),
+  );
+  await models.refresh(context);
 });
 ```
 
@@ -493,9 +510,9 @@ A possible long-running job contract is:
 
 ```ts
 interface IndexJob {
-	readonly progress: ReplicatedState<IndexProgress>;
-	wait(context: Context): Promise<IndexProgress>; // aborting this context cancels only this wait
-	cancel(context: Context): Promise<void>;        // cancels the job itself, for everyone
+  readonly progress: ReplicatedState<IndexProgress>;
+  wait(context: Context): Promise<IndexProgress>; // aborting this context cancels only this wait
+  cancel(context: Context): Promise<void>; // cancels the job itself, for everyone
 }
 ```
 
@@ -511,8 +528,8 @@ A server facet is shared by every session and presentation connected to the serv
 
 ```ts
 interface FleetFacetScope {
-	readonly managed: ManagedSessionsView;  // sessions managed by this server
-	readonly attachments: AttachmentsView;  // bind/unbind a client's selected session
+  readonly managed: ManagedSessionsView; // sessions managed by this server
+  readonly attachments: AttachmentsView; // bind/unbind a client's selected session
 }
 
 const Fleet = defineService<FleetFacetScope>("pi.local.fleet", { local: true });
@@ -522,20 +539,26 @@ The raw `SessionRepo`, storage handles, unrestricted process-kill authority, rou
 
 ```ts
 interface ManagedSessionRecord {
-	sessionId: string;
-	title: string;
-	workspaceId: string;
-	ownerId: string;
-	cwd: string; // ownerId and cwd never leave the server
+  sessionId: string;
+  title: string;
+  workspaceId: string;
+  ownerId: string;
+  cwd: string; // ownerId and cwd never leave the server
 }
 
-type ManagedSessionChange = { type: "created" | "changed" | "deleted"; record: ManagedSessionRecord };
+type ManagedSessionChange = {
+  type: "created" | "changed" | "deleted";
+  record: ManagedSessionRecord;
+};
 
 interface ManagedSessionsView {
-	snapshot(): ManagedSessionRecord[];
-	onChanged(listener: (change: ManagedSessionChange, context: Context) => void): () => void;
-	create(options: { title: string; workspaceId: string }, context: Context): Promise<ManagedSessionRecord>;
-	remove(sessionId: string, context: Context): Promise<void>;
+  snapshot(): ManagedSessionRecord[];
+  onChanged(listener: (change: ManagedSessionChange, context: Context) => void): () => void;
+  create(
+    options: { title: string; workspaceId: string },
+    context: Context,
+  ): Promise<ManagedSessionRecord>;
+  remove(sessionId: string, context: Context): Promise<void>;
 }
 ```
 
@@ -545,21 +568,21 @@ The directory is read; management mutates and selects. Both are presentation-saf
 
 ```ts
 export interface SessionRecordSummary {
-	sessionId: string;
-	title: string;
+  sessionId: string;
+  title: string;
 }
 
 export interface SessionDirectory {
-	readonly state: ReplicatedState<{ revision: number; sessions: SessionRecordSummary[] }>;
+  readonly state: ReplicatedState<{ revision: number; sessions: SessionRecordSummary[] }>;
 }
 
 export const SessionDirectory = defineService<SessionDirectory>("pi.session-directory");
 
 export interface SessionManagement {
-	create(options: { title: string }, context: Context): Promise<SessionRecordSummary>;
-	remove(sessionId: string, context: Context): Promise<void>;
-	attach(sessionId: string, context: Context): Promise<void>;
-	detach(context: Context): Promise<void>;
+  create(options: { title: string }, context: Context): Promise<SessionRecordSummary>;
+  remove(sessionId: string, context: Context): Promise<void>;
+  attach(sessionId: string, context: Context): Promise<void>;
+  detach(context: Context): Promise<void>;
 }
 
 export const SessionManagement = defineService<SessionManagement>("pi.session-management");
@@ -570,53 +593,60 @@ export const SessionManagement = defineService<SessionManagement>("pi.session-ma
 ```ts
 // server.ts
 export const sessionDirectoryServerFacet = defineFacet({
-	id: "@pi/session-directory",
-	setup(env) {
-		const { managed, attachments } = env.use(Fleet);
-		const state = env.replicatedState({ revision: 0, sessions: [] as SessionRecordSummary[] });
+  id: "@pi/session-directory",
+  setup(env) {
+    const { managed, attachments } = env.use(Fleet);
+    const state = env.replicatedState({ revision: 0, sessions: [] as SessionRecordSummary[] });
 
-		function publish(_change: ManagedSessionChange, context: Context) {
-			state.set({ revision: state.value.revision + 1, sessions: managed.snapshot().map(toSummary) }, context);
-		}
+    function publish(_change: ManagedSessionChange, context: Context) {
+      state.set(
+        { revision: state.value.revision + 1, sessions: managed.snapshot().map(toSummary) },
+        context,
+      );
+    }
 
-		env.own(managed.onChanged(publish));
-		env.onActivate(() =>
-			state.set({ revision: 1, sessions: managed.snapshot().map(toSummary) }, BACKGROUND_CONTEXT),
-		);
+    env.own(managed.onChanged(publish));
+    env.onActivate(() =>
+      state.set({ revision: 1, sessions: managed.snapshot().map(toSummary) }, BACKGROUND_CONTEXT),
+    );
 
-		env.provide(SessionDirectory, { state });
-		env.provide(SessionManagement, {
-			async create(options, context) {
-				const client = requireClientIdentity(context);
-				return toSummary(
-					await managed.create({ title: options.title, workspaceId: client.workspaceId }, context),
-				);
-			},
-			async remove(sessionId, context) {
-				authorizeTarget(requireClientIdentity(context), managed.snapshot(), sessionId);
-				await managed.remove(sessionId, context);
-			},
-			async attach(sessionId, context) {
-				const client = requireClientIdentity(context);
-				authorizeTarget(client, managed.snapshot(), sessionId);
-				await attachments.bind(client.clientId, sessionId, context);
-			},
-			async detach(context) {
-				await attachments.unbind(requireClientIdentity(context).clientId, context);
-			},
-		});
-	},
+    env.provide(SessionDirectory, { state });
+    env.provide(SessionManagement, {
+      async create(options, context) {
+        const client = requireClientIdentity(context);
+        return toSummary(
+          await managed.create({ title: options.title, workspaceId: client.workspaceId }, context),
+        );
+      },
+      async remove(sessionId, context) {
+        authorizeTarget(requireClientIdentity(context), managed.snapshot(), sessionId);
+        await managed.remove(sessionId, context);
+      },
+      async attach(sessionId, context) {
+        const client = requireClientIdentity(context);
+        authorizeTarget(client, managed.snapshot(), sessionId);
+        await attachments.bind(client.clientId, sessionId, context);
+      },
+      async detach(context) {
+        await attachments.unbind(requireClientIdentity(context).clientId, context);
+      },
+    });
+  },
 });
 
-function authorizeTarget(client: ClientIdentity, records: ManagedSessionRecord[], sessionId: string) {
-	const record = records.find((candidate) => candidate.sessionId === sessionId);
-	if (record === undefined || record.workspaceId !== client.workspaceId) {
-		throw new RemoteServiceError("not_authorized", `Not accessible: ${sessionId}`);
-	}
+function authorizeTarget(
+  client: ClientIdentity,
+  records: ManagedSessionRecord[],
+  sessionId: string,
+) {
+  const record = records.find((candidate) => candidate.sessionId === sessionId);
+  if (record === undefined || record.workspaceId !== client.workspaceId) {
+    throw new RemoteServiceError("not_authorized", `Not accessible: ${sessionId}`);
+  }
 }
 
 function toSummary({ sessionId, title }: ManagedSessionRecord): SessionRecordSummary {
-	return { sessionId, title };
+  return { sessionId, title };
 }
 ```
 
@@ -627,29 +657,29 @@ Every call is authorized against the client identity that transport policy insta
 ```ts
 // tui.ts
 export const sessionPickerTuiFacet = defineFacet({
-	id: "@pi/session-picker",
-	setup(env) {
-		const directory = env.use(SessionDirectory);
-		const management = env.use(SessionManagement);
-		const tui = env.use(Tui);
+  id: "@pi/session-picker",
+  setup(env) {
+    const directory = env.use(SessionDirectory);
+    const management = env.use(SessionManagement);
+    const tui = env.use(Tui);
 
-		tui.commands.register("sessions.switch", async (context) => {
-			const current = directory.state.value;
-			const attachment = tui.attachment.value;
-			if (current === undefined || attachment === undefined) return;
-			const selected = await tui.select(
-				"Sessions",
-				current.sessions.map((session) => ({
-					label: pickerLabel(session, attachment),
-					value: session.sessionId,
-				})),
-				{ signal: context.abortSignal },
-			);
-			if (selected !== undefined) await management.attach(selected, context);
-		});
+    tui.commands.register("sessions.switch", async (context) => {
+      const current = directory.state.value;
+      const attachment = tui.attachment.value;
+      if (current === undefined || attachment === undefined) return;
+      const selected = await tui.select(
+        "Sessions",
+        current.sessions.map((session) => ({
+          label: pickerLabel(session, attachment),
+          value: session.sessionId,
+        })),
+        { signal: context.abortSignal },
+      );
+      if (selected !== undefined) await management.attach(selected, context);
+    });
 
-		env.own(directory.state.subscribe((next) => renderSessionList(next)));
-	},
+    env.own(directory.state.subscribe((next) => renderSessionList(next)));
+  },
 });
 ```
 
@@ -693,31 +723,31 @@ A question is not a reverse RPC routed to one eligible presentation. The Session
 
 ```ts
 const QuestionParamsSchema = Type.Object({
-	question: Type.String(),
-	options: Type.Array(
-		Type.Object({
-			label: Type.String(),
-			description: Type.Union([Type.String(), Type.Null()]),
-		}),
-	),
+  question: Type.String(),
+  options: Type.Array(
+    Type.Object({
+      label: Type.String(),
+      description: Type.Union([Type.String(), Type.Null()]),
+    }),
+  ),
 });
 type QuestionRequest = Static<typeof QuestionParamsSchema>;
 
 type QuestionResponse =
-	| { outcome: "selected"; index: number }
-	| { outcome: "custom"; answer: string }
-	| { outcome: "cancelled" };
+  | { outcome: "selected"; index: number }
+  | { outcome: "custom"; answer: string }
+  | { outcome: "cancelled" };
 
 interface QuestionDetails {
-	question: string;
-	options: string[];
-	answer: string | null;
-	wasCustom: boolean;
+  question: string;
+  options: string[];
+  answer: string | null;
+  wasCustom: boolean;
 }
 
 interface QuestionDialogs {
-	readonly request: ReplicatedState<QuestionRequest>;
-	submitAnswer(response: QuestionResponse, context: Context): Promise<void>;
+  readonly request: ReplicatedState<QuestionRequest>;
+  submitAnswer(response: QuestionResponse, context: Context): Promise<void>;
 }
 
 const QuestionDialogs = defineService<QuestionDialogs>("pi.question-dialog");
@@ -728,11 +758,21 @@ const QuestionDialogs = defineService<QuestionDialogs>("pi.question-dialog");
 The tool-result helper remains session-local:
 
 ```ts
-function questionResult(request: QuestionRequest, answer: string | null, wasCustom: boolean, text: string) {
-	return {
-		content: [{ type: "text", text }],
-		details: { question: request.question, options: request.options.map((o) => o.label), answer, wasCustom },
-	} satisfies AgentToolResult<QuestionDetails>;
+function questionResult(
+  request: QuestionRequest,
+  answer: string | null,
+  wasCustom: boolean,
+  text: string,
+) {
+  return {
+    content: [{ type: "text", text }],
+    details: {
+      question: request.question,
+      options: request.options.map((o) => o.label),
+      answer,
+      wasCustom,
+    },
+  } satisfies AgentToolResult<QuestionDetails>;
 }
 ```
 
@@ -743,62 +783,71 @@ function questionResult(request: QuestionRequest, answer: string | null, wasCust
 ```ts
 // session.ts
 export const questionSessionFacet = defineFacet({
-	id: "@pi/question",
-	setup(env) {
-		const dialogs = env.provideMany(QuestionDialogs);
-		const tools = env.use(Tools);
+  id: "@pi/question",
+  setup(env) {
+    const dialogs = env.provideMany(QuestionDialogs);
+    const tools = env.use(Tools);
 
-		tools.add((draft) => {
-			draft.set("question", {
-				label: "Question",
-				description: "Ask users a question and wait for an answer.",
-				executionMode: "sequential",
-				replay: "safe",
-				parameters: QuestionParamsSchema,
+    tools.add((draft) => {
+      draft.set("question", {
+        label: "Question",
+        description: "Ask users a question and wait for an answer.",
+        executionMode: "sequential",
+        replay: "safe",
+        parameters: QuestionParamsSchema,
 
-				async execute(_toolCallId, params, _onUpdate, _toolContext, invocation, context) {
-					if (params.options.length === 0) {
-						return questionResult(params, null, false, "No options provided");
-					}
+        async execute(_toolCallId, params, _onUpdate, _toolContext, invocation, context) {
+          if (params.options.length === 0) {
+            return questionResult(params, null, false, "No options provided");
+          }
 
-					const memoName = "pi.question.answer";
-					let response = (await invocation.getMemo(memoName)) as QuestionResponse | undefined;
+          const memoName = "pi.question.answer";
+          let response = (await invocation.getMemo(memoName)) as QuestionResponse | undefined;
 
-					if (response === undefined) {
-						const completion = Promise.withResolvers<QuestionResponse>();
-						const request = env.replicatedState<QuestionRequest>(params);
-						const close = dialogs.spawn(invocation.invocationId, {
-							request,
-							async submitAnswer(candidate, _answerContext) {
-								if (candidate.outcome === "selected" && params.options[candidate.index] === undefined) {
-									throw new Error("Question response selected an invalid option");
-								}
-								const committed = invocation.memoOnce(memoName, candidate);
-								completion.resolve(committed);
-								await committed;
-							},
-						});
+          if (response === undefined) {
+            const completion = Promise.withResolvers<QuestionResponse>();
+            const request = env.replicatedState<QuestionRequest>(params);
+            const close = dialogs.spawn(invocation.invocationId, {
+              request,
+              async submitAnswer(candidate, _answerContext) {
+                if (
+                  candidate.outcome === "selected" &&
+                  params.options[candidate.index] === undefined
+                ) {
+                  throw new Error("Question response selected an invalid option");
+                }
+                const committed = invocation.memoOnce(memoName, candidate);
+                completion.resolve(committed);
+                await committed;
+              },
+            });
 
-						try {
-							response = await awaitAbortable(completion.promise, context.abortSignal);
-						} finally {
-							close();
-						}
-					}
+            try {
+              response = await awaitAbortable(completion.promise, context.abortSignal);
+            } finally {
+              close();
+            }
+          }
 
-					if (response.outcome === "cancelled") {
-						return questionResult(params, null, false, "User cancelled the question");
-					}
-					if (response.outcome === "custom") {
-						return questionResult(params, response.answer, true, `User wrote: ${response.answer}`);
-					}
-					const selected = params.options[response.index];
-					if (selected === undefined) throw new Error("Question response selected an invalid option");
-					return questionResult(params, selected.label, false, `User selected: ${response.index + 1}. ${selected.label}`);
-				},
-			});
-		});
-	},
+          if (response.outcome === "cancelled") {
+            return questionResult(params, null, false, "User cancelled the question");
+          }
+          if (response.outcome === "custom") {
+            return questionResult(params, response.answer, true, `User wrote: ${response.answer}`);
+          }
+          const selected = params.options[response.index];
+          if (selected === undefined)
+            throw new Error("Question response selected an invalid option");
+          return questionResult(
+            params,
+            selected.label,
+            false,
+            `User selected: ${response.index + 1}. ${selected.label}`,
+          );
+        },
+      });
+    });
+  },
 });
 ```
 
@@ -808,50 +857,46 @@ export const questionSessionFacet = defineFacet({
 
 ```ts
 // tui.ts
-type QuestionChoice =
-	| { outcome: "selected"; index: number }
-	| { outcome: "custom" };
+type QuestionChoice = { outcome: "selected"; index: number } | { outcome: "custom" };
 
 export const questionTuiFacet = defineFacet({
-	id: "@pi/question",
-	setup(env) {
-		const tui = env.use(Tui);
-		env.observe(QuestionDialogs, async (dialog, context) => {
-			const request = dialog.request.value;
-			if (request === undefined) throw new Error("Question dialog was observed before hydration");
+  id: "@pi/question",
+  setup(env) {
+    const tui = env.use(Tui);
+    env.observe(QuestionDialogs, async (dialog, context) => {
+      const request = dialog.request.value;
+      if (request === undefined) throw new Error("Question dialog was observed before hydration");
 
-			const modal = await tui.acquireModal(context.abortSignal);
-			try {
-				const choice = await modal.select<QuestionChoice>(
-					request.question,
-					[
-						...request.options.map((option, index) => ({
-							label: option.label,
-							...(option.description === null ? {} : { description: option.description }),
-							value: { outcome: "selected" as const, index },
-						})),
-						{ label: "Write a custom answer", value: { outcome: "custom" as const } },
-					],
-				);
+      const modal = await tui.acquireModal(context.abortSignal);
+      try {
+        const choice = await modal.select<QuestionChoice>(request.question, [
+          ...request.options.map((option, index) => ({
+            label: option.label,
+            ...(option.description === null ? {} : { description: option.description }),
+            value: { outcome: "selected" as const, index },
+          })),
+          { label: "Write a custom answer", value: { outcome: "custom" as const } },
+        ]);
 
-				let response: QuestionResponse;
-				if (choice === undefined) {
-					response = { outcome: "cancelled" };
-				} else if (choice.outcome === "selected") {
-					response = choice;
-				} else {
-					const answer = await modal.input(request.question);
-					response = answer === undefined ? { outcome: "cancelled" } : { outcome: "custom", answer };
-				}
+        let response: QuestionResponse;
+        if (choice === undefined) {
+          response = { outcome: "cancelled" };
+        } else if (choice.outcome === "selected") {
+          response = choice;
+        } else {
+          const answer = await modal.input(request.question);
+          response =
+            answer === undefined ? { outcome: "cancelled" } : { outcome: "custom", answer };
+        }
 
-				await dialog.submitAnswer(response, context);
-			} finally {
-				modal.close();
-			}
-		});
+        await dialog.submitAnswer(response, context);
+      } finally {
+        modal.close();
+      }
+    });
 
-		tui.toolRenderers.add<QuestionDetails>("question", questionRenderer);
-	},
+    tui.toolRenderers.add<QuestionDetails>("question", questionRenderer);
+  },
 });
 ```
 
@@ -996,38 +1041,38 @@ The keyed instance is the live, reactive projection. An extension-owned record i
 
 ```ts
 interface DiffCommentInput {
-	commentId: string; // stable across an uncertain retry
-	path: string;
-	side: "old" | "new";
-	line: number;
-	body: string;
+  commentId: string; // stable across an uncertain retry
+  path: string;
+  side: "old" | "new";
+  line: number;
+  body: string;
 }
 
 interface DiffComment extends DiffCommentInput {
-	author: { userId: string; displayName: string };
-	createdAt: string;
+  author: { userId: string; displayName: string };
+  createdAt: string;
 }
 
 interface DiffReviewDocument {
-	reviewId: string;
-	patch: string;
+  reviewId: string;
+  patch: string;
 }
 
 interface DiffReviewActivity {
-	revision: number;
-	comments: DiffComment[];
-	status: "open" | "submitting";
+  revision: number;
+  comments: DiffComment[];
+  status: "open" | "submitting";
 }
 
 interface DiffReviewManager {
-	createReview(context: Context): Promise<void>;
+  createReview(context: Context): Promise<void>;
 }
 
 interface DiffReviews {
-	readonly document: ReplicatedState<DiffReviewDocument>;
-	readonly activity: ReplicatedState<DiffReviewActivity>;
-	addComment(input: DiffCommentInput, context: Context): Promise<void>;
-	submit(context: Context): Promise<void>;
+  readonly document: ReplicatedState<DiffReviewDocument>;
+  readonly activity: ReplicatedState<DiffReviewActivity>;
+  addComment(input: DiffCommentInput, context: Context): Promise<void>;
+  submit(context: Context): Promise<void>;
 }
 
 const DiffReviewManager = defineService<DiffReviewManager>("pi.diff-review-manager");
@@ -1056,7 +1101,7 @@ submit B: setValue(frozen, subm-B)  → overwrites A's freeze
 → enqueueOnce(subm-A) and enqueueOnce(subm-B) both run: two prompts for one review
 ```
 
-Each `setValue()` was atomic; the *cycle* was not. The same window exists in `addComment()` between checking the status and replacing the record.
+Each `setValue()` was atomic; the _cycle_ was not. The same window exists in `addComment()` between checking the status and replacing the record.
 
 In the one-authoritative-worker model, the simplest fix is a per-review **critical region**: a FIFO, non-reentrant async mutex whose `run(signal, fn)` admits one pending function at a time. Every operation that reads and mutates an existing review — including `addComment()`, `freezeForSubmission()`, and `complete()` — uses the same region for that review ID:
 

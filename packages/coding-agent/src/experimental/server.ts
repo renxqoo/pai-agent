@@ -525,7 +525,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Run
 	const workerModel =
 		options.model === undefined
 			? undefined
-			: { ...(options.provider === undefined ? {} : { provider: options.provider }), model: options.model };
+			: {
+					...(options.provider === undefined ? {} : { provider: options.provider }),
+					model: options.model,
+				};
 	const directory = resolveServerDirectory(options.directory);
 	const { serverId, release } = await acquireServerProfile(directory, options.serverId ?? process.env[ENV_SERVER_ID]);
 	const lifetime = new ServerLifetime(options.keepAlive ?? true);

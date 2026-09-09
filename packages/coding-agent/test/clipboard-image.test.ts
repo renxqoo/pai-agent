@@ -23,7 +23,10 @@ describe("readClipboardImage", () => {
 		vi.resetAllMocks();
 		mocks.command.mockResolvedValue(commandResult(Buffer.alloc(0), 1));
 		mocks.getImage.mockResolvedValue(png);
-		mocks.getNativeClipboard.mockReturnValue({ getText: async () => null, getImage: mocks.getImage });
+		mocks.getNativeClipboard.mockReturnValue({
+			getText: async () => null,
+			getImage: mocks.getImage,
+		});
 	});
 
 	for (const [backend, command, env] of [

@@ -45,11 +45,11 @@ values/lists   current mutable state — replaceable values; append-only lists
 usage ledger   cost history — append-only rows
 ```
 
-*Every payload is in an entry, a bound value/list, or the ledger; there is no third place.* An entry is the complete conversation record: placement and payload in one row. A `Value<T>` holds only its current value; a `ValueList<T>` holds immutable elements ordered by write sequence, deletable only whole. Complete content that durably exists before tree placement — queued input, deferred writes, finalized out-of-order tool results — waits in `pi.pending.entry` and becomes an entry in the transaction that places it; tool progress may occupy `pi.pending.tool_output` only while its effect is uncertain; streamed assistant frames occupy `pi.pending.assistant_frame` only while their response is effect-pending (§3.7). Per-backend projections (branch index, search, stats) are rebuildable and carry no authority.
+_Every payload is in an entry, a bound value/list, or the ledger; there is no third place._ An entry is the complete conversation record: placement and payload in one row. A `Value<T>` holds only its current value; a `ValueList<T>` holds immutable elements ordered by write sequence, deletable only whole. Complete content that durably exists before tree placement — queued input, deferred writes, finalized out-of-order tool results — waits in `pi.pending.entry` and becomes an entry in the transaction that places it; tool progress may occupy `pi.pending.tool_output` only while its effect is uncertain; streamed assistant frames occupy `pi.pending.assistant_frame` only while their response is effect-pending (§3.7). Per-backend projections (branch index, search, stats) are rebuildable and carry no authority.
 
 **2. Atomic transactions** (§1.4): entry/usage inserts and value/list writes committed all-or-none with strictly increasing sequence numbers; no crash state exists inside a transaction; the only write primitive.
 
-**3. The durable restart point** (§3.2): after every durable transition, the harness replaces `operationState(operationId)` with the *complete, total* current state — never depending on a previous state. After task loss, recovery reads it and starts at the responsible procedure, never replaying a journal or inferring position from what is missing. Small captured values are inline; large stable payloads live at sibling operation-owned addresses or are named by id; the terminal transaction deletes them, leaving exactly the conversation, ledger, and a handful of lane/session values.
+**3. The durable restart point** (§3.2): after every durable transition, the harness replaces `operationState(operationId)` with the _complete, total_ current state — never depending on a previous state. After task loss, recovery reads it and starts at the responsible procedure, never replaying a journal or inferring position from what is missing. Small captured values are inline; large stable payloads live at sibling operation-owned addresses or are named by id; the terminal transaction deletes them, leaving exactly the conversation, ledger, and a handful of lane/session values.
 
 **4. Intent and settlement** (§0.4 trace, §3.7–§3.8): provider requests and real tool calls are wrapped in two commits — intent ("about to do X; output will use ids R and U"), the uncertain effect, then settlement (complete output + next state, plus source-ordered materialization for tools). Hooks follow a replay contract instead: a hook result becomes durable in the transaction that consumes it, and a crash before that transaction may rerun the hook. Every external effect can therefore happen without durable settlement; intents make that explicit where replay policy depends on it, and idempotent hooks accept it as a non-goal.
 
@@ -116,7 +116,7 @@ Every tool call has a result and nothing ran twice; without a committed checkpoi
 ## 0.6 Non-goals
 
 - **Exactly-once external effects** — hooks with side effects must be idempotent, keyed by operation id.
-- **Provider stream resumption** — the harness never reattaches to a provider stream; committed frames (§3.7) preserve the latest durable partial for recovery and reconnect display, and a settled response is persisted *completely* before anything classifies it.
+- **Provider stream resumption** — the harness never reattaches to a provider stream; committed frames (§3.7) preserve the latest durable partial for recovery and reconnect display, and a settled response is persisted _completely_ before anything classifies it.
 - **Multiple writable owners** — exactly one host-assigned owner may hold a writable Session at a time; normally that owner is its Session worker, while the server may temporarily own a newly created or forked destination before handing it off. Storage backends do not enforce this host-lifecycle rule. Read-only repository work such as a SQLite source snapshot may overlap the worker (§1.7, §2.7). Lanes cover the workload that looks like multi-writer.
 - **Work scheduling** — the harness never creates platform alarms, scans repositories for abandoned sessions, leases hosted submissions, or promises an HTTP receipt; it reports durable waits through `drive` and the serving layer decides when to call again.
 - **Replication** — a session lives in one place.
@@ -174,27 +174,34 @@ type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]:
     Created in exactly one transaction, never modified or deleted. Concrete
     entry types: §2.1. */
 interface EntryBase {
-  id: string;                // UUIDv7 (§1.2)
+  id: string; // UUIDv7 (§1.2)
   parentId: string | null;
-  seq: number;               // storage-assigned at commit
-  timestamp: number;         // Unix ms, storage-assigned at commit
+  seq: number; // storage-assigned at commit
+  timestamp: number; // Unix ms, storage-assigned at commit
   type: "message" | "compaction" | "branch_summary" | "custom";
-  customType?: string;       // when type === "custom"
+  customType?: string; // when type === "custom"
 }
 
 /** The only mutable store, addressed by bound typed addresses. */
-function value<T>(namespace: string, key = ""): Value<T>;      // kind: "value"
-function list<T>(namespace: string, key = ""): ValueList<T>;   // kind: "list"
-interface StoredValue<T> { address: Value<T>; value: T; seq: number }  // seq of last set
-interface ListElement<T> { seq: number; value: T }             // global write seq of the append
+function value<T>(namespace: string, key = ""): Value<T>; // kind: "value"
+function list<T>(namespace: string, key = ""): ValueList<T>; // kind: "list"
+interface StoredValue<T> {
+  address: Value<T>;
+  value: T;
+  seq: number;
+} // seq of last set
+interface ListElement<T> {
+  seq: number;
+  value: T;
+} // global write seq of the append
 
 /** Append-only cost ledger row. Never modified, never deleted (§1.6). */
 interface UsageRow {
-  id: string;                // UUIDv7 (§1.2)
+  id: string; // UUIDv7 (§1.2)
   seq: number;
   usage: Usage;
-  entryId?: string;          // the entry this cost belongs to, when there is one
-  adjustment: boolean;       // true = caller-supplied reconciliation, not a provider report
+  entryId?: string; // the entry this cost belongs to, when there is one
+  adjustment: boolean; // true = caller-supplied reconciliation, not a provider report
   details?: JsonValue;
 }
 ```
@@ -229,7 +236,7 @@ Complete built-in inventory:
 | `branchTip(lane)`                               | value | `pi.branch.tip`, lane                                    | entry id or `null`               | where this lane appends next         |
 | `laneConfig(lane)`                              | value | `pi.lane.config`, lane                                   | `LaneConfiguration`              | total lane configuration             |
 | `laneState(lane)`                               | value | `pi.lane.state`, lane                                    | `LaneState` (§3.3)               | current/last operation ids and inbox |
-| `operationResult(opId)`                         | value | `pi.result`, operation id                                | `OperationResultRecord` (§3.13)  | immutable terminal observation      |
+| `operationResult(opId)`                         | value | `pi.result`, operation id                                | `OperationResultRecord` (§3.13)  | immutable terminal observation       |
 | `operationMeta(opId)`                           | value | `pi.op.meta`, operation id                               | `OperationMeta` (§3.1)           | acceptance data; written once        |
 | `operationState(opId)`                          | value | `pi.op.state`, operation id                              | `OperationState` (§3.2)          | total durable restart point          |
 | `operationToolArgs(opId, stepId, sourceIndex)`  | value | `pi.op.tool_args`, `{opId}:{stepId}:{sourceIndex}`       | effective arguments              | written once at clearance            |
@@ -243,13 +250,13 @@ Complete built-in inventory:
 
 Exactly five exported scan-prefix constructors encapsulate lane inventory and operation-cleanup grammar. Their results are valid only as namespace-scoped `scanValues()` inputs, never exact get/set/delete addresses:
 
-| Prefix constructor | Namespace | Prefix key |
-|---|---|---|
-| `branchTipInventoryPrefix()` | `pi.branch.tip` | `""` (all lanes) |
-| `operationToolArgsPrefix(opId, stepId?)` | `pi.op.tool_args` | `{opId}:` or `{opId}:{stepId}:` |
-| `operationToolMemoPrefix(opId, invocationId?)` | `pi.op.tool_memo` | `{opId}:` or `{opId}:{invocationId}:` |
-| `operationPreparationPrefix(opId)` | `pi.op.preparation` | `{opId}:` |
-| `pendingToolOutputPrefix(opId)` | `pi.pending.tool_output` | `{opId}:` |
+| Prefix constructor                             | Namespace                | Prefix key                            |
+| ---------------------------------------------- | ------------------------ | ------------------------------------- |
+| `branchTipInventoryPrefix()`                   | `pi.branch.tip`          | `""` (all lanes)                      |
+| `operationToolArgsPrefix(opId, stepId?)`       | `pi.op.tool_args`        | `{opId}:` or `{opId}:{stepId}:`       |
+| `operationToolMemoPrefix(opId, invocationId?)` | `pi.op.tool_memo`        | `{opId}:` or `{opId}:{invocationId}:` |
+| `operationPreparationPrefix(opId)`             | `pi.op.preparation`      | `{opId}:`                             |
+| `pendingToolOutputPrefix(opId)`                | `pi.pending.tool_output` | `{opId}:`                             |
 
 ```ts
 /** Unplaced content: current mutable state until the placement transaction
@@ -257,7 +264,7 @@ Exactly five exported scan-prefix constructors encapsulate lane inventory and op
 type PendingEntry =
   | { type: "message"; payload: AgentMessage }
   | { type: "custom"; customType: string; payload?: JsonValue };
-    // absent custom payload = a custom entry with no data
+// absent custom payload = a custom entry with no data
 ```
 
 `DurableStructuralPreparation` (`session/types.ts`) is a two-variant union: `kind: "compaction"` with `messagesToSummarize`, `turnPrefixMessages`, `retainedTail`, `isSplitTurn`, `tokensBefore`, optional `previousSummary`, `fileOps`, `settings`; and `kind: "branch_summary"` with `messages`, `fileOps`, `totalTokens`. `fileOps` is `{ read, written, edited: string[] }`.
@@ -286,8 +293,10 @@ A `Write` is an erased storage record for one of six operations — entry insert
 
 ```ts
 interface CommitResult {
-  firstSeq: number; seqs: number[]; timestamp: number;
-  stats: SessionStats;   // session totals immediately after this commit
+  firstSeq: number;
+  seqs: number[];
+  timestamp: number;
+  stats: SessionStats; // session totals immediately after this commit
 }
 ```
 
@@ -315,13 +324,16 @@ interface Storage {
   getValue<T>(address: Value<T>, context: Context): Promise<StoredValue<T> | undefined>;
   /** Internal namespace-scoped prefix scan; the bound address key is the prefix. */
   scanValues<T>(prefix: Value<T>, context: Context): Promise<StoredValue<T>[]>;
-  readList<T>(address: ValueList<T>, options: ListReadOptions | undefined,
-              context: Context): Promise<ListElement<T>[]>;
-  scanBranch(q: StorageBranchScan, context: Context): Promise<Entry[]>;           // §2.5
+  readList<T>(
+    address: ValueList<T>,
+    options: ListReadOptions | undefined,
+    context: Context,
+  ): Promise<ListElement<T>[]>;
+  scanBranch(q: StorageBranchScan, context: Context): Promise<Entry[]>; // §2.5
   scanBranchStructure(q: StorageBranchScan, context: Context): Promise<EntryStructure[]>;
-  scanEntries(q: EntryScan, context: Context): Promise<Entry[]>;   // session-wide inventory
-  scanUsage(q: UsageScan, context: Context): Promise<UsageRow[]>;  // ledger read (§1.6)
-  getStats(context: Context): Promise<SessionStats>;               // maintained projection
+  scanEntries(q: EntryScan, context: Context): Promise<Entry[]>; // session-wide inventory
+  scanUsage(q: UsageScan, context: Context): Promise<UsageRow[]>; // ledger read (§1.6)
+  getStats(context: Context): Promise<SessionStats>; // maintained projection
   close(context: Context): Promise<void>;
 }
 ```
@@ -358,8 +370,8 @@ Maps for entries, scalar values, list arrays, and usage rows, physically keyed b
 The file is the **replay recipe** for the Memory maps, not the state. One physical line per `commit()`: storage assigns sequence/timestamp fields, then encodes one committed write as a JSON object line or several as one **array line**. The header line is `{"v":4,"kind":"header","id":…,"storageVersion":1,"createdAt":…,"cwd":…}` plus optional `parentSessionId`, `legacyParentSessionPath`, and the `nextSeq` high-water mark written by fork destinations and v3 normalization (and required for future J1 rewrites).
 
 - This is format 4. The pre-WP01 unfinished format-4 spelling was replaced in place; no migration for it exists or is required. Coding-agent format 3 remains supported (Appendix B).
-- Open replays lines in order into the maps — entries/usage accumulate; a later value `set` overwrites, `delete` removes; list `append` adds `{ seq, value }`, list `delete` removes the key. That is *decoding*, not recovery logic. Open verifies persisted sequence monotonicity (strictly increasing, gaps legal) and timestamps, and never regenerates committed timestamps. All queries then run in RAM.
-- **A torn final line is discarded whole**, including every element of an array line, and truncated before new writes are admitted — this makes "no crash prefix inside a transaction" true here. A malformed *interior* line or invalid framing is corruption. A future older storage version is decoded only when an explicit R11 migration defines that total mapping; post-migration compaction retires its bytes.
+- Open replays lines in order into the maps — entries/usage accumulate; a later value `set` overwrites, `delete` removes; list `append` adds `{ seq, value }`, list `delete` removes the key. That is _decoding_, not recovery logic. Open verifies persisted sequence monotonicity (strictly increasing, gaps legal) and timestamps, and never regenerates committed timestamps. All queries then run in RAM.
+- **A torn final line is discarded whole**, including every element of an array line, and truncated before new writes are admitted — this makes "no crash prefix inside a transaction" true here. A malformed _interior_ line or invalid framing is corruption. A future older storage version is decoded only when an explicit R11 migration defines that total mapping; post-migration compaction retires its bytes.
 - Durability is process-crash level: a resolved `commit()` survives process death; no fsync promise. Optionally retain `(offset, length)` per entry and load payloads lazily — only if profiling demands it.
 
 **Snapshot compaction (J1 — specified, not implemented).** In SQLite a value `set` is an in-place upsert; in JSONL every `set` appends, so a 30-turn run leaves ~10 dead `pi.op.state` lines after the terminal `delete`: the file grows with write history even though logical state does not. The specified fix rewrites the file as `header + current entries + current values + surviving list elements + usage rows` via temp file + atomic rename. Surviving lines keep their original `seq` values (dropped-line gaps are legal; no renumbering). Each surviving list element is rewritten as an append record carrying its original `seq`, merged in sequence order — never collapsed into one synthetic append — so list cursors survive. Deleted lists produce no snapshot records; the `nextSeq` high-water mark is preserved so dropping a trailing delete line cannot permit sequence reuse. Compact on open when the dead-bytes ratio crosses a threshold, after a terminal or outcome-staging deletion pushes the file across it, and always after a schema migration (Part 7); between compactions, operation is append-only and O(1) per commit.
@@ -425,6 +437,7 @@ In per-session-file mode a precise rewrite (§2.9) may build a fresh database (`
 Consequences relied on throughout: attachment is bounded (fixed projection point reads per lane, §4.4; one compaction-bounded watch scan plus exact state-directed reads, §5.4; the only reducer on a durable path is pi-ai's frame reducer over one exact bounded list, §3.7); crash states are enumerable — between transactions, never inside one; cleanup is deletion, not collection — a 30-turn run replaces `operationState` ~30 times then deletes it, leaving exactly the conversation, ledger, and a few lane/session values (JSONL defers physical reclamation to J1; logical state is identical); recovery never repairs by rewrite — it appends entries and replaces only values it owns with the same transitions normal execution would commit, so interrupting and rerunning gives the same result; readers never see partial state. Staging writes are deliberate: queued content serializes into `pi.pending.entry` at enqueue and again into its entry at placement; finalized tool outcomes stage before source-ordered materialization, preventing a completed parallel effect from replaying after a crash; assistant settlements are born placed, their frames dying atomically with settlement. Staging always has one owner and dies atomically with placement or cleanup.
 
 ---
+
 # Part 2 — The conversation tree
 
 ## 2.1 Entries
@@ -433,20 +446,33 @@ An **entry** is the complete stored row (§1.1): placement fields and payload to
 
 ```ts
 interface MessageEntry extends EntryBase {
-  type: "message"; message: AgentMessage; terminate?: true;
+  type: "message";
+  message: AgentMessage;
+  terminate?: true;
 }
 interface CompactionEntry extends EntryBase {
-  type: "compaction"; summary: string; retainedTail: AgentMessage[];
-  tokensBefore: number; details?: JsonValue; usage?: Usage; fromHook: boolean;
+  type: "compaction";
+  summary: string;
+  retainedTail: AgentMessage[];
+  tokensBefore: number;
+  details?: JsonValue;
+  usage?: Usage;
+  fromHook: boolean;
 }
 /** fromId: the summarized branch's pre-navigation tip — the producing
     operation's sourceTipId (§3.10) — or null when that source is the root. */
 interface BranchSummaryEntry extends EntryBase {
-  type: "branch_summary"; fromId: string | null; summary: string;
-  details?: JsonValue; usage?: Usage; fromHook: boolean;
+  type: "branch_summary";
+  fromId: string | null;
+  summary: string;
+  details?: JsonValue;
+  usage?: Usage;
+  fromHook: boolean;
 }
 interface CustomEntry extends EntryBase {
-  type: "custom"; customType: string; data?: JsonValue;
+  type: "custom";
+  customType: string;
+  data?: JsonValue;
 }
 type Entry = MessageEntry | CompactionEntry | BranchSummaryEntry | CustomEntry;
 ```
@@ -455,7 +481,7 @@ Rules: `type`/`customType` are structural fields — branch queries filter on th
 
 ## 2.2 Placement
 
-> An **entry** is created, complete, when placement happens. Content durable *before* placement is current mutable state waiting in a `pendingEntry(id)` value; the placement transaction writes the entry and deletes the pending value. Neither is modified after that.
+> An **entry** is created, complete, when placement happens. Content durable _before_ placement is current mutable state waiting in a `pendingEntry(id)` value; the placement transaction writes the entry and deletes the pending value. Neither is modified after that.
 
 **Born placed** — assistant responses and direct appends to an idle lane; content and placement arrive in one transaction (`TX[ insert entry, upsert pi.branch.tip ]`).
 
@@ -492,13 +518,14 @@ Session name and entry labels are latest-wins values outside the tree (`sessionN
 
 ```ts
 interface BranchScan {
-  start?: string;           // required at Storage; Branch/AgentLane default to the receiver's tip
-  stopAtType?: EntryType;   // scan ends after the first match, inclusive
+  start?: string; // required at Storage; Branch/AgentLane default to the receiver's tip
+  stopAtType?: EntryType; // scan ends after the first match, inclusive
   stopAtId?: string;
-  type?: EntryType; customType?: string;
-  order?: "newestFirst" | "oldestFirst";   // default newestFirst
+  type?: EntryType;
+  customType?: string;
+  order?: "newestFirst" | "oldestFirst"; // default newestFirst
   limit?: number;
-  cursor?: { seq: number };                // EntryCursor
+  cursor?: { seq: number }; // EntryCursor
 }
 type StorageBranchScan = BranchScan & { start: string };
 ```
@@ -523,7 +550,7 @@ Memory and JSONL walk parent pointers in RAM. SQLite maintains a private segment
 
 Append: (1) if a branch tip equals the lane tip, append one row and move that tip; (2) otherwise resolve a branch that actually covers the tip, find the newest compaction at or below the tip through the complete segment chain, copy only rows after that compaction through the tip, and set the older prefix as the new segment's base; (3) append the new entry and make it the new segment tip.
 
-**Known contradiction (open):** the copy bound is the newest compaction, so a first divergence from a long *uncompacted* transcript copies O(history) rows — the "no unbounded copy" goal is not met in that case. The implementation follows the compaction-bounded algorithm as written. Resolving this needs a segment representation that can reference a covering segment at the parent boundary (inventoried in `post-wp05-roadmap.md`); specification and representation must change together.
+**Known contradiction (open):** the copy bound is the newest compaction, so a first divergence from a long _uncompacted_ transcript copies O(history) rows — the "no unbounded copy" goal is not met in that case. The implementation follows the compaction-bounded algorithm as written. Resolving this needs a segment representation that can reference a covering segment at the parent boundary (inventoried in `post-wp05-roadmap.md`); specification and representation must change together.
 
 Read newest segment first; if the requested range crosses `baseSeq`, continue through the base chain with the upper bound capped at that boundary; merge segment results into the requested order before filtering/limiting. Two correctness rules are mandatory: the base branch must itself cover the tip within its logical range (containing the tip in an ancestor is insufficient), and the newest-compaction search must traverse the base chain (checking only the newest physical segment can miss it). The cache must preserve: a segment chain followed to its end yields the exact root path with no gaps or duplicates; all chains containing an entry agree below it; runtime reads never fall back to a table scan or parent walk; stale branches remain valid cache history; only an explicit repair operation rebuilds the cache from entries. Tests assert these invariants and the required query plans; no wall-clock threshold is normative.
 
@@ -533,8 +560,7 @@ A fork is a repository operation over one coherent source-storage boundary. Dest
 
 ```ts
 type ForkOptions =
-  | { scope: "branch"; branch: string; entryId?: string;
-      position?: "before" | "at"; id?: string }
+  | { scope: "branch"; branch: string; entryId?: string; position?: "before" | "at"; id?: string }
   | { scope: "tree"; id?: string };
 ```
 
@@ -589,13 +615,18 @@ Result records are retained even when the rewrite removes an entry named by `fro
 interface OperationMeta {
   operationId: string;
   lane: string;
-  sourceTipId: string | null;    // lane tip before acceptance
+  sourceTipId: string | null; // lane tip before acceptance
   startedAt: number;
   intent:
     | { kind: "run"; promptEntryIds: string[] }
     | { kind: "compaction"; customInstructions?: string }
-    | { kind: "navigation"; targetId: string | null; summarize: boolean;
-        label?: string; customInstructions?: string };
+    | {
+        kind: "navigation";
+        targetId: string | null;
+        summarize: boolean;
+        label?: string;
+        customInstructions?: string;
+      };
 }
 ```
 
@@ -608,41 +639,52 @@ interface OperationMeta {
 ```ts
 type Control = { status: "running" } | { status: "cancel_requested"; requestedAt: number };
 
-interface OperationScope {           // carried by every leaf
+interface OperationScope {
+  // carried by every leaf
   control: Control;
-  settings: { compaction: CompactionSettings; steeringMode: QueueMode;
-              followUpMode: QueueMode; toolExecution: "sequential" | "parallel" };
+  settings: {
+    compaction: CompactionSettings;
+    steeringMode: QueueMode;
+    followUpMode: QueueMode;
+    toolExecution: "sequential" | "parallel";
+  };
   latestAssistantEntryId: string | null;
 }
 
 type Continuation =
   | { kind: "need_assistant"; overflowRecoveryUsed: boolean }
   | { kind: "may_finish"; includeFinalAssistant: boolean };
-interface CheckpointData { continuation: Continuation; triggerEntryId: string }
+interface CheckpointData {
+  continuation: Continuation;
+  triggerEntryId: string;
+}
 
 type ResultBoundary =
   | { kind: "resume_checkpoint"; resumeAfter: CheckpointData }
   | { kind: "finish" }
   | { kind: "commit_navigation"; targetId: string; label?: string };
 interface SummaryTask {
-  taskId: string; reason?: "manual" | "threshold" | "overflow";
-  customInstructions?: string; boundary: ResultBoundary;
+  taskId: string;
+  reason?: "manual" | "threshold" | "overflow";
+  customInstructions?: string;
+  boundary: ResultBoundary;
 }
 
-type OperationState =            // at:
-  | StartingOperation                    // "starting"
-  | CheckpointOperation                  // "checkpoint"
-  | AssistantReadyOperation              // "assistant.ready"
-  | AssistantEffectPendingOperation      // "assistant.effect_pending"
-  | AssistantRetryWaitOperation          // "assistant.retry_wait"
-  | ToolsOperation                       // "tools"
-  | DeferredSuspendedOperation           // "deferred.suspended"
-  | DeferredEffectPendingOperation       // "deferred.effect_pending"
-  | SummaryDecidingOperation             // "summary.deciding"
-  | SummaryReadyOperation                // "summary.ready"
-  | SummaryEffectPendingOperation        // "summary.effect_pending"
-  | SummaryRetryWaitOperation            // "summary.retry_wait"
-  | NavigationReadyToCommitOperation;    // "navigation.ready_to_commit"
+type OperationState =
+  // at:
+  | StartingOperation // "starting"
+  | CheckpointOperation // "checkpoint"
+  | AssistantReadyOperation // "assistant.ready"
+  | AssistantEffectPendingOperation // "assistant.effect_pending"
+  | AssistantRetryWaitOperation // "assistant.retry_wait"
+  | ToolsOperation // "tools"
+  | DeferredSuspendedOperation // "deferred.suspended"
+  | DeferredEffectPendingOperation // "deferred.effect_pending"
+  | SummaryDecidingOperation // "summary.deciding"
+  | SummaryReadyOperation // "summary.ready"
+  | SummaryEffectPendingOperation // "summary.effect_pending"
+  | SummaryRetryWaitOperation // "summary.retry_wait"
+  | NavigationReadyToCommitOperation; // "navigation.ready_to_commit"
 ```
 
 The four `summary.*` leaves carry one `SummaryTask`; summary kind is derived from the closed boundary union, never duplicated. `ToolBatch`/`ToolCall` remain a nested child state machine because parallel children genuinely settle concurrently — a `ToolCall` is `{ sourceIndex, resultEntryId }` plus `planned | effect_pending{replay} | outcome_ready{terminate} | completed{terminate}`. Large content stays at referenced sibling addresses; state contains only bounded policy and the ids required to dispatch and recover. A live procedure's JavaScript continuation is finer-grained than the durable leaf: after `assistant.effect_pending` commits, a live process awaits the provider; after process loss, the same leaf means unknown-outcome recovery.
@@ -717,21 +759,21 @@ stateDiagram-v2
 
 `accept(request, context)` normalizes immutable input off the mutation line, then performs one acceptance command: check the lane is idle, validate durable inputs, commit metadata plus the initial leaf, publish events, return `OperationAdmission`. It installs no Drive and invokes no hook, provider, tool, timer, or process owner. Run acceptance selects eligible items from the lane's one ordered inbox:
 
-| Tag | Idle acceptance |
-|---|---|
-| `write` | all |
-| `nextRun` | all |
-| `steer` | all or oldest according to `steeringMode` |
+| Tag        | Idle acceptance                           |
+| ---------- | ----------------------------------------- |
+| `write`    | all                                       |
+| `nextRun`  | all                                       |
+| `steer`    | all or oldest according to `steeringMode` |
 | `followUp` | all or oldest according to `followUpMode` |
 
 Selected items place in global admission order regardless of tag; request prompt entries are newer and follow them. Selection deletes each `pendingEntry(id)` and removes only selected inbox ids in the same transaction; mode remainders and late admissions stay queued. An empty public prompt is valid only when captured queued content places at least one conversational message — the ordinary continuation-run acceptance used after structural convenience operations.
 
-| Request | Initial durable leaf and acceptance writes |
-|---|---|
+| Request                 | Initial durable leaf and acceptance writes                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------- |
 | prompt, skill, template | selected queued entries + normalized prompt entries; `OperationMeta`; payload-free `starting`; lane current id |
-| compaction | durable preparation + `OperationMeta`; `summary.deciding` with boundary `finish`; lane current id |
-| summarized navigation | preparation + `OperationMeta`; `summary.deciding` with boundary `commit_navigation`; lane current id |
-| unsummarized navigation | `OperationMeta`; `navigation.ready_to_commit`; lane current id |
+| compaction              | durable preparation + `OperationMeta`; `summary.deciding` with boundary `finish`; lane current id              |
+| summarized navigation   | preparation + `OperationMeta`; `summary.deciding` with boundary `commit_navigation`; lane current id           |
+| unsummarized navigation | `OperationMeta`; `navigation.ready_to_commit`; lane current id                                                 |
 
 Structural preparation may run outside the mutation line, but the acceptance command revalidates the observed source tip and idle state before committing. Pre-acceptance failures write nothing: busy lane, empty/invalid message, missing skill/template, nothing to compact, invalid navigation, unknown target; model/tool registry availability is checked only at the later effect boundary. `starting` is consumed by the Drive after the cancellation check and `before_drive`; `before_run` runs off-line, and one commit places its injected messages and enters `checkpoint` — a crash before that commit may repeat the hook, a crash after it cannot. Concurrent accepts serialize on the Session line (loser: `LaneBusy`); a crash after acceptance leaves an open initial leaf that only a later `drive` advances.
 
@@ -743,14 +785,14 @@ The request identity is the stable lane identity `Session metadata id + ":" + la
 
 Settlement commits the complete response entry, usage row, branch tip, deletion of `pendingAssistantFrames(O, R)`, and exactly one successor:
 
-| Settled response | Successor |
-|---|---|
-| accepted tool calls | `tools` with reserved result ids |
-| retryable error with attempts remaining | `assistant.retry_wait` |
-| first overflow with preparation | `summary.deciding` with `resume_checkpoint` |
-| valid deferred handle | `deferred.suspended` |
-| stop or genuine output-limit length | `checkpoint{may_finish}` |
-| terminal error, exhausted retry, invalid deferred handle, second overflow, or empty overflow preparation | terminal failed result |
+| Settled response                                                                                         | Successor                                   |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| accepted tool calls                                                                                      | `tools` with reserved result ids            |
+| retryable error with attempts remaining                                                                  | `assistant.retry_wait`                      |
+| first overflow with preparation                                                                          | `summary.deciding` with `resume_checkpoint` |
+| valid deferred handle                                                                                    | `deferred.suspended`                        |
+| stop or genuine output-limit length                                                                      | `checkpoint{may_finish}`                    |
+| terminal error, exhausted retry, invalid deferred handle, second overflow, or empty overflow preparation | terminal failed result                      |
 
 A retry timer runs off the mutation line and enters `assistant.ready` only after `notBefore`; cancellation or close wins without starting another request. Every response/usage/decision lands together or none does.
 
@@ -777,13 +819,13 @@ Overflow is checked before retryability. Error, aborted, and deferred assistant 
 
 Tool execution separates effect completion from source-ordered tree placement:
 
-| From | Trigger | Transaction | To |
-|---|---|---|---|
-| call _i_ `planned` | clearance passed (`before_tool`, lookup, arg validation) | `TX[ upsert pi.op.tool_args/O:{stepId}:{i} = effective args, S(call i = effect_pending, replay) ]` | dispatch |
-| call _i_ `effect_pending` | tool calls `onUpdate(partial, { checkpoint:true })` | `TX[ upsert pi.pending.tool_output/O:{resultEntryId} = partial ]` after invocation fencing; state unchanged | `effect_pending` |
-| call _i_ `effect_pending` | effect settled; latest update delivery and latest checkpoint write awaited; `after_tool` applied | `TX[ upsert pi.pending.entry/{resultEntryId} = finalized result, delete pi.pending.tool_output/O:{resultEntryId}, delete pi.op.tool_memo/O:{resultEntryId}:*, S(call i = outcome_ready, terminate) ]`, with post-commit `tool_end` | `outcome_ready` |
-| call _i_ `planned` | unknown tool / invalid args / `before_tool` blocks or throws / control cancelled | `TX[ upsert pi.pending.entry/{resultEntryId} = complete synthetic result, S(call i = outcome_ready, terminate) ]`, with post-commit `tool_start` followed by `tool_end`; no effect intent | `outcome_ready` |
-| source-ready prefix | first non-completed calls are `outcome_ready` | `TX[ insert result entries in source order, delete their pi.pending.entry values, insert reported usage, upsert pi.branch.tip, S(calls = completed / next checkpoint) ]` | `completed` or checkpoint |
+| From                      | Trigger                                                                                          | Transaction                                                                                                                                                                                                                        | To                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| call _i_ `planned`        | clearance passed (`before_tool`, lookup, arg validation)                                         | `TX[ upsert pi.op.tool_args/O:{stepId}:{i} = effective args, S(call i = effect_pending, replay) ]`                                                                                                                                 | dispatch                  |
+| call _i_ `effect_pending` | tool calls `onUpdate(partial, { checkpoint:true })`                                              | `TX[ upsert pi.pending.tool_output/O:{resultEntryId} = partial ]` after invocation fencing; state unchanged                                                                                                                        | `effect_pending`          |
+| call _i_ `effect_pending` | effect settled; latest update delivery and latest checkpoint write awaited; `after_tool` applied | `TX[ upsert pi.pending.entry/{resultEntryId} = finalized result, delete pi.pending.tool_output/O:{resultEntryId}, delete pi.op.tool_memo/O:{resultEntryId}:*, S(call i = outcome_ready, terminate) ]`, with post-commit `tool_end` | `outcome_ready`           |
+| call _i_ `planned`        | unknown tool / invalid args / `before_tool` blocks or throws / control cancelled                 | `TX[ upsert pi.pending.entry/{resultEntryId} = complete synthetic result, S(call i = outcome_ready, terminate) ]`, with post-commit `tool_start` followed by `tool_end`; no effect intent                                          | `outcome_ready`           |
+| source-ready prefix       | first non-completed calls are `outcome_ready`                                                    | `TX[ insert result entries in source order, delete their pi.pending.entry values, insert reported usage, upsert pi.branch.tip, S(calls = completed / next checkpoint) ]`                                                           | `completed` or checkpoint |
 
 **Updates and checkpoints.** Every `onUpdate` is a process-local `tool_update` observation: the synchronous callback emits the event and retains the latest delivery promise internally; tools neither receive nor await it. `checkpoint:true` additionally requests replacement of the invocation's bounded durable progress snapshot: each such call synchronously enqueues one invocation-fenced value replacement on the mutation line, attaches the ordinary harness-fault observer, and replaces only the process-local latest checkpoint-write promise reference. No checkpoint write is dropped or coalesced; Session FIFO preserves request order, and each mutation verifies the same call is still `effect_pending` when it executes. The tool alone controls cadence, duplicate suppression, and bounding — requesting checkpoints faster than storage commits queues memory under the trusted-tool contract, and the API imposes no generic byte cap or truncation. When the tool promise settles, the harness stops accepting updates and closes checkpoint admission; a late request returns without committing. Before `after_tool`, the procedure awaits the latest update-delivery promise **and** the latest checkpoint-write promise — each implies completion of everything earlier in its queue. Checkpoint writes order before outcome staging, and staging deletes the value; a failed checkpoint commit follows the ordinary storage-fault path and prevents staging.
 
@@ -803,11 +845,11 @@ Calls are tracked internally by `sourceIndex` (position in the assistant message
 
 Compaction and navigation summaries share one durable quadruple, `summary.deciding → summary.ready → summary.effect_pending ↔ summary.retry_wait`. `SummaryTask.boundary` determines semantics:
 
-| Boundary | Use | Successful publication |
-|---|---|---|
+| Boundary            | Use                             | Successful publication                                                                |
+| ------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
 | `resume_checkpoint` | threshold/overflow inside a run | compaction entry, then one atomic boundary plan for queued input and run continuation |
-| `finish` | standalone compaction | compaction entry plus terminal compaction result |
-| `commit_navigation` | summarized navigation | move, summary entry, optional label, and terminal navigation result in one commit |
+| `finish`            | standalone compaction           | compaction entry plus terminal compaction result                                      |
+| `commit_navigation` | summarized navigation           | move, summary entry, optional label, and terminal navigation result in one commit     |
 
 Preparation is immutable content stored at `operationPreparation(operationId, taskId)` in the same transaction that enters `summary.deciding`; `before_compaction` runs off-line. A decline, hook-supplied result, generated result, model absence, or terminal generation failure all meet at one boundary switch; cancellation never takes a boundary continuation.
 
@@ -825,12 +867,12 @@ Unsummarized navigation accepts directly into `navigation.ready_to_commit`; summ
 
 Every queued admission mints an entry id and atomically writes `pendingEntry(id)` plus one tagged item into the lane's single ordered inbox. Enqueue is accepted while idle, during any operation family, during deferred suspension, and after durable cancellation. Tags determine eligibility, not ownership:
 
-| Drain point | Eligible tags |
-|---|---|
-| idle acceptance | all `write` and `nextRun`; mode-selected `steer` and `followUp` |
-| run boundary | all `write`; mode-selected `steer`; mode-selected `followUp` only at `may_finish` |
-| idle direct append | all earlier `write`, then the new direct entry |
-| abort | all `steer` and `followUp` removed and returned; `nextRun`/`write` remain |
+| Drain point        | Eligible tags                                                                     |
+| ------------------ | --------------------------------------------------------------------------------- |
+| idle acceptance    | all `write` and `nextRun`; mode-selected `steer` and `followUp`                   |
+| run boundary       | all `write`; mode-selected `steer`; mode-selected `followUp` only at `may_finish` |
+| idle direct append | all earlier `write`, then the new direct entry                                    |
+| abort              | all `steer` and `followUp` removed and returned; `nextRun`/`write` remain         |
 
 Within one drain, selected items always place in global inbox order; queue modes select per tag and leave remainders in their original relative positions. `nextRun` is never consumed mid-run and never blocks finish. A steer admitted too late for one boundary stays queued and becomes eligible at the next boundary or idle acceptance — not an error.
 
@@ -881,9 +923,9 @@ class Drive {
   readonly operationId: string;
   readonly completion: Promise<DriveOutcome>;
   readonly gate: Gate;
-  readonly context: Context;       // installing invocation cancellation removed
+  readonly context: Context; // installing invocation cancellation removed
   readonly waitForRetry: boolean;
-  deferredPermits: number;         // 1 when installed with pollDeferred
+  deferredPermits: number; // 1 when installed with pollDeferred
 }
 ```
 
@@ -923,7 +965,7 @@ Procedures receive only `drive.gate`; `Drive` privately retains `GateControl`, a
 **The admission boundary must be synchronous.** Preparation finishes first; then the gate check and operation invocation are one synchronous expression — wrapping preparation itself in `admit` is wrong, because abort could win while preparation awaits after admission:
 
 ```ts
-await prepareRequest();   // all preparation first
+await prepareRequest(); // all preparation first
 const admittedContext = withAbortSignal(drive.gate.signal, drive.context);
 const stream = drive.gate.admit(() =>
   models.streamSimple(model, aiContext, {
@@ -970,23 +1012,23 @@ Recovery begins only when an open operation has no `Drive` and a matching `drive
 
 The pass first inspects the owned control projection: cancellation requested → invoke neither `before_drive` nor `before_run`, enter §4.6. Otherwise gate and invoke `before_drive`; failure rejects the pass without faulting the harness or writing durable progress. Model/tool implementations resolve only at the boundary that needs them: an unavailable provider/model or configured request tool is a non-retryable configuration failure before request intent, an unavailable requested tool a synthetic error result; neither suspends the operation. Durable phase then decides the work: `starting` runs and settles `before_run` per §3.6; a pending effect with no owner is an orphan and follows the table; all other phases continue ordinarily.
 
-| Orphaned restart point | Activation recovery |
-|---|---|
-| assistant generation `effect_pending` | Read bounded pages from `pendingAssistantFrames(O, R)`, reduce with `reduceAssistantMessageFrames`, and commit under the reserved ids a synthetic zero-usage `error` response carrying the reconstructed partial (no committed start frame → `api:"unknown"`, captured provider/model strings, empty content). Include an explicit warning: request interrupted, preceding content is the latest committed partial, newer live output may be missing, external outcome unknown. The same transaction deletes the frame list. The committed error then follows ordinary classification: attempts remaining → retry wait and a later numbered attempt under fresh ids; cap reached → terminal failure. Partial tool calls inside it never execute, and `after_response` never runs — there is no trustworthy complete provider result to transform. |
-| structural generation `effect_pending` | Treat the entire attempt as uncertain, including any completed first split-turn request whose intermediate text was process-local. Advance to a later `ready` attempt under the captured policy or fail at the cap. Committed request-usage rows remain in the ledger. |
-| tool call `effect_pending` | Stored and current declarations both `safe`: delete any old progress checkpoint and re-execute persisted arguments with the same invocation memos/id. Implementation absent, current declaration no longer safe, or stored declaration `never`: synthesize interruption instead of suspending — preserve checkpoint content/details/usage when present, ignore its added-tool/termination hints, append the explicit latest-durable/newer-live-may-be-missing/unknown-outcome warning, and stage a non-terminating error without `after_tool` (no checkpoint → omit `details`). |
-| deferred poll `effect_pending` | No poll permit → stays suspended; may expose its durable partial in snapshots. Permit plus resolvable captured model → replace the unknown poll with fresh response/usage ids at the same poll number and fetch once; the replacement intent deletes the abandoned old frame list. Captured model unavailable → delete that old frame list and enter configuration-provenance failure without fabricating settlement. There is no cap. |
+| Orphaned restart point                 | Activation recovery                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| assistant generation `effect_pending`  | Read bounded pages from `pendingAssistantFrames(O, R)`, reduce with `reduceAssistantMessageFrames`, and commit under the reserved ids a synthetic zero-usage `error` response carrying the reconstructed partial (no committed start frame → `api:"unknown"`, captured provider/model strings, empty content). Include an explicit warning: request interrupted, preceding content is the latest committed partial, newer live output may be missing, external outcome unknown. The same transaction deletes the frame list. The committed error then follows ordinary classification: attempts remaining → retry wait and a later numbered attempt under fresh ids; cap reached → terminal failure. Partial tool calls inside it never execute, and `after_response` never runs — there is no trustworthy complete provider result to transform. |
+| structural generation `effect_pending` | Treat the entire attempt as uncertain, including any completed first split-turn request whose intermediate text was process-local. Advance to a later `ready` attempt under the captured policy or fail at the cap. Committed request-usage rows remain in the ledger.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| tool call `effect_pending`             | Stored and current declarations both `safe`: delete any old progress checkpoint and re-execute persisted arguments with the same invocation memos/id. Implementation absent, current declaration no longer safe, or stored declaration `never`: synthesize interruption instead of suspending — preserve checkpoint content/details/usage when present, ignore its added-tool/termination hints, append the explicit latest-durable/newer-live-may-be-missing/unknown-outcome warning, and stage a non-terminating error without `after_tool` (no checkpoint → omit `details`).                                                                                                                                                                                                                                                                   |
+| deferred poll `effect_pending`         | No poll permit → stays suspended; may expose its durable partial in snapshots. Permit plus resolvable captured model → replace the unknown poll with fresh response/usage ids at the same poll number and fetch once; the replacement intent deletes the abandoned old frame list. Captured model unavailable → delete that old frame list and enter configuration-provenance failure without fabricating settlement. There is no cap.                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 After orphan recovery removes or takes live ownership of every pending effect, the ordinary procedures continue. Calls already `outcome_ready` need no identity or effect recovery; ordinary source-order materialization places their staged results. Recovery is not a second end-to-end driver.
 
 Atomic transactions have no internal prefix, so every repeat-sensitive effect has the same four durable crash positions:
 
-| Crash point | Durable restart point | Activation behavior |
-|---|---|---|
-| before intent commit | previous ordinary state | run the ordinary procedure as if nothing happened |
-| after intent, before effect admission | `effect_pending` | outcome indistinguishable from a crash during the effect; apply the table above |
-| during/after effect, before settlement | `effect_pending` | same unknown-outcome policy |
-| after settlement commit | output + usage + next state | continue; never re-settle |
+| Crash point                            | Durable restart point       | Activation behavior                                                             |
+| -------------------------------------- | --------------------------- | ------------------------------------------------------------------------------- |
+| before intent commit                   | previous ordinary state     | run the ordinary procedure as if nothing happened                               |
+| after intent, before effect admission  | `effect_pending`            | outcome indistinguishable from a crash during the effect; apply the table above |
+| during/after effect, before settlement | `effect_pending`            | same unknown-outcome policy                                                     |
+| after settlement commit                | output + usage + next state | continue; never re-settle                                                       |
 
 Queue application and final structural commits remain atomic (Part 3): a crash before one sees the prior complete state, after one the next. A crash after durable abort activates reconciliation; a crash after terminal cleanup sees an idle lane and its immutable `pi.result`.
 
@@ -1033,22 +1075,31 @@ Conveniences add process-local waiting policy only: `prompt`/`skill`/`promptFrom
 ### Results
 
 ```ts
-interface SuspendedRun { operationId: string; status: "suspended"; deferred: DeferredHandle }
+interface SuspendedRun {
+  operationId: string;
+  status: "suspended";
+  deferred: DeferredHandle;
+}
 
-type RunResult = Result<OperationResultRecord | SuspendedRun,
-  LaneBusy | InvalidMessage | UnknownSkill | UnknownTemplate | Closed>;
+type RunResult = Result<
+  OperationResultRecord | SuspendedRun,
+  LaneBusy | InvalidMessage | UnknownSkill | UnknownTemplate | Closed
+>;
 type CompactionResult = Result<
   { compaction: OperationResultRecord; run?: OperationResultRecord | SuspendedRun },
-  LaneBusy | NothingToCompact | Closed>;
+  LaneBusy | NothingToCompact | Closed
+>;
 type NavigationResult = Result<
   { navigation: OperationResultRecord; run?: OperationResultRecord | SuspendedRun },
-  LaneBusy | InvalidNavigation | UnknownTarget | Closed>;
+  LaneBusy | InvalidNavigation | UnknownTarget | Closed
+>;
 type ResumeResult = Result<OperationResultRecord | SuspendedRun, NothingToResume | Closed>;
 type QueueResult = Result<{ entryId: string }, InvalidMessage | Closed>;
 type CancelQueuedResult = Result<{ kind: "cancelled" | "already_consumed" | "not_found" }, Closed>;
 type AbortResult = Result<
   { operationId: string; steer: AgentMessage[]; followUp: AgentMessage[] },
-  NoActiveOperation | Closed>;
+  NoActiveOperation | Closed
+>;
 type RecordUsageResult = Result<{ usageId: string }, Closed>;
 
 type DriveOutcome =
@@ -1057,9 +1108,9 @@ type DriveOutcome =
   | { kind: "waiting"; operationId: string; reason: "deferred"; deferred: DeferredHandle };
 type DriveResult = Result<DriveOutcome, OperationMismatch | Closed>;
 type AbortRequestResult = Result<
-  { operationId: string; newlyRequested: boolean;
-    steer: AgentMessage[]; followUp: AgentMessage[] },
-  OperationMismatch | Closed>;
+  { operationId: string; newlyRequested: boolean; steer: AgentMessage[]; followUp: AgentMessage[] },
+  OperationMismatch | Closed
+>;
 ```
 
 `SuspendedRun` is convenience-only and never stored. Terminal outcomes are exactly the immutable record; callers retrieve entry payloads separately through Branch/Lane queries. Queue admission returns the reserved `entryId`; `AbortResult`/`AbortRequestResult` carry the family-neutral `operationId` plus the drained steer/follow-up messages; `recordUsage` writes an adjustment row and returns its id.
@@ -1108,17 +1159,30 @@ interface LaneSnapshot {
   configuration: LaneConfiguration;
   stats: SessionStats;
   operation: null | {
-    id: string; kind: "run" | "compaction" | "navigation";
-    startedAt: number; fromTipId: string | null;
+    id: string;
+    kind: "run" | "compaction" | "navigation";
+    startedAt: number;
+    fromTipId: string | null;
     status: "running" | "open" | "aborting";
     retry?: { attempt: number; maxAttempts: number; nextAttemptAt: number };
     deferred?: { handle: DeferredHandle; poll: number };
     streamingMessage?: AssistantMessage;
     runningTools: Array<
-      | { status: "running"; toolCallId: string; toolName: string; args: unknown;
-          result?: AgentToolResult<unknown> }
-      | { status: "settled"; toolCallId: string; toolName: string; args: unknown;
-          result: AgentToolResult<unknown>; isError: boolean }
+      | {
+          status: "running";
+          toolCallId: string;
+          toolName: string;
+          args: unknown;
+          result?: AgentToolResult<unknown>;
+        }
+      | {
+          status: "settled";
+          toolCallId: string;
+          toolName: string;
+          args: unknown;
+          result: AgentToolResult<unknown>;
+          isError: boolean;
+        }
     >;
   };
   queues: LaneQueuedItem[];
@@ -1145,15 +1209,15 @@ Operation-terminal events are `run_end`, `navigation_end`, and `compaction_end` 
 
 Events are passive committed-state/lifecycle observations: they never drive execution and are not replayed from durable history. `HarnessEvent` adds `lane` to lane-scoped payloads and may add `recovery: true` for actual orphan recovery/replay. Full payload unions: `agent-harness.ts`. The authoritative groups:
 
-| Group | Events and required data |
-|---|---|
-| operation | `run_start{runId,startedAt}`, `compaction_start{runId,reason,startedAt}`, `navigation_start{runId,targetId,startedAt}`, `operation_abort{operationId,steer,followUp}` |
+| Group            | Events and required data                                                                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| operation        | `run_start{runId,startedAt}`, `compaction_start{runId,reason,startedAt}`, `navigation_start{runId,targetId,startedAt}`, `operation_abort{operationId,steer,followUp}`                |
 | terminal/segment | `run_end{runId,status,fromTipId,tipId,endedAt,error?}`, `compaction_end{runId,reason,status,endedAt,entryId?,error?}`, `navigation_end{runId,status,fromTipId,tipId,endedAt,error?}` |
-| suspended/retry | `run_suspend{runId,reason:"deferred",deferred,poll}`, `run_resume{runId}`, `retry_scheduled{step,attempt,maxAttempts,delayMs,notBefore,errorMessage}`, `retry_start`, `retry_end` |
-| transcript | `message_start`, `message_update{message,event,frame?}`, `message_end{message,entryId?}`, `entry_added{entry}` |
-| tools/turns | `turn_start`, `turn_end`, `tool_start`, `tool_update`, `tool_end` |
-| replicated state | `queue_update{queues}`, lane/global `config_update`, `usage{row,totals}`, `lane_created{at}` |
-| metadata/faults | `value_update`, `fault`, `handler_error` |
+| suspended/retry  | `run_suspend{runId,reason:"deferred",deferred,poll}`, `run_resume{runId}`, `retry_scheduled{step,attempt,maxAttempts,delayMs,notBefore,errorMessage}`, `retry_start`, `retry_end`    |
+| transcript       | `message_start`, `message_update{message,event,frame?}`, `message_end{message,entryId?}`, `entry_added{entry}`                                                                       |
+| tools/turns      | `turn_start`, `turn_end`, `tool_start`, `tool_update`, `tool_end`                                                                                                                    |
+| replicated state | `queue_update{queues}`, lane/global `config_update`, `usage{row,totals}`, `lane_created{at}`                                                                                         |
+| metadata/faults  | `value_update`, `fault`, `handler_error`                                                                                                                                             |
 
 `queue_update` carries the complete ordered `LaneQueuedItem[]` after every inbox change and is the sole authoritative queue event; there is no `write_pending`. Lane configuration updates carry `previous` and `value`; global data-bearing configuration updates do the same, while tools/resources remain notification-only because code registries are not replicated. Usage events carry authoritative committed totals from `CommitResult`/storage stats.
 
@@ -1169,32 +1233,32 @@ Hooks are awaited interception points. Registration is harness-global: `Hooks.on
 
 The canonical hook contract (event/result field shapes as declared in `agent-harness.ts`):
 
-| Hook | Event | Result | Durability |
-|---|---|---|---|
-| `before_run` | `{ prompt: AgentMessage[], resources }` | `{ messages? }` | transition-consumed: injected messages and the checkpoint commit together |
-| `before_drive` | `{ operation: "run"\|"compaction"\|"navigation" }` | `void`; failure rejects the pass with no durable progress | pass-local |
-| `before_run_end` | `{ runId, messages }` | `{ followUp?: string }` | transition-consumed: a follow-up and continuation commit together, or the terminal transaction consumes the no-follow-up decision |
-| `transform_context` | `{ messages, systemPrompt }` | `{ messages?, systemPrompt? }` | request-local |
-| `before_request` | `{ model, step: "assistant"\|"deferred"\|"compaction"\|"branch_summary", attempt, streamOptions }` | `{ streamOptions?: AgentHarnessStreamOptionsPatch }` | request-local: the intent stores only its specified derived request metadata |
-| `before_payload` | `{ model, payload: unknown }` | `{ payload }` | request-local |
-| `after_response` | `{ status?, headers?, message: SettledAssistantMessage }` | `{ message? }` (must keep role) | transition-consumed: the transformed message feeds the settled response entry; cancellation or overflow may normalize it at commit |
-| `before_tool` | `{ toolCallId, toolName, args }` | `{ args?, block?: { reason, terminate? } }` | transition-consumed: effective arguments commit with effect intent, or a blocked outcome is staged |
-| `after_tool` | `{ toolCallId, toolName, args, content, details?, isError, usage? }` | `{ content?, details?, isError?, usage?, terminate? }` (field-by-field patch) | transition-consumed: the finalized result commits with `outcome_ready` staging |
-| `before_compaction` | `{ reason: "manual"\|"threshold"\|"overflow", preparation: CompactionPreparation, customInstructions? }` | `{ decline?, compaction?: CompactResult }` | transition-consumed: decline, supplied result, or selection of generation commits as the next structural transition |
-| `before_navigation` | `{ targetId, preparation: BranchPreparation, customInstructions? }` | `{ decline?, summary?: BranchSummaryResult }` | transition-consumed, as above |
+| Hook                | Event                                                                                                    | Result                                                                        | Durability                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `before_run`        | `{ prompt: AgentMessage[], resources }`                                                                  | `{ messages? }`                                                               | transition-consumed: injected messages and the checkpoint commit together                                                          |
+| `before_drive`      | `{ operation: "run"\|"compaction"\|"navigation" }`                                                       | `void`; failure rejects the pass with no durable progress                     | pass-local                                                                                                                         |
+| `before_run_end`    | `{ runId, messages }`                                                                                    | `{ followUp?: string }`                                                       | transition-consumed: a follow-up and continuation commit together, or the terminal transaction consumes the no-follow-up decision  |
+| `transform_context` | `{ messages, systemPrompt }`                                                                             | `{ messages?, systemPrompt? }`                                                | request-local                                                                                                                      |
+| `before_request`    | `{ model, step: "assistant"\|"deferred"\|"compaction"\|"branch_summary", attempt, streamOptions }`       | `{ streamOptions?: AgentHarnessStreamOptionsPatch }`                          | request-local: the intent stores only its specified derived request metadata                                                       |
+| `before_payload`    | `{ model, payload: unknown }`                                                                            | `{ payload }`                                                                 | request-local                                                                                                                      |
+| `after_response`    | `{ status?, headers?, message: SettledAssistantMessage }`                                                | `{ message? }` (must keep role)                                               | transition-consumed: the transformed message feeds the settled response entry; cancellation or overflow may normalize it at commit |
+| `before_tool`       | `{ toolCallId, toolName, args }`                                                                         | `{ args?, block?: { reason, terminate? } }`                                   | transition-consumed: effective arguments commit with effect intent, or a blocked outcome is staged                                 |
+| `after_tool`        | `{ toolCallId, toolName, args, content, details?, isError, usage? }`                                     | `{ content?, details?, isError?, usage?, terminate? }` (field-by-field patch) | transition-consumed: the finalized result commits with `outcome_ready` staging                                                     |
+| `before_compaction` | `{ reason: "manual"\|"threshold"\|"overflow", preparation: CompactionPreparation, customInstructions? }` | `{ decline?, compaction?: CompactResult }`                                    | transition-consumed: decline, supplied result, or selection of generation commits as the next structural transition                |
+| `before_navigation` | `{ targetId, preparation: BranchPreparation, customInstructions? }`                                      | `{ decline?, summary?: BranchSummaryResult }`                                 | transition-consumed, as above                                                                                                      |
 
 Timing and repetition:
 
-| Hook | When it runs / repetition |
-|---|---|
-| `before_drive` | once per newly installed real drive pass, after the cancellation check and before recovery or ordinary work; repeats after every wait/suspension or process loss; joiners do not rerun it |
-| `before_run` | while a run is durably `starting`, after `before_drive`; may rerun until its consuming commit succeeds; never after that transition |
-| `transform_context`, `before_request`, `before_payload` | once per request attempt, including retry and replay; `transform_context` at `AgentMessage` level before `toProviderMessages`; `before_payload` on the provider-specific wire payload |
-| `after_response` | per settled response, after streaming settles and the latest frame write completes (§3.7), before `message_end` and the commit; unless abort wins before it starts |
-| `before_tool` | after validation, before execution; per call execution; not when an orphaned unsafe call is synthesized without execution |
-| `after_tool` | after execution, before outcome staging; per executed result unless abort wins before it starts; runs on safe replay |
-| `before_compaction`, `before_navigation` | in `deciding`; once until a structural source commits; never once generation is durable |
-| `before_run_end` | at a normal finish boundary; may repeat after a crash at that boundary; never for abort, terminal failure, or exhausted auto-compaction |
+| Hook                                                    | When it runs / repetition                                                                                                                                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `before_drive`                                          | once per newly installed real drive pass, after the cancellation check and before recovery or ordinary work; repeats after every wait/suspension or process loss; joiners do not rerun it |
+| `before_run`                                            | while a run is durably `starting`, after `before_drive`; may rerun until its consuming commit succeeds; never after that transition                                                       |
+| `transform_context`, `before_request`, `before_payload` | once per request attempt, including retry and replay; `transform_context` at `AgentMessage` level before `toProviderMessages`; `before_payload` on the provider-specific wire payload     |
+| `after_response`                                        | per settled response, after streaming settles and the latest frame write completes (§3.7), before `message_end` and the commit; unless abort wins before it starts                        |
+| `before_tool`                                           | after validation, before execution; per call execution; not when an orphaned unsafe call is synthesized without execution                                                                 |
+| `after_tool`                                            | after execution, before outcome staging; per executed result unless abort wins before it starts; runs on safe replay                                                                      |
+| `before_compaction`, `before_navigation`                | in `deciding`; once until a structural source commits; never once generation is durable                                                                                                   |
+| `before_run_end`                                        | at a normal finish boundary; may repeat after a crash at that boundary; never for abort, terminal failure, or exhausted auto-compaction                                                   |
 
 Uniform semantics:
 
@@ -1256,7 +1320,7 @@ Telemetry attributes may contain declared ids, names, counts, durations, statuse
 
 **R11 status: mechanism specified, not implemented; activation-gated.** No format-4 migration exists or is required: Memory is current-only, JSONL and SQLite reject unsupported storage versions, and SQLite runs only idempotent `001_initial.sql`. R11 becomes required immediately before the first incompatible durable change after format 4 stabilizes; format 4 is still WIP and pre-stabilization shape changes happen in place without migrations.
 
-**Problem and why it is small here.** Durability snapshots in-flight state shaped like *today's* state machine; ship a different machine and old durable state still exists mid-run. Migration cost is proportional to what must convert: entries and usage rows (years) cannot be rewritten and must stay read-compatible; lane/semantic values are a few per lane; `pi.op.*` exists only for open operations (usually zero); `pi.pending.entry` holds queued items plus staged tool outcomes; `pi.pending.tool_output` only optional open-call checkpoints; `pi.pending.assistant_frame` only open-response frames (usually zero). With no history retained, the entire mutable surface is a few dozen current values/lists, and the host assigns one writable owner before migration starts — migrate-on-open has no concurrent writer.
+**Problem and why it is small here.** Durability snapshots in-flight state shaped like _today's_ state machine; ship a different machine and old durable state still exists mid-run. Migration cost is proportional to what must convert: entries and usage rows (years) cannot be rewritten and must stay read-compatible; lane/semantic values are a few per lane; `pi.op.*` exists only for open operations (usually zero); `pi.pending.entry` holds queued items plus staged tool outcomes; `pi.pending.tool_output` only optional open-call checkpoints; `pi.pending.assistant_frame` only open-response frames (usually zero). With no history retained, the entire mutable surface is a few dozen current values/lists, and the host assigns one writable owner before migration starts — migrate-on-open has no concurrent writer.
 
 **Mechanism: storage version plus migrate-on-open.** One session-level `storageVersion` lives in the catalog or header. A version number beats versioned namespace suffixes (`pi.lane.state.v2`): one number to check, chained `v1→v2→v3` migrations, no probing of historical namespace names, stable address components for point lookups.
 
@@ -1285,18 +1349,18 @@ A rolling plan, not a history. `harness.md` remains the normative behavior contr
 
 Workflow: keep a future package's row here until actionable; move exact files/tests/ordering/exclusions into one handoff; move newly discovered normative behavior into Parts 0–7 or Part 9; only then reduce the row to a link. Every package implements its named concern end to end and tests its normal path, introduced states, owned crash boundaries, and both orders of owned races. Consumption-time dereference checks, implementation resolution, hooks, events, and deterministic effect controls land with the package that first needs them; earlier packages do not build generic future machinery. If implementation exposes a contradiction or a materially simpler boundary, stop for review.
 
-| ID | Status | Outcome | Handoff |
-|---|---|---|---|
-| WP00 | complete | Reconciled acceptance/hooks, harvested runtime1 scenarios, switched the public factory, deleted runtime1. | [Runtime1 removal](work-packages/00-runtime1-removal.md) |
-| WP01 | complete | Bound values/lists across Session, Memory, JSONL, SQLite, instrumentation, conformance, public application access. | [Bound values and lists](work-packages/01-bound-values-lists.md) |
-| WP02 | complete | Atomic prompt/skill/template acceptance, minimal open-operation attachment, Session mutation inspection, gap-free lane watch capture. | [Atomic acceptance and coherent attachment](work-packages/02-atomic-run-acceptance.md) |
-| WP03 | complete | Removed the wall-clock drive deadline and non-durable yielded outcome. | [Remove drive deadlines](work-packages/03-remove-drive-deadlines.md) |
-| WP04 | complete | Synchronous `emitBatch` publication; Session owns committed lane publication. | [Mutation publication and event delivery](work-packages/04-mutation-publication.md) |
-| WP05 | complete | The total direct durable graph, public/replicated lane surfaces, immutable results, atomic boundaries, cancellation reconciliation, lane-safe provider identity. The [mobile assistant-output handoff](mobile-handoff/01-harness/05-assistant-output/message-update.md) is its only recorded follow-up. | [Direct durable drive](work-packages/05-direct-durable-drive.md) |
-| WP06 | complete | Separated Session, Branch, AgentLane, AgentHarness; one keyless Session mutation line. | [Session, Branch, Lane separation](work-packages/06-session-branch-lane-separation.md) |
-| WP07 | complete | Removed SQLite storage-layer ownership; added live read-only source forks, no-create opens, deletion reservation, physical/path safety, and all-settled close. | [SQLite host ownership and live forks](work-packages/07-sqlite-host-ownership-live-forks.md) |
-| WP08 | in progress — Slice A | Replace implicit-main forks with named-branch/tree semantics and bounded-memory backend copies. | [Named-branch and tree forks with streaming copies](work-packages/08-named-branch-streaming-forks.md) |
-| WP09 | complete | Project effect-pending and settled-but-unplaced tool calls continuously through snapshots and lifecycle events until transcript placement. | [LaneSnapshot settled-but-unplaced tools](work-packages/09-lane-snapshot-settled-tools.md) |
+| ID   | Status                | Outcome                                                                                                                                                                                                                                                                                                 | Handoff                                                                                               |
+| ---- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| WP00 | complete              | Reconciled acceptance/hooks, harvested runtime1 scenarios, switched the public factory, deleted runtime1.                                                                                                                                                                                               | [Runtime1 removal](work-packages/00-runtime1-removal.md)                                              |
+| WP01 | complete              | Bound values/lists across Session, Memory, JSONL, SQLite, instrumentation, conformance, public application access.                                                                                                                                                                                      | [Bound values and lists](work-packages/01-bound-values-lists.md)                                      |
+| WP02 | complete              | Atomic prompt/skill/template acceptance, minimal open-operation attachment, Session mutation inspection, gap-free lane watch capture.                                                                                                                                                                   | [Atomic acceptance and coherent attachment](work-packages/02-atomic-run-acceptance.md)                |
+| WP03 | complete              | Removed the wall-clock drive deadline and non-durable yielded outcome.                                                                                                                                                                                                                                  | [Remove drive deadlines](work-packages/03-remove-drive-deadlines.md)                                  |
+| WP04 | complete              | Synchronous `emitBatch` publication; Session owns committed lane publication.                                                                                                                                                                                                                           | [Mutation publication and event delivery](work-packages/04-mutation-publication.md)                   |
+| WP05 | complete              | The total direct durable graph, public/replicated lane surfaces, immutable results, atomic boundaries, cancellation reconciliation, lane-safe provider identity. The [mobile assistant-output handoff](mobile-handoff/01-harness/05-assistant-output/message-update.md) is its only recorded follow-up. | [Direct durable drive](work-packages/05-direct-durable-drive.md)                                      |
+| WP06 | complete              | Separated Session, Branch, AgentLane, AgentHarness; one keyless Session mutation line.                                                                                                                                                                                                                  | [Session, Branch, Lane separation](work-packages/06-session-branch-lane-separation.md)                |
+| WP07 | complete              | Removed SQLite storage-layer ownership; added live read-only source forks, no-create opens, deletion reservation, physical/path safety, and all-settled close.                                                                                                                                          | [SQLite host ownership and live forks](work-packages/07-sqlite-host-ownership-live-forks.md)          |
+| WP08 | in progress — Slice A | Replace implicit-main forks with named-branch/tree semantics and bounded-memory backend copies.                                                                                                                                                                                                         | [Named-branch and tree forks with streaming copies](work-packages/08-named-branch-streaming-forks.md) |
+| WP09 | complete              | Project effect-pending and settled-but-unplaced tool calls continuously through snapshots and lifecycle events until transcript placement.                                                                                                                                                              | [LaneSnapshot settled-but-unplaced tools](work-packages/09-lane-snapshot-settled-tools.md)            |
 
 WP05 subsumed the former R2–R12 execution rows; their implemented contract is in Parts 0–5 and the completed handoff.
 
@@ -1359,36 +1423,36 @@ Operations:
 
 Each durable mutation race has exactly two durable histories. Matching callers install or join one lane-owned Drive; stale operation ids are rejected. Test every listed order with test-only commit gating and controlled hooks, providers, tools, and timers.
 
-| Race | Orders |
-|---|---|
-| `prompt` vs `prompt` on one lane | both compose `accept`; one accepts, one gets `LaneBusy` |
-| `accept(A)` vs process loss before `drive(A)` | acceptance absent → serving layer retries; acceptance present → restored `starting` drives normally, with no unknown effect |
-| `drive(A)` vs `drive(A)` | one installs the pass; the other joins exactly that pass and may drive again after its outcome |
-| stale `drive(A)`/`requestAbort(A)` vs current B | expected-id mismatch; B is untouched |
-| `requestAbort` vs response settlement | marker first → normalized `aborted`; terminal commit first → completed record and later abort mismatches |
-| `abort` vs started tool outcome staging | abort first → real result stages under cancelled control; outcome first → finalized result is preserved and later materializes |
-| checkpoint vs tool settlement | every accepted checkpoint was enqueued before settlement closed admission; settlement awaits the latest write, then staging deletes the value; a late update is fenced without committing |
-| assistant frame append vs response settlement | settlement awaits the latest frame write, then its transaction deletes the list; a crash between leaves the committed frame prefix under `effect_pending` |
-| live update event vs its queued frame/checkpoint commit | either finishes first; events are observation, and reconnect uses only committed frames/checkpoints |
-| later tool B settles vs earlier tool A | B stages outcome-ready immediately; tree placement waits for A |
-| `abort` vs `before_run_end` follow-up | marker first → stale hook output is dropped and reconciliation aborts; follow-up commit first → the run continues under the later cancellation marker |
-| `cancelQueued` vs boundary consumption | cancel first → `cancelled`; consume first → `already_consumed`; abort drain first → `not_found` |
-| `setModel` vs generation step start | old snapshot used; or new snapshot used |
-| `abort` vs structural commit | `aborted` with no entry; or `completed` |
-| `nextRun` vs acceptance | captured by this run; or stays for the next |
-| structural A terminal vs convenience continuation B | B accepts queued input as an ordinary run; or a competing acceptance wins and the convenience returns A only |
-| structural result boundary vs queued input | input commits first and is selected in the one publication commit; publication commits first and input remains queued for the next boundary/operation |
-| abort drain response vs process/transport loss | caller receives drained steer/follow-up; or content is durably gone and the response is lost by the accepted drain-and-return tradeoff |
-| manual-compaction preparation vs idle tree write | write before the final command → stale preparation is discarded/recomputed; acceptance first → the write follows active-operation rules; preparation never blocks the lane |
-| deferred write vs abort | write survives abort either way |
-| `requestAbort` vs `before_drive`/`before_run` admission | admission first → the complete hook pipeline runs and its consuming command observes cancellation; cancellation first → reconciliation runs and neither hook starts |
-| `requestAbort` vs ordinary operation admission | admission first → operation is invoked with the signal; cancellation first → gate refuses invocation |
-| attachment vs concurrent resume | attachment owns the session before publication; after return, resume uses the authoritative owned projection and stale `open` remains harmless |
-| watcher registration vs state publication | watcher first → old snapshot plus the complete buffered event batch; publication/`emitBatch` first → new snapshot without that old batch |
-| close vs attachment | create completes and publishes a fully open harness; or close/fault rejects attachment without a partial harness |
-| snapshot capture vs resume | capture first yields pre-resume snapshot plus events; resume publication first yields post-transition snapshot |
-| concurrent invocation contexts | each call/event/session write retains its own telemetry parent and abort signal; cancellation ends only that caller observation and writes no durable cancellation |
-| `close` vs settlement | settlement abandoned, state stays `effect_pending`; or it committed before the flag was set |
+| Race                                                    | Orders                                                                                                                                                                                    |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt` vs `prompt` on one lane                        | both compose `accept`; one accepts, one gets `LaneBusy`                                                                                                                                   |
+| `accept(A)` vs process loss before `drive(A)`           | acceptance absent → serving layer retries; acceptance present → restored `starting` drives normally, with no unknown effect                                                               |
+| `drive(A)` vs `drive(A)`                                | one installs the pass; the other joins exactly that pass and may drive again after its outcome                                                                                            |
+| stale `drive(A)`/`requestAbort(A)` vs current B         | expected-id mismatch; B is untouched                                                                                                                                                      |
+| `requestAbort` vs response settlement                   | marker first → normalized `aborted`; terminal commit first → completed record and later abort mismatches                                                                                  |
+| `abort` vs started tool outcome staging                 | abort first → real result stages under cancelled control; outcome first → finalized result is preserved and later materializes                                                            |
+| checkpoint vs tool settlement                           | every accepted checkpoint was enqueued before settlement closed admission; settlement awaits the latest write, then staging deletes the value; a late update is fenced without committing |
+| assistant frame append vs response settlement           | settlement awaits the latest frame write, then its transaction deletes the list; a crash between leaves the committed frame prefix under `effect_pending`                                 |
+| live update event vs its queued frame/checkpoint commit | either finishes first; events are observation, and reconnect uses only committed frames/checkpoints                                                                                       |
+| later tool B settles vs earlier tool A                  | B stages outcome-ready immediately; tree placement waits for A                                                                                                                            |
+| `abort` vs `before_run_end` follow-up                   | marker first → stale hook output is dropped and reconciliation aborts; follow-up commit first → the run continues under the later cancellation marker                                     |
+| `cancelQueued` vs boundary consumption                  | cancel first → `cancelled`; consume first → `already_consumed`; abort drain first → `not_found`                                                                                           |
+| `setModel` vs generation step start                     | old snapshot used; or new snapshot used                                                                                                                                                   |
+| `abort` vs structural commit                            | `aborted` with no entry; or `completed`                                                                                                                                                   |
+| `nextRun` vs acceptance                                 | captured by this run; or stays for the next                                                                                                                                               |
+| structural A terminal vs convenience continuation B     | B accepts queued input as an ordinary run; or a competing acceptance wins and the convenience returns A only                                                                              |
+| structural result boundary vs queued input              | input commits first and is selected in the one publication commit; publication commits first and input remains queued for the next boundary/operation                                     |
+| abort drain response vs process/transport loss          | caller receives drained steer/follow-up; or content is durably gone and the response is lost by the accepted drain-and-return tradeoff                                                    |
+| manual-compaction preparation vs idle tree write        | write before the final command → stale preparation is discarded/recomputed; acceptance first → the write follows active-operation rules; preparation never blocks the lane                |
+| deferred write vs abort                                 | write survives abort either way                                                                                                                                                           |
+| `requestAbort` vs `before_drive`/`before_run` admission | admission first → the complete hook pipeline runs and its consuming command observes cancellation; cancellation first → reconciliation runs and neither hook starts                       |
+| `requestAbort` vs ordinary operation admission          | admission first → operation is invoked with the signal; cancellation first → gate refuses invocation                                                                                      |
+| attachment vs concurrent resume                         | attachment owns the session before publication; after return, resume uses the authoritative owned projection and stale `open` remains harmless                                            |
+| watcher registration vs state publication               | watcher first → old snapshot plus the complete buffered event batch; publication/`emitBatch` first → new snapshot without that old batch                                                  |
+| close vs attachment                                     | create completes and publishes a fully open harness; or close/fault rejects attachment without a partial harness                                                                          |
+| snapshot capture vs resume                              | capture first yields pre-resume snapshot plus events; resume publication first yields post-transition snapshot                                                                            |
+| concurrent invocation contexts                          | each call/event/session write retains its own telemetry parent and abort signal; cancellation ends only that caller observation and writes no durable cancellation                        |
+| `close` vs settlement                                   | settlement abandoned, state stays `effect_pending`; or it committed before the flag was set                                                                                               |
 
 ## 9.3 Test tiers
 
@@ -1420,31 +1484,31 @@ For each recovery prefix: close, reopen, drive, and compare against uninterrupte
 
 Shorthand vocabulary only; common terms already defined clearly in the body are omitted.
 
-| Term | Meaning / defined in |
-|---|---|
-| **Pending entry** | Complete unplaced content in `pi.pending.entry` until placement/cancellation/cleanup (§2.2). |
-| **Inbox** | Lane-owned globally ordered tagged queue (§3.11). |
-| **Result record** | Immutable `pi.result/{operationId}` terminal disposition (§3.13). |
-| **Continuation run** | Fresh ordinary run accepted by structural convenience code when queued conversational input remains (§5.1). |
-| **Operation status** | Process-relative observation: `running`, `open`, or `aborting`; idle is no current operation; never predicts registry availability. |
-| **Open operation** | Attachment inventory item for a lane with durable current work; not a reservation or continuation policy (§4.4). |
-| **Attachment** | Minimal lane/operation projection restore plus open inventory; starts no execution (§4.4). |
-| **Drive / drive pass** | The one installed lane-owned process-local pass (§4.1). |
-| **Effect** | Anything not pure computation: commit, provider request, tool, hook, timer. A **repeat-sensitive effect** is one whose repetition is observable outside the harness. |
-| **Effect gate** | Process-local synchronous arbitration of effect admission against cancellation (§4.2). |
-| **Reserved id** | An id minted before content exists (§2.2). |
-| **Follower id** | An id minted with its leader's 48-bit timestamp so a call/result group shares one time prefix (§1.2). |
-| **Session mutation line / mutation** | The Session-wide serialization point and its explicit read/one-commit capability (§2.8, §4.3). |
-| **Control** | Orthogonal per-leaf cancellation flag: `running` or `cancel_requested` (§3.2). |
-| **Checkpoint / boundary pass** | Durable resting leaf between turns, and the one-decision procedure that resolves it (§3.12). |
-| **Continuation** | Durable answer to "does this run still owe an assistant turn?" (§3.2). |
-| **Tool checkpoint** | Optional bounded complete live-update snapshot in `pi.pending.tool_output`; auxiliary, never completion authority (§3.8). |
-| **Assistant frame** | Compact replayable pi-ai stream frame in `pi.pending.assistant_frame`; auxiliary, never completion authority (§3.7). |
-| **Outcome ready** | Tool call whose finalized result is durable and will never execute again, awaiting source-ordered placement (§3.8). |
-| **Invocation memo** | Tool-invocation-scoped durable value for replay-safe memoization (§3.8). |
-| **Terminal transaction** | The commit performing the universal terminal suffix (§3.13). |
-| **Segment** | A branch-index range referencing an older branch instead of copying it (§2.6). |
-| **Precise rewrite** | The administrative copy-retained-and-swap rebuild of a session store (§2.9). |
+| Term                                 | Meaning / defined in                                                                                                                                                 |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Pending entry**                    | Complete unplaced content in `pi.pending.entry` until placement/cancellation/cleanup (§2.2).                                                                         |
+| **Inbox**                            | Lane-owned globally ordered tagged queue (§3.11).                                                                                                                    |
+| **Result record**                    | Immutable `pi.result/{operationId}` terminal disposition (§3.13).                                                                                                    |
+| **Continuation run**                 | Fresh ordinary run accepted by structural convenience code when queued conversational input remains (§5.1).                                                          |
+| **Operation status**                 | Process-relative observation: `running`, `open`, or `aborting`; idle is no current operation; never predicts registry availability.                                  |
+| **Open operation**                   | Attachment inventory item for a lane with durable current work; not a reservation or continuation policy (§4.4).                                                     |
+| **Attachment**                       | Minimal lane/operation projection restore plus open inventory; starts no execution (§4.4).                                                                           |
+| **Drive / drive pass**               | The one installed lane-owned process-local pass (§4.1).                                                                                                              |
+| **Effect**                           | Anything not pure computation: commit, provider request, tool, hook, timer. A **repeat-sensitive effect** is one whose repetition is observable outside the harness. |
+| **Effect gate**                      | Process-local synchronous arbitration of effect admission against cancellation (§4.2).                                                                               |
+| **Reserved id**                      | An id minted before content exists (§2.2).                                                                                                                           |
+| **Follower id**                      | An id minted with its leader's 48-bit timestamp so a call/result group shares one time prefix (§1.2).                                                                |
+| **Session mutation line / mutation** | The Session-wide serialization point and its explicit read/one-commit capability (§2.8, §4.3).                                                                       |
+| **Control**                          | Orthogonal per-leaf cancellation flag: `running` or `cancel_requested` (§3.2).                                                                                       |
+| **Checkpoint / boundary pass**       | Durable resting leaf between turns, and the one-decision procedure that resolves it (§3.12).                                                                         |
+| **Continuation**                     | Durable answer to "does this run still owe an assistant turn?" (§3.2).                                                                                               |
+| **Tool checkpoint**                  | Optional bounded complete live-update snapshot in `pi.pending.tool_output`; auxiliary, never completion authority (§3.8).                                            |
+| **Assistant frame**                  | Compact replayable pi-ai stream frame in `pi.pending.assistant_frame`; auxiliary, never completion authority (§3.7).                                                 |
+| **Outcome ready**                    | Tool call whose finalized result is durable and will never execute again, awaiting source-ordered placement (§3.8).                                                  |
+| **Invocation memo**                  | Tool-invocation-scoped durable value for replay-safe memoization (§3.8).                                                                                             |
+| **Terminal transaction**             | The commit performing the universal terminal suffix (§3.13).                                                                                                         |
+| **Segment**                          | A branch-index range referencing an older branch instead of copying it (§2.6).                                                                                       |
+| **Precise rewrite**                  | The administrative copy-retained-and-swap rebuild of a session store (§2.9).                                                                                         |
 
 # Appendix B — Coding-agent v3-format compatibility
 

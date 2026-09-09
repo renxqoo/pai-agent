@@ -89,7 +89,10 @@ describe("createAgentSession stream options", () => {
 		}
 
 		const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
-		await authStorage.modify(model.provider, async () => ({ type: "api_key", key: "test-api-key" }));
+		await authStorage.modify(model.provider, async () => ({
+			type: "api_key",
+			key: "test-api-key",
+		}));
 		const modelRegistry = await createModelRegistry(authStorage, join(agentDir, "models.json"));
 		let capturedOptions: SimpleStreamOptions | undefined;
 
@@ -124,7 +127,9 @@ describe("createAgentSession stream options", () => {
 	}
 
 	it("forwards httpIdleTimeoutMs as timeoutMs for OpenAI Codex", async () => {
-		const options = await captureStreamOptions("openai-codex-responses", { httpIdleTimeoutMs: 1234 });
+		const options = await captureStreamOptions("openai-codex-responses", {
+			httpIdleTimeoutMs: 1234,
+		});
 
 		expect(options?.timeoutMs).toBe(1234);
 	});
@@ -146,7 +151,9 @@ describe("createAgentSession stream options", () => {
 	});
 
 	it("forwards websocketConnectTimeoutMs from settings", async () => {
-		const options = await captureStreamOptions("openai-codex-responses", { websocketConnectTimeoutMs: 1234 });
+		const options = await captureStreamOptions("openai-codex-responses", {
+			websocketConnectTimeoutMs: 1234,
+		});
 
 		expect(options?.websocketConnectTimeoutMs).toBe(1234);
 	});

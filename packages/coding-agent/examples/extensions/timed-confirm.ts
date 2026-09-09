@@ -31,7 +31,9 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("timed-select", {
 		description: "Show a timed select dialog (auto-cancels in 10s with countdown)",
 		handler: async (_args, ctx) => {
-			const choice = await ctx.ui.select("Pick an option", ["Option A", "Option B", "Option C"], { timeout: 10000 });
+			const choice = await ctx.ui.select("Pick an option", ["Option A", "Option B", "Option C"], {
+				timeout: 10000,
+			});
 
 			if (choice) {
 				ctx.ui.notify(`Selected: ${choice}`, "info");

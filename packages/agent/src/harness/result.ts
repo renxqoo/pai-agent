@@ -64,9 +64,18 @@ export class OperationMismatch extends TaggedError("OperationMismatch")<{
 	message: string;
 }> {}
 export class NoActiveRun extends TaggedError("NoActiveRun")<{ lane: string; message: string }> {}
-export class NoActiveOperation extends TaggedError("NoActiveOperation")<{ lane: string; message: string }> {}
-export class NothingToResume extends TaggedError("NothingToResume")<{ lane: string; message: string }> {}
-export class NothingToCompact extends TaggedError("NothingToCompact")<{ lane: string; message: string }> {}
+export class NoActiveOperation extends TaggedError("NoActiveOperation")<{
+	lane: string;
+	message: string;
+}> {}
+export class NothingToResume extends TaggedError("NothingToResume")<{
+	lane: string;
+	message: string;
+}> {}
+export class NothingToCompact extends TaggedError("NothingToCompact")<{
+	lane: string;
+	message: string;
+}> {}
 export class InvalidMessage extends TaggedError("InvalidMessage")<{
 	lane: string;
 	reason: string;
@@ -78,8 +87,14 @@ export class InvalidNavigation extends TaggedError("InvalidNavigation")<{
 	message: string;
 }> {}
 export class UnknownSkill extends TaggedError("UnknownSkill")<{ name: string; message: string }> {}
-export class UnknownTemplate extends TaggedError("UnknownTemplate")<{ name: string; message: string }> {}
-export class UnknownTarget extends TaggedError("UnknownTarget")<{ targetId: string; message: string }> {}
+export class UnknownTemplate extends TaggedError("UnknownTemplate")<{
+	name: string;
+	message: string;
+}> {}
+export class UnknownTarget extends TaggedError("UnknownTarget")<{
+	targetId: string;
+	message: string;
+}> {}
 export class InvalidLane extends TaggedError("InvalidLane")<{
 	lane: string;
 	reason: string;

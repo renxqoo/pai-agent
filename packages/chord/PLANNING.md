@@ -539,26 +539,26 @@ Plugin discovery, installation, version resolution, download, signature trust, a
 
 The following existing files describe behavior that should become Chord responsibility through a rewrite:
 
-| Existing area | Chord responsibility |
-|---|---|
-| `packages/agent/src/plugins/services/types.ts` | service tokens, modes, remote contract checks, strict JSON, snapshots, updates, connection interfaces |
-| `packages/agent/src/plugins/services/replicated-state.ts` | authoritative replicated state and delivery semantics |
-| `packages/agent/src/plugins/services/provider.ts` | provider classification, calls, singleton replacement, keyed generations, snapshots |
-| `packages/agent/src/plugins/services/namespace.ts` | stable remote facades, hydration, state updates, keyed observation |
-| `packages/coding-agent/src/experimental/facets.ts` | plugin environment, dependency ledger, lifecycle graph, host, reload |
-| `packages/coding-agent/src/experimental/facet-loader.ts` | static and combined loaders plus loaded-generation ownership |
-| generic service sections of `packages/protocol/src/protocol.ts` | Chord-owned versioned service/RPC envelope |
+| Existing area                                                   | Chord responsibility                                                                                  |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `packages/agent/src/plugins/services/types.ts`                  | service tokens, modes, remote contract checks, strict JSON, snapshots, updates, connection interfaces |
+| `packages/agent/src/plugins/services/replicated-state.ts`       | authoritative replicated state and delivery semantics                                                 |
+| `packages/agent/src/plugins/services/provider.ts`               | provider classification, calls, singleton replacement, keyed generations, snapshots                   |
+| `packages/agent/src/plugins/services/namespace.ts`              | stable remote facades, hydration, state updates, keyed observation                                    |
+| `packages/coding-agent/src/experimental/facets.ts`              | plugin environment, dependency ledger, lifecycle graph, host, reload                                  |
+| `packages/coding-agent/src/experimental/facet-loader.ts`        | static and combined loaders plus loaded-generation ownership                                          |
+| generic service sections of `packages/protocol/src/protocol.ts` | Chord-owned versioned service/RPC envelope                                                            |
 
 The following must remain outside Chord:
 
-| Existing area | Downstream responsibility |
-|---|---|
-| `packages/coding-agent/src/experimental/services/connection.ts` | Pi connection state, selected-session attachment, route rebinding, Pi client adapter |
-| `packages/coding-agent/src/experimental/services/server.ts` | server-wide session directory and management implementations |
-| `packages/coding-agent/src/experimental/services/worker.ts` | Session worker host construction and Pi protocol publication adapter |
-| `packages/server`, `packages/client`, and process managers | framing, routing, authentication, attachment, process lifecycle, reconnect policy |
-| slash-command, model, account, transcript, TUI, and agent-controller services | application contracts and plugin implementations |
-| `source-resolver.ts` and Pi internal process entrypoints | Pi source execution and process policy |
+| Existing area                                                                 | Downstream responsibility                                                            |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `packages/coding-agent/src/experimental/services/connection.ts`               | Pi connection state, selected-session attachment, route rebinding, Pi client adapter |
+| `packages/coding-agent/src/experimental/services/server.ts`                   | server-wide session directory and management implementations                         |
+| `packages/coding-agent/src/experimental/services/worker.ts`                   | Session worker host construction and Pi protocol publication adapter                 |
+| `packages/server`, `packages/client`, and process managers                    | framing, routing, authentication, attachment, process lifecycle, reconnect policy    |
+| slash-command, model, account, transcript, TUI, and agent-controller services | application contracts and plugin implementations                                     |
+| `source-resolver.ts` and Pi internal process entrypoints                      | Pi source execution and process policy                                               |
 
 `packages/agent/docs/plugins.md`, `packages/agent/docs/rpc.md`, the experimental service tests, and the remote plugin fixture are behavioral input. They are not normative Chord APIs. Once migration finishes, generic semantics should be documented in Chord and Pi documents should cover only their host-specific contracts and adapters.
 

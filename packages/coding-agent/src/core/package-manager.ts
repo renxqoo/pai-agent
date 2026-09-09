@@ -1596,7 +1596,9 @@ export class DefaultPackageManager implements PackageManager {
 				],
 			};
 		} catch {
-			await this.runCommand("git", ["remote", "set-head", "origin", "-a"], { cwd: installedPath }).catch(() => {});
+			await this.runCommand("git", ["remote", "set-head", "origin", "-a"], {
+				cwd: installedPath,
+			}).catch(() => {});
 			const head = await this.runCommandCapture("git", ["rev-parse", "origin/HEAD"], {
 				cwd: installedPath,
 				timeoutMs: NETWORK_TIMEOUT_MS,
@@ -1883,7 +1885,9 @@ export class DefaultPackageManager implements PackageManager {
 		if (!existsSync(packageJsonPath)) return false;
 
 		try {
-			const manifest = JSON.parse(stripBom(readFileSync(packageJsonPath, "utf-8"))) as { dependencies?: unknown };
+			const manifest = JSON.parse(stripBom(readFileSync(packageJsonPath, "utf-8"))) as {
+				dependencies?: unknown;
+			};
 			if (
 				!manifest.dependencies ||
 				typeof manifest.dependencies !== "object" ||
@@ -2055,7 +2059,9 @@ export class DefaultPackageManager implements PackageManager {
 		}
 
 		const output = this.runNpmCommandSync(["list", "-g", "--depth", "0", "--json"]);
-		const entries = JSON.parse(output) as Array<{ dependencies?: Record<string, { path?: string }> }>;
+		const entries = JSON.parse(output) as Array<{
+			dependencies?: Record<string, { path?: string }>;
+		}>;
 		for (const entry of entries) {
 			const path = entry.dependencies?.[packageName]?.path;
 			if (path) return path;

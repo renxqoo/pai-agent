@@ -101,7 +101,10 @@ describe("Session worker lifecycle failures", () => {
 		const coordinator = new FakeCoordinator();
 		const workers = new SessionWorkerManager(coordinator, "/tmp");
 		await workers.discover(new Set(["worker-1"]));
-		expect(coordinator.sent).not.toContainEqual({ peerId: "worker-1", payload: { type: "shutdown" } });
+		expect(coordinator.sent).not.toContainEqual({
+			peerId: "worker-1",
+			payload: { type: "shutdown" },
+		});
 		expect(workers.workerPids.size).toBe(1);
 		expect(() => workers.assertSessionPluginManifestPaths(metadata, [])).not.toThrow();
 		workers.detach();
@@ -194,7 +197,11 @@ describe("Session worker lifecycle failures", () => {
 });
 
 describe("Session worker operations", () => {
-	const serviceCall = { serviceId: "test.session", member: "run", args: ["Hello"] } satisfies ServiceCall;
+	const serviceCall = {
+		serviceId: "test.session",
+		member: "run",
+		args: ["Hello"],
+	} satisfies ServiceCall;
 
 	test("correlates service results to the worker generation and attachment", async () => {
 		const { coordinator, workers, attachment, release } = await createAttachedWorker();

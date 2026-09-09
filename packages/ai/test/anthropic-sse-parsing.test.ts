@@ -103,7 +103,10 @@ describe("Anthropic raw SSE parsing", () => {
 					content_block: { type: "text", text: "partial" },
 				}),
 			},
-			{ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: 0 }) },
+			{
+				event: "content_block_stop",
+				data: JSON.stringify({ type: "content_block_stop", index: 0 }),
+			},
 			{
 				event: "content_block_start",
 				data: JSON.stringify({
@@ -208,7 +211,11 @@ describe("Anthropic raw SSE parsing", () => {
 				model: "claude-fable-5-1",
 				usage: { input_tokens: 12, output_tokens: 0 },
 				input_transformations: [
-					{ type: "thinking_dropped", path: "messages.1.content.0", reason: "prefix_binding_mismatch" },
+					{
+						type: "thinking_dropped",
+						path: "messages.1.content.0",
+						reason: "prefix_binding_mismatch",
+					},
 				],
 			},
 		});
@@ -364,7 +371,10 @@ describe("Anthropic raw SSE parsing", () => {
 					delta: { type: "text_delta", text: " plus delta" },
 				}),
 			},
-			{ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: 0 }) },
+			{
+				event: "content_block_stop",
+				data: JSON.stringify({ type: "content_block_stop", index: 0 }),
+			},
 			{
 				event: "content_block_start",
 				data: JSON.stringify({
@@ -393,7 +403,10 @@ describe("Anthropic raw SSE parsing", () => {
 					delta: { type: "signature_delta", signature: " plus delta" },
 				}),
 			},
-			{ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: 1 }) },
+			{
+				event: "content_block_stop",
+				data: JSON.stringify({ type: "content_block_stop", index: 1 }),
+			},
 			{
 				event: "message_delta",
 				data: JSON.stringify({

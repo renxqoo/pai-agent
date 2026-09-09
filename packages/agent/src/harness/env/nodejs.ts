@@ -83,7 +83,13 @@ function fileKindFromStats(stats: {
 
 function fileInfoFromStats(
 	path: string,
-	stats: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean; size: number; mtimeMs: number },
+	stats: {
+		isFile(): boolean;
+		isDirectory(): boolean;
+		isSymbolicLink(): boolean;
+		size: number;
+		mtimeMs: number;
+	},
 ): Result<FileInfo, FileError> {
 	const kind = fileKindFromStats(stats);
 	if (!kind) return err(new FileError("invalid", "Unsupported file type", path));
@@ -502,7 +508,10 @@ export class NodeExecutionEnv implements ExecutionEnv {
 					if (!created.ok) throw created.error;
 					spillPath = created.value;
 					capture.setSpillPath(spillPath);
-					spillStream = createWriteStream(spillPath, { flags: "a", highWaterMark: SPILL_HIGH_WATER_MARK });
+					spillStream = createWriteStream(spillPath, {
+						flags: "a",
+						highWaterMark: SPILL_HIGH_WATER_MARK,
+					});
 					spillStream.on("error", failSpill);
 					for (const queued of spillQueue) writeSpill(queued);
 					spillQueue.length = 0;
@@ -811,7 +820,10 @@ export class NodeExecutionEnv implements ExecutionEnv {
 		const aborted = abortResult<void>(context.abortSignal, resolved);
 		if (aborted) return aborted;
 		try {
-			await rm(resolved, { recursive: options?.recursive ?? false, force: options?.force ?? false });
+			await rm(resolved, {
+				recursive: options?.recursive ?? false,
+				force: options?.force ?? false,
+			});
 			return ok(undefined);
 		} catch (error) {
 			return err(toFileError(error, resolved));

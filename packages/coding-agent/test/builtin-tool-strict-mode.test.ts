@@ -20,7 +20,10 @@ describe("strict built-in tools", () => {
 		const definitions = createAllToolDefinitions(process.cwd());
 		const tools = createAllTools(process.cwd());
 		for (const name of strictToolNames) {
-			expect(definitions[name].constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
+			expect(definitions[name].constrainedSampling).toEqual({
+				type: "json_schema",
+				strict: "prefer",
+			});
 			expect(tools[name].constrainedSampling).toEqual(definitions[name].constrainedSampling);
 		}
 		for (const name of ["grep", "find", "ls"] as const) {

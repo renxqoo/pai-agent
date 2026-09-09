@@ -97,7 +97,10 @@ const QWEN_THINKING_MODEL_CASES: QwenTokenPlanModelCase[] = [
 	...(["qwen-token-plan", "qwen-token-plan-cn"] as const).flatMap((provider) =>
 		QWEN_THINKING_MODELS.map((modelId) => ({ provider, modelId })),
 	),
-	...INDIVIDUAL_TEXT_MODELS.map((modelId) => ({ provider: "qwen-token-plan-individual" as const, modelId })),
+	...INDIVIDUAL_TEXT_MODELS.map((modelId) => ({
+		provider: "qwen-token-plan-individual" as const,
+		modelId,
+	})),
 ];
 
 const QWEN_REASONING_EFFORT_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro", "glm-5", "glm-5.1", "glm-5.2"] as const;

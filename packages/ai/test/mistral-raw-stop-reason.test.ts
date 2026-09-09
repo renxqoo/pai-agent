@@ -33,7 +33,10 @@ function createFetch(finishReason: string): FetchFunction {
 
 describe("Mistral raw stop reasons", () => {
 	it("preserves raw Mistral finish reasons for successful stops", async () => {
-		const message = await streamMistral(model, context, { apiKey: "test", fetch: createFetch("stop") }).result();
+		const message = await streamMistral(model, context, {
+			apiKey: "test",
+			fetch: createFetch("stop"),
+		}).result();
 
 		expect(message.stopReason).toBe("stop");
 		expect(message.rawStopReason).toBe("stop");
@@ -41,7 +44,10 @@ describe("Mistral raw stop reasons", () => {
 	});
 
 	it("preserves raw Mistral finish reasons for provider error stops", async () => {
-		const message = await streamMistral(model, context, { apiKey: "test", fetch: createFetch("error") }).result();
+		const message = await streamMistral(model, context, {
+			apiKey: "test",
+			fetch: createFetch("error"),
+		}).result();
 
 		expect(message.stopReason).toBe("error");
 		expect(message.rawStopReason).toBe("error");

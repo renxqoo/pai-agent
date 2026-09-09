@@ -27,7 +27,7 @@ case "message_update":
   }
 ```
 
-A straight assignment. So on any wire, sending the event is *worse* than sending a
+A straight assignment. So on any wire, sending the event is _worse_ than sending a
 snapshot — it ships two where `replace` ships one.
 
 The wire adapter is already halfway to the fix: it drops `event` and sends `message`
@@ -83,14 +83,14 @@ separate unions that happen to share the tag name and build their own
 
 Real consumers and producers of `HarnessEvent.message_update`:
 
-| site | change |
-| --- | --- |
-| `runtime/drive/response.ts` | emit the required semantic frame; stop attaching full snapshots |
-| `runtime/reducer.ts` | fold the frame instead of assigning `event.message` |
-| lane/facet state adapter | run that fold under the Chord tracker and emit `Op[]`/encoded `WireOp[]` |
-| `experimental/harness-wire-adapter.ts` | stop treating raw `HarnessEvent` as the final replication format |
-| `harness/telemetry.ts` | name list only |
-| `protocol/harness.ts` | replication carries encoded `WireOp[]`, not the raw event |
+| site                                   | change                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------ |
+| `runtime/drive/response.ts`            | emit the required semantic frame; stop attaching full snapshots          |
+| `runtime/reducer.ts`                   | fold the frame instead of assigning `event.message`                      |
+| lane/facet state adapter               | run that fold under the Chord tracker and emit `Op[]`/encoded `WireOp[]` |
+| `experimental/harness-wire-adapter.ts` | stop treating raw `HarnessEvent` as the final replication format         |
+| `harness/telemetry.ts`                 | name list only                                                           |
+| `protocol/harness.ts`                  | replication carries encoded `WireOp[]`, not the raw event                |
 
 `message_end` continues to carry the settled message, because frames deliberately
 exclude terminal settlement. That is once per message, not once per token.
@@ -123,7 +123,7 @@ that it is no longer the durable unit or the replication unit.
 The harness folds frames into `LaneView` by plain mutation. Under the Chord tracker that yields:
 
 ```json
-["a",["operation","streamingMessage","content",0,"text"],"Let me "]
+["a", ["operation", "streamingMessage", "content", 0, "text"], "Let me "]
 ```
 
 Measured, interned ops are **smaller than frames** on this workload — 13.6 KB
@@ -133,7 +133,7 @@ on the wire is dead.
 
 What frames keep is semantic: `text_end` carries authoritative content plus a
 signature in one atomic unit, where ops would need two with a weaker contract
-about their relationship. That is why they remain the *input* vocabulary and are
+about their relationship. That is why they remain the _input_ vocabulary and are
 folded before anything crosses a boundary.
 
 ### 5.2 Reducer state must live in the reduced value
@@ -190,7 +190,7 @@ That means per-frame durability buys almost nothing, and the write rate can be t
 away directly:
 
 - **Coalesce with a bounded, non-resetting window.** The first pending frame opens the
-  window; later frames join it *without* extending the deadline, so a continuously
+  window; later frames join it _without_ extending the deadline, so a continuously
   streaming response cannot postpone the first write indefinitely — the failure mode a
   naive debounce has. Frames admitted during an active write form the next batch.
 - **Concatenate on flush.** A run of `text_delta` frames for one `contentIndex`

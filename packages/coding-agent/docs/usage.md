@@ -17,16 +17,16 @@ The editor can be replaced temporarily by built-in UI such as `/settings` or by 
 
 ### Editor Features
 
-| Feature | How |
-|---------|-----|
-| File reference | Type `@` to fuzzy-search project files |
-| Path completion | Press Tab to complete paths |
-| Multi-line input | Shift+Enter, or Ctrl+Enter on Windows Terminal |
-| Copy response | Ctrl+X copies the selected message in `/tree`; otherwise it copies the last assistant message, or the active fullscreen text selection when `fullscreenCopyOnSelect` is disabled |
-| Images | Paste with Ctrl+V, Alt+V on Windows, or drag into the terminal |
-| Shell command | `!command` runs and sends output to the model |
-| Hidden shell command | `!!command` runs without sending output to the model |
-| External editor | Ctrl+G opens `externalEditor`, `$VISUAL`, `$EDITOR`, Notepad on Windows, or `nano` elsewhere |
+| Feature              | How                                                                                                                                                                              |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File reference       | Type `@` to fuzzy-search project files                                                                                                                                           |
+| Path completion      | Press Tab to complete paths                                                                                                                                                      |
+| Multi-line input     | Shift+Enter, or Ctrl+Enter on Windows Terminal                                                                                                                                   |
+| Copy response        | Ctrl+X copies the selected message in `/tree`; otherwise it copies the last assistant message, or the active fullscreen text selection when `fullscreenCopyOnSelect` is disabled |
+| Images               | Paste with Ctrl+V, Alt+V on Windows, or drag into the terminal                                                                                                                   |
+| Shell command        | `!command` runs and sends output to the model                                                                                                                                    |
+| Hidden shell command | `!!command` runs without sending output to the model                                                                                                                             |
+| External editor      | Ctrl+G opens `externalEditor`, `$VISUAL`, `$EDITOR`, Notepad on Windows, or `nano` elsewhere                                                                                     |
 
 See [Keybindings](keybindings.md) for all shortcuts and customization.
 
@@ -34,31 +34,31 @@ See [Keybindings](keybindings.md) for all shortcuts and customization.
 
 Type `/` in the editor to open command completion. Extensions can register custom commands, skills are available as `/skill:name`, and prompt templates expand via `/templatename`.
 
-| Command | Description |
-|---------|-------------|
-| `/login`, `/logout` | Manage OAuth or API-key credentials |
-| [`/llama`](llama-cpp.md) | Download, load, and unload llama.cpp router models |
-| `/model` | Switch models; Ctrl+S in the picker saves the startup default |
-| `/thinking` | Switch thinking level; Ctrl+S in the picker saves the startup default |
-| `/scoped-models` | Enable/disable models for Ctrl+P cycling |
-| `/settings` | Theme, message delivery, transport, and other preferences |
-| `/resume` | Pick from previous sessions |
-| `/new` | Start a new session |
-| `/name <name>` | Set session display name |
-| `/session` | Show session file, ID, messages, tokens, and cost |
-| `/tree` | Jump to any point in the session and continue from there |
-| `/trust` | Save project trust decision for future sessions |
-| `/fork` | Create a new session from a previous user message |
-| `/clone` | Duplicate the current active branch into a new session |
-| `/compact [prompt]` | Manually compact context, optionally with custom instructions |
-| `/copy` | Copy last assistant message to clipboard |
-| `/export [file]` | Export session to HTML or JSONL |
-| `/import <file>` | Import and resume a session from a JSONL file |
-| `/share` | Upload as private GitHub gist with shareable HTML link |
-| `/reload` | Reload keybindings, extensions, skills, prompts, themes, and context files |
-| `/hotkeys` | Show all keyboard shortcuts |
-| `/changelog` | Display version history |
-| `/quit` | Quit pi |
+| Command                  | Description                                                                |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `/login`, `/logout`      | Manage OAuth or API-key credentials                                        |
+| [`/llama`](llama-cpp.md) | Download, load, and unload llama.cpp router models                         |
+| `/model`                 | Switch models; Ctrl+S in the picker saves the startup default              |
+| `/thinking`              | Switch thinking level; Ctrl+S in the picker saves the startup default      |
+| `/scoped-models`         | Enable/disable models for Ctrl+P cycling                                   |
+| `/settings`              | Theme, message delivery, transport, and other preferences                  |
+| `/resume`                | Pick from previous sessions                                                |
+| `/new`                   | Start a new session                                                        |
+| `/name <name>`           | Set session display name                                                   |
+| `/session`               | Show session file, ID, messages, tokens, and cost                          |
+| `/tree`                  | Jump to any point in the session and continue from there                   |
+| `/trust`                 | Save project trust decision for future sessions                            |
+| `/fork`                  | Create a new session from a previous user message                          |
+| `/clone`                 | Duplicate the current active branch into a new session                     |
+| `/compact [prompt]`      | Manually compact context, optionally with custom instructions              |
+| `/copy`                  | Copy last assistant message to clipboard                                   |
+| `/export [file]`         | Export session to HTML or JSONL                                            |
+| `/import <file>`         | Import and resume a session from a JSONL file                              |
+| `/share`                 | Upload as private GitHub gist with shareable HTML link                     |
+| `/reload`                | Reload keybindings, extensions, skills, prompts, themes, and context files |
+| `/hotkeys`               | Show all keyboard shortcuts                                                |
+| `/changelog`             | Display version history                                                    |
+| `/quit`                  | Quit pi                                                                    |
 
 ## Message Queue
 
@@ -131,7 +131,6 @@ If no extension or saved decision applies, `defaultProjectTrust` controls the fa
 
 Use `/trust` in interactive mode to save a project trust decision for future sessions, including trust for the immediate parent folder. It writes `~/.pi/agent/trust.json` only; the current session is not reloaded, so restart pi for changes to take effect.
 
-
 ## Exporting and Sharing Sessions
 
 Use `/export [file]` to write a session to HTML.
@@ -168,13 +167,13 @@ See [Pi Packages](packages.md) for package sources and security notes.
 
 ### Modes
 
-| Flag | Description |
-|------|-------------|
-| default | Interactive mode |
-| `-p`, `--print` | Print response and exit |
-| `--mode json` | Output all events as JSON lines; see [JSON mode](json.md) |
-| `--mode rpc` | RPC mode over stdin/stdout; see [RPC mode](rpc.md) |
-| `--export <in> [out]` | Export a session to HTML |
+| Flag                  | Description                                               |
+| --------------------- | --------------------------------------------------------- |
+| default               | Interactive mode                                          |
+| `-p`, `--print`       | Print response and exit                                   |
+| `--mode json`         | Output all events as JSON lines; see [JSON mode](json.md) |
+| `--mode rpc`          | RPC mode over stdin/stdout; see [RPC mode](rpc.md)        |
+| `--export <in> [out]` | Export a session to HTML                                  |
 
 In print mode, pi also reads piped stdin and merges it into the initial prompt:
 
@@ -184,51 +183,51 @@ cat README.md | pi -p "Summarize this text"
 
 ### Model Options
 
-| Option | Description |
-|--------|-------------|
-| `--provider <name>` | Provider, such as `anthropic`, `openai`, or `google` |
-| `--model <pattern>` | Model pattern or ID; supports `provider/id` and optional `:<thinking>` |
-| `--api-key <key>` | API key, overriding environment variables |
-| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
-| `--models <patterns>` | Comma-separated patterns for Ctrl+P cycling |
-| `--list-models [search]` | List available models |
+| Option                   | Description                                                            |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `--provider <name>`      | Provider, such as `anthropic`, `openai`, or `google`                   |
+| `--model <pattern>`      | Model pattern or ID; supports `provider/id` and optional `:<thinking>` |
+| `--api-key <key>`        | API key, overriding environment variables                              |
+| `--thinking <level>`     | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`              |
+| `--models <patterns>`    | Comma-separated patterns for Ctrl+P cycling                            |
+| `--list-models [search]` | List available models                                                  |
 
 ### Session Options
 
-| Option | Description |
-|--------|-------------|
-| `-c`, `--continue` | Continue the most recent session |
-| `-r`, `--resume` | Browse and select a session |
-| `--session <path\|id>` | Use a specific session file or partial UUID |
-| `--fork <path\|id>` | Fork a session file or partial UUID into a new session |
-| `--session-dir <dir>` | Custom session storage directory |
-| `--no-session` | Ephemeral mode; do not save |
-| `--name <name>`, `-n <name>` | Set session display name at startup |
+| Option                       | Description                                            |
+| ---------------------------- | ------------------------------------------------------ |
+| `-c`, `--continue`           | Continue the most recent session                       |
+| `-r`, `--resume`             | Browse and select a session                            |
+| `--session <path\|id>`       | Use a specific session file or partial UUID            |
+| `--fork <path\|id>`          | Fork a session file or partial UUID into a new session |
+| `--session-dir <dir>`        | Custom session storage directory                       |
+| `--no-session`               | Ephemeral mode; do not save                            |
+| `--name <name>`, `-n <name>` | Set session display name at startup                    |
 
 ### Tool Options
 
-| Option | Description |
-|--------|-------------|
-| `--tools <list>`, `-t <list>` | Allowlist specific built-in, extension, and custom tools |
-| `--exclude-tools <list>`, `-xt <list>` | Disable specific built-in, extension, and custom tools |
-| `--no-builtin-tools`, `-nbt` | Disable built-in tools but keep extension/custom tools enabled |
-| `--no-tools`, `-nt` | Disable all tools |
+| Option                                 | Description                                                    |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `--tools <list>`, `-t <list>`          | Allowlist specific built-in, extension, and custom tools       |
+| `--exclude-tools <list>`, `-xt <list>` | Disable specific built-in, extension, and custom tools         |
+| `--no-builtin-tools`, `-nbt`           | Disable built-in tools but keep extension/custom tools enabled |
+| `--no-tools`, `-nt`                    | Disable all tools                                              |
 
 Built-in tools: `read`, `bash`, `powershell` (Windows), `edit`, `write`, `grep`, `find`, `ls`.
 
 ### Resource Options
 
-| Option | Description |
-|--------|-------------|
+| Option                       | Description                                          |
+| ---------------------------- | ---------------------------------------------------- |
 | `-e`, `--extension <source>` | Load an extension from path, npm, or git; repeatable |
-| `--no-extensions` | Disable extension discovery |
-| `--skill <path>` | Load a skill; repeatable |
-| `--no-skills` | Disable skill discovery |
-| `--prompt-template <path>` | Load a prompt template; repeatable |
-| `--no-prompt-templates` | Disable prompt template discovery |
-| `--theme <path>` | Load a theme; repeatable |
-| `--no-themes` | Disable theme discovery |
-| `--no-context-files`, `-nc` | Disable `AGENTS.md` and `CLAUDE.md` discovery |
+| `--no-extensions`            | Disable extension discovery                          |
+| `--skill <path>`             | Load a skill; repeatable                             |
+| `--no-skills`                | Disable skill discovery                              |
+| `--prompt-template <path>`   | Load a prompt template; repeatable                   |
+| `--no-prompt-templates`      | Disable prompt template discovery                    |
+| `--theme <path>`             | Load a theme; repeatable                             |
+| `--no-themes`                | Disable theme discovery                              |
+| `--no-context-files`, `-nc`  | Disable `AGENTS.md` and `CLAUDE.md` discovery        |
 
 Combine `--no-*` with explicit flags to load exactly what you need, ignoring settings. Example:
 
@@ -238,18 +237,18 @@ pi --no-extensions -e ./my-extension.ts
 
 ### Other Options
 
-| Option | Description |
-|--------|-------------|
-| `--system-prompt <text>` | Replace default prompt; context files and skills are still appended |
-| `--append-system-prompt <text>` | Append to system prompt |
-| `--tui-mode <mode>` | TUI mode: `regular` (default) or experimental `fullscreen` |
-| `--use-theme <name[/name]>` | Set the initial interactive theme for this run without changing settings |
-| `--verbose` | Force verbose startup |
-| `-a`, `--approve` | Trust project-local files for this run |
-| `-na`, `--no-approve` | Ignore project-local files for this run |
-| `--` | Stop option parsing; remaining arguments are prompts or `@file` inputs |
-| `-h`, `--help` | Show help |
-| `-v`, `--version` | Show version |
+| Option                          | Description                                                              |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `--system-prompt <text>`        | Replace default prompt; context files and skills are still appended      |
+| `--append-system-prompt <text>` | Append to system prompt                                                  |
+| `--tui-mode <mode>`             | TUI mode: `regular` (default) or experimental `fullscreen`               |
+| `--use-theme <name[/name]>`     | Set the initial interactive theme for this run without changing settings |
+| `--verbose`                     | Force verbose startup                                                    |
+| `-a`, `--approve`               | Trust project-local files for this run                                   |
+| `-na`, `--no-approve`           | Ignore project-local files for this run                                  |
+| `--`                            | Stop option parsing; remaining arguments are prompts or `@file` inputs   |
+| `-h`, `--help`                  | Show help                                                                |
+| `-v`, `--version`               | Show version                                                             |
 
 In `fullscreen` mode, the transcript scrolls inside the terminal viewport while queued messages, working status, extension widgets, editor, and footer remain fixed at the bottom. Mouse/trackpad input scrolls the region under the pointer; keyboard viewport actions always remain available. Inline images work in terminals that support the Kitty graphics protocol, including Kitty and Ghostty. In iTerm2 they render as text placeholders because its inline-image protocol cannot delete or crop placements during application-owned scrolling. In `regular` mode, pi uses the main screen and terminal-owned scrollback, and iTerm2 inline images continue to render normally. See [Terminal setup](terminal-setup.md) for terminal-specific settings and workarounds.
 

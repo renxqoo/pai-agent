@@ -158,7 +158,9 @@ class ImagesModelsImpl implements MutableImagesModels {
 				await entry.refreshModels();
 			} catch (error) {
 				if (error instanceof ModelsError) throw error;
-				throw new ModelsError("model_source", `Model refresh failed for ${provider}`, { cause: error });
+				throw new ModelsError("model_source", `Model refresh failed for ${provider}`, {
+					cause: error,
+				});
 			}
 			return;
 		}
@@ -209,7 +211,12 @@ class ImagesModelsImpl implements MutableImagesModels {
 			const env =
 				resolution.env || options?.env ? { ...(resolution.env ?? {}), ...(options?.env ?? {}) } : undefined;
 
-			return await provider.generateImages(requestModel, context, { ...options, apiKey, headers, env });
+			return await provider.generateImages(requestModel, context, {
+				...options,
+				apiKey,
+				headers,
+				env,
+			});
 		} catch (error) {
 			return {
 				api: model.api,

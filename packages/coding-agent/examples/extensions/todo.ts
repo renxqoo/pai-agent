@@ -158,7 +158,12 @@ export default function (pi: ExtensionAPI) {
 					if (!params.text) {
 						return {
 							content: [{ type: "text", text: "Error: text required for add" }],
-							details: { action: "add", todos: [...todos], nextId, error: "text required" } as TodoDetails,
+							details: {
+								action: "add",
+								todos: [...todos],
+								nextId,
+								error: "text required",
+							} as TodoDetails,
 						};
 					}
 					const newTodo: Todo = { id: nextId++, text: params.text, done: false };
@@ -173,7 +178,12 @@ export default function (pi: ExtensionAPI) {
 					if (params.id === undefined) {
 						return {
 							content: [{ type: "text", text: "Error: id required for toggle" }],
-							details: { action: "toggle", todos: [...todos], nextId, error: "id required" } as TodoDetails,
+							details: {
+								action: "toggle",
+								todos: [...todos],
+								nextId,
+								error: "id required",
+							} as TodoDetails,
 						};
 					}
 					const todo = todos.find((t) => t.id === params.id);

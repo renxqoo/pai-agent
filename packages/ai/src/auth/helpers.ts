@@ -18,7 +18,11 @@ export function envApiKeyAuth(name: string, envVars: readonly string[]): ApiKeyA
 		resolve: async ({ ctx, credential, signal }) => {
 			signal.throwIfAborted();
 			if (credential?.key) {
-				return { auth: { apiKey: credential.key }, env: credential.env, source: "stored credential" };
+				return {
+					auth: { apiKey: credential.key },
+					env: credential.env,
+					source: "stored credential",
+				};
 			}
 			for (const envVar of envVars) {
 				const value = await ctx.env(envVar);

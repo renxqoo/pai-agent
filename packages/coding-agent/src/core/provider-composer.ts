@@ -94,7 +94,10 @@ function mergeCompat(
 			(typeof baseValue === "object" && baseValue !== null) ||
 			(typeof overrideValue === "object" && overrideValue !== null)
 		) {
-			mergedNested[key] = { ...(baseValue as object | undefined), ...(overrideValue as object | undefined) };
+			mergedNested[key] = {
+				...(baseValue as object | undefined),
+				...(overrideValue as object | undefined),
+			};
 		}
 	}
 	return merged;
@@ -259,7 +262,10 @@ function adaptOAuth(config: ExtensionOAuthConfig): OAuthAuth {
 			});
 			return { ...credential, type: "oauth" };
 		},
-		refresh: async (credential, signal) => ({ ...(await config.refreshToken(credential, signal)), type: "oauth" }),
+		refresh: async (credential, signal) => ({
+			...(await config.refreshToken(credential, signal)),
+			type: "oauth",
+		}),
 		toAuth: async (credential) => ({ apiKey: config.getApiKey(credential) }),
 	};
 }
@@ -353,7 +359,11 @@ function composeApiKeyAuth(
 				result = inherited
 					? await inherited.resolve(input)
 					: input.credential.key
-						? { auth: { apiKey: input.credential.key }, env: input.credential.env, source: "stored credential" }
+						? {
+								auth: { apiKey: input.credential.key },
+								env: input.credential.env,
+								source: "stored credential",
+							}
 						: undefined;
 			} else if (rawKey !== undefined) {
 				const env = await configContextEnv([rawKey], input.ctx);
@@ -577,5 +587,8 @@ export function configuredRequestAuthStatus(
 			? { configured: true, source: "environment", label: names.join(", ") }
 			: { configured: false };
 	}
-	return { configured: true, source: extension?.apiKey !== undefined ? "fallback" : "models_json_key" };
+	return {
+		configured: true,
+		source: extension?.apiKey !== undefined ? "fallback" : "models_json_key",
+	};
 }

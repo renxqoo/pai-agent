@@ -72,10 +72,10 @@ The surrounding operation state continues to provide:
 ### Existing bound values
 
 ```ts
-operationToolArgs(operationId, turnId, sourceIndex)
+operationToolArgs(operationId, turnId, sourceIndex);
 // Effective validated arguments, persisted before effect admission.
 
-pendingEntry(resultEntryId)
+pendingEntry(resultEntryId);
 // Complete finalized ToolResultMessage while outcome_ready awaits placement.
 ```
 
@@ -84,14 +84,8 @@ pendingEntry(resultEntryId)
 Define the operation-owned address constructor in `session/values.ts`:
 
 ```ts
-export const operationToolMemo = (
-  operationId: string,
-  invocationId: string,
-  memoName: string,
-) => value<JsonValue>(
-  "pi.op.tool_memo",
-  `${operationId}:${invocationId}:${memoName}`,
-);
+export const operationToolMemo = (operationId: string, invocationId: string, memoName: string) =>
+  value<JsonValue>("pi.op.tool_memo", `${operationId}:${invocationId}:${memoName}`);
 ```
 
 `memoName` must be non-empty and contain no `:`. Names may use dots or slashes for application-local grouping. `setMemo(name, undefined)` deletes the exact bound value.
@@ -103,13 +97,8 @@ export const operationToolMemo = (
 The durable recovery value is the latest complete bounded progress snapshot selected by the tool. That is total current state, so use one bound value address:
 
 ```ts
-export const pendingToolOutput = (
-  operationId: string,
-  invocationId: string,
-) => value<AgentToolResult<unknown>>(
-  "pi.pending.tool_output",
-  `${operationId}:${invocationId}`,
-);
+export const pendingToolOutput = (operationId: string, invocationId: string) =>
+  value<AgentToolResult<unknown>>("pi.pending.tool_output", `${operationId}:${invocationId}`);
 ```
 
 This is auxiliary observation data. It never proves the effect succeeded or completed. The stored value has exactly the same content/details/usage shape as the live `partialResult`; recovery does not need a tool-specific progress codec.
@@ -438,8 +427,8 @@ Memos are immediate durable replay state, not application-visible settlement sta
 Terminal cleanup defensively scans and deletes the operation-owned families:
 
 ```ts
-scanValues(operationToolMemoPrefix(operationId))
-scanValues(pendingToolOutputPrefix(operationId))
+scanValues(operationToolMemoPrefix(operationId));
+scanValues(pendingToolOutputPrefix(operationId));
 ```
 
 in addition to other operation-owned addresses. Each returned `StoredValue` supplies its exact bound address for `deleteValue`; no later operation receives a raw key.
@@ -450,10 +439,7 @@ Build `step.do` over invocation memos; it does not need its own harness state un
 
 ```ts
 interface ToolSteps {
-  do<T extends JsonValue>(
-    name: string,
-    effect: () => T | Promise<T>,
-  ): Promise<T>;
+  do<T extends JsonValue>(name: string, effect: () => T | Promise<T>): Promise<T>;
 }
 ```
 
@@ -587,17 +573,17 @@ Instrumented-storage tests assert `intent commit → tool_start → tool_update*
 
 ## Races
 
-| Race | Required result |
-|---|---|
-| checkpoint vs tool settlement | every accepted checkpoint was enqueued first; settlement awaits the latest promise, then staging deletes the checkpoint value; a late update is ignored |
-| memo write vs `outcome_ready` | an awaited or pre-return-enqueued write precedes staging and is then deleted; a post-return call rejects; external finalization first causes the durable ownership check to reject |
-| B outcome vs earlier A settlement | B stages independently; placement waits for A |
-| crash after outcome staging | tool never replays; pending result later materializes |
-| crash during source-prefix placement | transaction exposes either none or all of that placement prefix |
-| safe replay vs old partial output | the old bound checkpoint value is deleted before replay emits new progress |
-| cancellation vs real settlement | Session mutation order chooses real cancelled-control result or synthetic reconciliation; at most one outcome stages |
-| terminal finalization vs late result | terminal ownership wins or outcome stages first; late task never recreates operation data |
-| external finalization vs memo/checkpoint mutation | mutation first is removed by terminal cleanup; finalization first makes the mutation's durable ownership check reject |
+| Race                                              | Required result                                                                                                                                                                    |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| checkpoint vs tool settlement                     | every accepted checkpoint was enqueued first; settlement awaits the latest promise, then staging deletes the checkpoint value; a late update is ignored                            |
+| memo write vs `outcome_ready`                     | an awaited or pre-return-enqueued write precedes staging and is then deleted; a post-return call rejects; external finalization first causes the durable ownership check to reject |
+| B outcome vs earlier A settlement                 | B stages independently; placement waits for A                                                                                                                                      |
+| crash after outcome staging                       | tool never replays; pending result later materializes                                                                                                                              |
+| crash during source-prefix placement              | transaction exposes either none or all of that placement prefix                                                                                                                    |
+| safe replay vs old partial output                 | the old bound checkpoint value is deleted before replay emits new progress                                                                                                         |
+| cancellation vs real settlement                   | Session mutation order chooses real cancelled-control result or synthetic reconciliation; at most one outcome stages                                                               |
+| terminal finalization vs late result              | terminal ownership wins or outcome stages first; late task never recreates operation data                                                                                          |
+| external finalization vs memo/checkpoint mutation | mutation first is removed by terminal cleanup; finalization first makes the mutation's durable ownership check reject                                                              |
 
 ## Invariants
 

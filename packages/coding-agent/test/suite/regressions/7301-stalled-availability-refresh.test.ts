@@ -70,24 +70,39 @@ describe("issue #7301 stalled availability refresh", () => {
 	it("recovers without letting the stalled refresh overwrite the newer snapshot", async () => {
 		harness = await createHarness({ withConfiguredAuth: false });
 		const runtime = harness.session.modelRuntime;
-		await harness.authStorage.modify("stale-provider", async () => ({ type: "api_key", key: "stale-key" }));
+		await harness.authStorage.modify("stale-provider", async () => ({
+			type: "api_key",
+			key: "stale-key",
+		}));
 		await runtime.refresh({ allowNetwork: false });
-		expect(runtime.getProviderAuthStatus("stale-provider")).toEqual({ configured: true, source: "stored" });
+		expect(runtime.getProviderAuthStatus("stale-provider")).toEqual({
+			configured: true,
+			source: "stored",
+		});
 
 		stalledList = stallNextCredentialList(harness);
 		const staleRefresh = runtime.getAvailable();
 		await stalledList.started;
 
 		await harness.authStorage.delete("stale-provider");
-		await harness.authStorage.modify("current-provider", async () => ({ type: "api_key", key: "current-key" }));
+		await harness.authStorage.modify("current-provider", async () => ({
+			type: "api_key",
+			key: "current-key",
+		}));
 		await waitForRecoveryRefresh(stalledList, harness);
 		expect(runtime.getProviderAuthStatus("stale-provider")).toEqual({ configured: false });
-		expect(runtime.getProviderAuthStatus("current-provider")).toEqual({ configured: true, source: "stored" });
+		expect(runtime.getProviderAuthStatus("current-provider")).toEqual({
+			configured: true,
+			source: "stored",
+		});
 
 		stalledList.release();
 		await staleRefresh;
 		expect(runtime.getProviderAuthStatus("stale-provider")).toEqual({ configured: false });
-		expect(runtime.getProviderAuthStatus("current-provider")).toEqual({ configured: true, source: "stored" });
+		expect(runtime.getProviderAuthStatus("current-provider")).toEqual({
+			configured: true,
+			source: "stored",
+		});
 	});
 
 	it("does not let a stale failure overwrite newer availability error state", async () => {

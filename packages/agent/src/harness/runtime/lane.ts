@@ -546,7 +546,10 @@ export class Lane<TContext extends object | undefined> implements AgentLane {
 				);
 				if (template === undefined) {
 					return Result.err(
-						new UnknownTemplate({ name: request.name, message: `Unknown prompt template: ${request.name}` }),
+						new UnknownTemplate({
+							name: request.name,
+							message: `Unknown prompt template: ${request.name}`,
+						}),
 					);
 				}
 				const content = formatPromptTemplateInvocation(template, request.args);
@@ -569,7 +572,10 @@ export class Lane<TContext extends object | undefined> implements AgentLane {
 				);
 			}
 		}
-		const prompt = messages.map((message) => ({ id: this.session.idGenerator.next(startedAt), message }));
+		const prompt = messages.map((message) => ({
+			id: this.session.idGenerator.next(startedAt),
+			message,
+		}));
 
 		return this.command<OperationAdmissionResult>(async (state, reader) => {
 			if (state.operation !== null) {
@@ -627,7 +633,12 @@ export class Lane<TContext extends object | undefined> implements AgentLane {
 
 			const entries = chainEntries(state.tipId, [
 				...captured.map(({ item, pending }) => pendingEntryWrite(item.entryId, pending)),
-				...prompt.map(({ id, message }) => ({ id, parentId: null, type: "message" as const, message })),
+				...prompt.map(({ id, message }) => ({
+					id,
+					parentId: null,
+					type: "message" as const,
+					message,
+				})),
 			]);
 			const parentId = entries[entries.length - 1]!.id;
 			const meta = {
@@ -753,7 +764,13 @@ export class Lane<TContext extends object | undefined> implements AgentLane {
 				next: { ...state, operation: { meta, state: operationState } },
 				materialize: () => Result.ok({ operationId, kind: "compaction", startedAt }),
 				events: () => [
-					{ type: "compaction_start", lane: this.name, runId: operationId, reason: "manual", startedAt },
+					{
+						type: "compaction_start",
+						lane: this.name,
+						runId: operationId,
+						reason: "manual",
+						startedAt,
+					},
 				],
 			};
 		}, context);
@@ -911,7 +928,15 @@ export class Lane<TContext extends object | undefined> implements AgentLane {
 					writes,
 					next: { ...state, operation: { meta, state: operationState } },
 					materialize: () => Result.ok({ operationId, kind: "navigation", startedAt }),
-					events: () => [{ type: "navigation_start", lane: this.name, runId: operationId, targetId, startedAt }],
+					events: () => [
+						{
+							type: "navigation_start",
+							lane: this.name,
+							runId: operationId,
+							targetId,
+							startedAt,
+						},
+					],
 				};
 			}, context);
 			if (accepted !== undefined) return accepted;
@@ -1146,7 +1171,11 @@ export class Lane<TContext extends object | undefined> implements AgentLane {
 
 	skill(name: string, additionalInstructions: string | undefined, context: Context): Promise<RunResult> {
 		return this.driveRunRequest(
-			{ kind: "skill", name, ...(additionalInstructions === undefined ? {} : { additionalInstructions }) },
+			{
+				kind: "skill",
+				name,
+				...(additionalInstructions === undefined ? {} : { additionalInstructions }),
+			},
 			context,
 		);
 	}
@@ -1968,7 +1997,12 @@ export class Lane<TContext extends object | undefined> implements AgentLane {
 			const queues = [
 				...(await readLaneQueues(reader, state.inbox, context)),
 				pending.type === "message"
-					? { entryId: id, kind: "write" as const, type: "message" as const, message: pending.payload }
+					? {
+							entryId: id,
+							kind: "write" as const,
+							type: "message" as const,
+							message: pending.payload,
+						}
 					: {
 							entryId: id,
 							kind: "write" as const,

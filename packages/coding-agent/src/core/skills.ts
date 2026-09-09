@@ -477,7 +477,11 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 	for (const rawPath of skillPaths) {
 		const resolvedPath = resolvePath(rawPath, resolvedCwd, { trim: true });
 		if (!existsSync(resolvedPath)) {
-			allDiagnostics.push({ type: "warning", message: "skill path does not exist", path: resolvedPath });
+			allDiagnostics.push({
+				type: "warning",
+				message: "skill path does not exist",
+				path: resolvedPath,
+			});
 			continue;
 		}
 
@@ -494,7 +498,11 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 					allDiagnostics.push(...result.diagnostics);
 				}
 			} else {
-				allDiagnostics.push({ type: "warning", message: "skill path is not a markdown file", path: resolvedPath });
+				allDiagnostics.push({
+					type: "warning",
+					message: "skill path is not a markdown file",
+					path: resolvedPath,
+				});
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "failed to read skill path";

@@ -45,10 +45,14 @@ export type Op =
  */
 export type WireOp =
   | readonly ["r", JsonValue]
-  | readonly ["s", PathRef<NonEmptyPath>, JsonValue] | readonly ["s", JsonValue]
-  | readonly ["d", PathRef<NonEmptyPath>]            | readonly ["d"]
-  | readonly ["a", PathRef<NonEmptyPath>, string]    | readonly ["a", string]
-  | readonly ["t", PathRef<NonEmptyPath>, number]    | readonly ["t", number]
+  | readonly ["s", PathRef<NonEmptyPath>, JsonValue]
+  | readonly ["s", JsonValue]
+  | readonly ["d", PathRef<NonEmptyPath>]
+  | readonly ["d"]
+  | readonly ["a", PathRef<NonEmptyPath>, string]
+  | readonly ["a", string]
+  | readonly ["t", PathRef<NonEmptyPath>, number]
+  | readonly ["t", number]
   | readonly ["p", PathRef, number, number, JsonValue[]]
   | readonly ["p", number, number, JsonValue[]]
   | readonly ["#", number, Path];
@@ -143,14 +147,23 @@ const clone = <T>(v: T): T => (isObj(v) ? (structuredClone(v) as T) : v);
 const INDEX = /^(?:0|[1-9]\d*)$/;
 const norm = (t: object, k: string | symbol): Seg | symbol =>
   typeof k === "symbol" ? k : Array.isArray(t) && INDEX.test(k) ? Number(k) : k;
-const MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
+const MUTATORS = new Set([
+  "push",
+  "pop",
+  "shift",
+  "unshift",
+  "splice",
+  "sort",
+  "reverse",
+  "fill",
+  "copyWithin",
+]);
 
 export function track<T extends object>(root: T, options: TrackerOptions = {}): Tracker<T> {
   const scan = options.maxOverlapScan ?? 65_536;
   const doCoalesce = options.coalesce ?? true;
 
   let ops: Op[] = [];
-
 
   const emit = (op: Op) => {
     ops.push(op);
@@ -175,7 +188,13 @@ export function track<T extends object>(root: T, options: TrackerOptions = {}): 
    * Only the interception knows the pre-splice length, so this is a record-time
    * rewrite, not something flush can recover.
    */
-  const spliceOrReplace = (path: Path, before: number, index: number, remove: number, items: JsonValue[]) => {
+  const spliceOrReplace = (
+    path: Path,
+    before: number,
+    index: number,
+    remove: number,
+    items: JsonValue[],
+  ) => {
     if (index === 0 && remove === before) {
       if (path.length === 0) emit(["r", items]);
       else emit(["s", path as NonEmptyPath, items]);
@@ -201,14 +220,25 @@ export function track<T extends object>(root: T, options: TrackerOptions = {}): 
             const result = (Array.prototype[k as "push"] as Function).apply(t, args);
             const items = (xs: unknown[]) => xs.map(clone) as JsonValue[];
             switch (k) {
-              case "push":    spliceOrReplace(path, before, before, 0, items(args)); break;
-              case "unshift": spliceOrReplace(path, before, 0, 0, items(args)); break;
-              case "pop":     if (before > 0) spliceOrReplace(path, before, before - 1, 1, []); break;
-              case "shift":   if (before > 0) spliceOrReplace(path, before, 0, 1, []); break;
+              case "push":
+                spliceOrReplace(path, before, before, 0, items(args));
+                break;
+              case "unshift":
+                spliceOrReplace(path, before, 0, 0, items(args));
+                break;
+              case "pop":
+                if (before > 0) spliceOrReplace(path, before, before - 1, 1, []);
+                break;
+              case "shift":
+                if (before > 0) spliceOrReplace(path, before, 0, 1, []);
+                break;
               case "splice": {
                 const raw = Number(args[0] ?? 0);
                 const index = raw < 0 ? Math.max(0, before + raw) : Math.min(raw, before);
-                const remove = args.length < 2 ? before - index : Math.max(0, Math.min(Number(args[1]), before - index));
+                const remove =
+                  args.length < 2
+                    ? before - index
+                    : Math.max(0, Math.min(Number(args[1]), before - index));
                 spliceOrReplace(path, before, index, remove, items(args.slice(2)));
                 break;
               }
@@ -230,13 +260,15 @@ export function track<T extends object>(root: T, options: TrackerOptions = {}): 
           const before = t.length;
           const next = Number(v);
           if (next < before) spliceOrReplace(path, before, next, before - next, []);
-          else if (next > before) emit(["p", [...path], before, 0, Array(next - before).fill(null)]);
+          else if (next > before)
+            emit(["p", [...path], before, 0, Array(next - before).fill(null)]);
           return Reflect.set(t, k, v, r);
         }
 
         const at = [...path, guard(norm(t, k))] as unknown as NonEmptyPath;
 
-        if (v === undefined) {                       // JSON has no undefined
+        if (v === undefined) {
+          // JSON has no undefined
           emit(["d", at]);
           return Reflect.deleteProperty(t, k);
         }
@@ -245,7 +277,7 @@ export function track<T extends object>(root: T, options: TrackerOptions = {}): 
         if (typeof prev === "string" && typeof v === "string") {
           if (prev === v) return true;
           if (v.length > prev.length && v.startsWith(prev)) {
-            emit(["a", at, v.slice(prev.length)]);   // fast path, no probe
+            emit(["a", at, v.slice(prev.length)]); // fast path, no probe
           } else {
             const ov = overlap(prev, v, scan);
             if (ov === 0) emit(["s", at, v]);
@@ -278,7 +310,9 @@ export function track<T extends object>(root: T, options: TrackerOptions = {}): 
   let forceBase = true;
 
   return {
-    get state() { return state; },
+    get state() {
+      return state;
+    },
     // A setter, so the obvious thing works. Without it `tracker.state = next`
     // silently swaps the proxy for a plain object and stops tracking.
     set state(next: T) {
@@ -287,15 +321,23 @@ export function track<T extends object>(root: T, options: TrackerOptions = {}): 
       state = wrap(root, []);
       forceBase = true;
     },
-    get target() { return root; },
+    get target() {
+      return root;
+    },
 
     // Same effect as assigning the current value back, minus the re-wrap: the
     // value has not changed, so the proxy cache is still valid.
-    rebase() { ops = []; forceBase = true; },
+    rebase() {
+      ops = [];
+      forceBase = true;
+    },
 
-
-    get dirty() { return ops.length > 0; },
-    discard() { ops = []; },
+    get dirty() {
+      return ops.length > 0;
+    },
+    discard() {
+      ops = [];
+    },
     flush() {
       if (forceBase) {
         forceBase = false;
@@ -364,12 +406,15 @@ function dropDead(ops: Op[]): Op[] {
     if (op[0] === "r") {
       kept.push(op);
       overwritten.clear();
-      overwritten.set("", "s");            // the root is now overwritten
+      overwritten.set("", "s"); // the root is now overwritten
       continue;
     }
 
     const path = opPath(op);
-    if (path === undefined) { kept.push(op); continue; }   // arity form, or an interned id
+    if (path === undefined) {
+      kept.push(op);
+      continue;
+    } // arity form, or an interned id
 
     let dead = overwritten.has("");
     let key = "";
@@ -406,7 +451,8 @@ function coalesce(ops: Op[]): Op[] {
         out[out.length - 1] = ["a", last[1], `${last[2]}${op[2]}`];
         continue;
       }
-      if (last[0] === "s" && op[0] === "s") {   // later write wins
+      if (last[0] === "s" && op[0] === "s") {
+        // later write wins
         out[out.length - 1] = op;
         continue;
       }
@@ -490,11 +536,27 @@ export function assertJsonValue(value: unknown, seen = new Set<unknown>()): void
 export function assertValidOp(op: unknown): void {
   if (!Array.isArray(op) || op.length === 0) throw new TypeError("op is not a tuple");
   switch (op[0]) {
-    case "r": if (op.length !== 2) throw new TypeError("r arity"); assertJsonValue(op[1]); return;
-    case "s": if (op.length !== 3) throw new TypeError("s arity"); assertPathArg(op[1]); assertJsonValue(op[2]); return;
-    case "d": if (op.length !== 2) throw new TypeError("d arity"); assertPathArg(op[1]); return;
-    case "a": if (op.length !== 3 || typeof op[2] !== "string") throw new TypeError("a shape"); assertPathArg(op[1]); return;
-    case "t": if (op.length !== 3 || !Number.isInteger(op[2])) throw new TypeError("t shape"); assertPathArg(op[1]); return;
+    case "r":
+      if (op.length !== 2) throw new TypeError("r arity");
+      assertJsonValue(op[1]);
+      return;
+    case "s":
+      if (op.length !== 3) throw new TypeError("s arity");
+      assertPathArg(op[1]);
+      assertJsonValue(op[2]);
+      return;
+    case "d":
+      if (op.length !== 2) throw new TypeError("d arity");
+      assertPathArg(op[1]);
+      return;
+    case "a":
+      if (op.length !== 3 || typeof op[2] !== "string") throw new TypeError("a shape");
+      assertPathArg(op[1]);
+      return;
+    case "t":
+      if (op.length !== 3 || !Number.isInteger(op[2])) throw new TypeError("t shape");
+      assertPathArg(op[1]);
+      return;
     case "p": {
       if (op.length !== 5) throw new TypeError("p arity");
       assertPathArg(op[1]);
@@ -505,7 +567,8 @@ export function assertValidOp(op: unknown): void {
       return;
     }
     // Silently skipping an unknown verb is how a newer producer's op vanishes.
-    default: throw new TypeError(`unknown op verb: ${String(op[0])}`);
+    default:
+      throw new TypeError(`unknown op verb: ${String(op[0])}`);
   }
 }
 
@@ -529,19 +592,40 @@ export function assertValidWireOp(op: unknown): void {
     assertSafePath(r as Path);
   };
   switch (verb) {
-    case "r": if (op.length !== 2) throw new TypeError("r arity"); assertJsonValue(op[1]); return;
-    case "s": if (op.length === 3) { okRef(op[1]); assertJsonValue(op[2]); }
-              else if (op.length === 2) assertJsonValue(op[1]);
-              else throw new TypeError("s arity"); return;
-    case "d": if (op.length === 2) okRef(op[1]); else if (op.length !== 1) throw new TypeError("d arity"); return;
-    case "a": if (op.length === 3) { okRef(op[1]); if (typeof op[2] !== "string") throw new TypeError("a value"); }
-              else if (op.length === 2) { if (typeof op[1] !== "string") throw new TypeError("a value"); }
-              else throw new TypeError("a arity"); return;
-    case "t": if (op.length === 3) { okRef(op[1]); if (!Number.isInteger(op[2])) throw new TypeError("t count"); }
-              else if (op.length === 2) { if (!Number.isInteger(op[1])) throw new TypeError("t count"); }
-              else throw new TypeError("t arity"); return;
+    case "r":
+      if (op.length !== 2) throw new TypeError("r arity");
+      assertJsonValue(op[1]);
+      return;
+    case "s":
+      if (op.length === 3) {
+        okRef(op[1]);
+        assertJsonValue(op[2]);
+      } else if (op.length === 2) assertJsonValue(op[1]);
+      else throw new TypeError("s arity");
+      return;
+    case "d":
+      if (op.length === 2) okRef(op[1]);
+      else if (op.length !== 1) throw new TypeError("d arity");
+      return;
+    case "a":
+      if (op.length === 3) {
+        okRef(op[1]);
+        if (typeof op[2] !== "string") throw new TypeError("a value");
+      } else if (op.length === 2) {
+        if (typeof op[1] !== "string") throw new TypeError("a value");
+      } else throw new TypeError("a arity");
+      return;
+    case "t":
+      if (op.length === 3) {
+        okRef(op[1]);
+        if (!Number.isInteger(op[2])) throw new TypeError("t count");
+      } else if (op.length === 2) {
+        if (!Number.isInteger(op[1])) throw new TypeError("t count");
+      } else throw new TypeError("t arity");
+      return;
     case "p": {
-      const [i, r, items] = op.length === 5 ? [op[2], op[3], op[4]] : op.length === 4 ? [op[1], op[2], op[3]] : [];
+      const [i, r, items] =
+        op.length === 5 ? [op[2], op[3], op[4]] : op.length === 4 ? [op[1], op[2], op[3]] : [];
       if (items === undefined) throw new TypeError("p arity");
       if (op.length === 5) okRef(op[1]);
       if (!Number.isInteger(i) || (i as number) < 0) throw new TypeError("p index");
@@ -551,12 +635,14 @@ export function assertValidWireOp(op: unknown): void {
       return;
     }
     case "#": {
-      if (op.length !== 3 || !Number.isInteger(op[1]) || !Array.isArray(op[2])) throw new TypeError("# shape");
+      if (op.length !== 3 || !Number.isInteger(op[1]) || !Array.isArray(op[2]))
+        throw new TypeError("# shape");
       assertSafePath(op[2] as Path);
       return;
     }
     // Silently skipping an unknown verb is how a newer producer's op vanishes.
-    default: throw new TypeError(`unknown op verb: ${String(verb)}`);
+    default:
+      throw new TypeError(`unknown op verb: ${String(verb)}`);
   }
 }
 
@@ -642,14 +728,29 @@ export function apply<T>(target: T, ops: readonly Op[]): T {
     // defineProperty rather than assignment: a setter inherited from the prototype
     // chain would otherwise run on write.
     const write = (value: JsonValue) => {
-      Object.defineProperty(parent, key, { value, writable: true, enumerable: true, configurable: true });
+      Object.defineProperty(parent, key, {
+        value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
     };
     const read = (): unknown => (Object.hasOwn(parent, key) ? parent[key] : undefined);
     switch (op[0]) {
-      case "s": write(op[2]); break;
-      case "d": Array.isArray(parent) ? (parent as unknown as JsonValue[]).splice(Number(key), 1) : delete parent[key]; break;
-      case "a": write(`${String(read() ?? "")}${op[2]}`); break;
-      case "t": write(String(read() ?? "").slice(op[2])); break;
+      case "s":
+        write(op[2]);
+        break;
+      case "d":
+        Array.isArray(parent)
+          ? (parent as unknown as JsonValue[]).splice(Number(key), 1)
+          : delete parent[key];
+        break;
+      case "a":
+        write(`${String(read() ?? "")}${op[2]}`);
+        break;
+      case "t":
+        write(String(read() ?? "").slice(op[2]));
+        break;
     }
   }
   return root as unknown as T;
@@ -695,7 +796,7 @@ export function encoder(): Encoder {
   const seen = new Set<string>();
   const ids = new Map<string, number>();
   let nextId = 0;
-  let previous: string | undefined;      // last path in THIS batch
+  let previous: string | undefined; // last path in THIS batch
 
   return {
     encode(ops) {
@@ -724,11 +825,21 @@ export function encoder(): Encoder {
         // Same path as the previous op: drop the ref entirely.
         if (key === previous) {
           switch (op[0]) {
-            case "s": out.push(["s", op[2]]); break;
-            case "d": out.push(["d"]); break;
-            case "a": out.push(["a", op[2]]); break;
-            case "t": out.push(["t", op[2]]); break;
-            case "p": out.push(["p", op[2], op[3], op[4]]); break;
+            case "s":
+              out.push(["s", op[2]]);
+              break;
+            case "d":
+              out.push(["d"]);
+              break;
+            case "a":
+              out.push(["a", op[2]]);
+              break;
+            case "t":
+              out.push(["t", op[2]]);
+              break;
+            case "p":
+              out.push(["p", op[2], op[3], op[4]]);
+              break;
           }
           continue;
         }
@@ -740,18 +851,28 @@ export function encoder(): Encoder {
         } else if (seen.has(key)) {
           const id = nextId++;
           ids.set(key, id);
-          out.push(["#", id, path]);     // second use: define, then reference
+          out.push(["#", id, path]); // second use: define, then reference
           ref = id;
         } else {
-          seen.add(key);                 // first use: inline
+          seen.add(key); // first use: inline
         }
 
         switch (op[0]) {
-          case "s": out.push(["s", ref as PathRef<NonEmptyPath>, op[2]]); break;
-          case "d": out.push(["d", ref as PathRef<NonEmptyPath>]); break;
-          case "a": out.push(["a", ref as PathRef<NonEmptyPath>, op[2]]); break;
-          case "t": out.push(["t", ref as PathRef<NonEmptyPath>, op[2]]); break;
-          case "p": out.push(["p", ref, op[2], op[3], op[4]]); break;
+          case "s":
+            out.push(["s", ref as PathRef<NonEmptyPath>, op[2]]);
+            break;
+          case "d":
+            out.push(["d", ref as PathRef<NonEmptyPath>]);
+            break;
+          case "a":
+            out.push(["a", ref as PathRef<NonEmptyPath>, op[2]]);
+            break;
+          case "t":
+            out.push(["t", ref as PathRef<NonEmptyPath>, op[2]]);
+            break;
+          case "p":
+            out.push(["p", ref, op[2], op[3], op[4]]);
+            break;
         }
         previous = key;
       }
@@ -769,7 +890,7 @@ export function decoder(): Decoder {
 
   return {
     decode(wire) {
-      let previous: Path | undefined;    // scoped to the batch, as in encode
+      let previous: Path | undefined; // scoped to the batch, as in encode
       const out: Op[] = [];
       for (const op of wire) {
         assertValidWireOp(op);
@@ -807,10 +928,18 @@ export function decoder(): Decoder {
         }
 
         switch (op[0]) {
-          case "s": out.push(["s", path as NonEmptyPath, (short ? op[1] : op[2]) as JsonValue]); break;
-          case "d": out.push(["d", path as NonEmptyPath]); break;
-          case "a": out.push(["a", path as NonEmptyPath, (short ? op[1] : op[2]) as string]); break;
-          case "t": out.push(["t", path as NonEmptyPath, (short ? op[1] : op[2]) as number]); break;
+          case "s":
+            out.push(["s", path as NonEmptyPath, (short ? op[1] : op[2]) as JsonValue]);
+            break;
+          case "d":
+            out.push(["d", path as NonEmptyPath]);
+            break;
+          case "a":
+            out.push(["a", path as NonEmptyPath, (short ? op[1] : op[2]) as string]);
+            break;
+          case "t":
+            out.push(["t", path as NonEmptyPath, (short ? op[1] : op[2]) as number]);
+            break;
           case "p": {
             const [i, r, items] = short
               ? [op[1] as number, op[2] as number, op[3] as JsonValue[]]

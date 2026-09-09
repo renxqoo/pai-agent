@@ -260,7 +260,10 @@ function renderBoard(opts: BoardRenderOpts): string[] {
 
 	const winLine = getWinLine(board);
 	const winCells = new Set((winLine ?? []).map(([r, c]) => `${r},${c}`));
-	const cellAt = (r: number, c: number) => ({ cell: board[r][c], isWin: winCells.has(`${r},${c}`) });
+	const cellAt = (r: number, c: number) => ({
+		cell: board[r][c],
+		isWin: winCells.has(`${r},${c}`),
+	});
 
 	const isCursorCorner = (gridR: number, gridC: number): boolean =>
 		showCursor && (gridR === cr || gridR === cr + 1) && (gridC === cc || gridC === cc + 1);

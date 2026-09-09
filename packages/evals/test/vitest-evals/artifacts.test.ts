@@ -90,7 +90,10 @@ it("persists and selects attachments belonging to the reported run", async () =>
 			root,
 		);
 		expect(references).toEqual([
-			{ name: "session.jsonl", path: expect.stringMatching(/^sessions\/[a-f0-9]{64}\/session\.jsonl$/) },
+			{
+				name: "session.jsonl",
+				path: expect.stringMatching(/^sessions\/[a-f0-9]{64}\/session\.jsonl$/),
+			},
 			{ name: "hello.ts", path: expect.stringMatching(/^sources\/[a-f0-9]{64}\/hello\.ts$/) },
 		]);
 		for (const { name, path } of references) {

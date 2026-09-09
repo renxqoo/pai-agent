@@ -110,7 +110,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("anthropic", "claude-sonnet-4-5");
 
 				console.log(`\nAnthropic / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.ANTHROPIC_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.ANTHROPIC_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -133,7 +135,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("anthropic", "claude-sonnet-4-6");
 
 				console.log(`\nAnthropic OAuth / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: anthropicOAuthToken });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: anthropicOAuthToken,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -248,7 +252,9 @@ describe("totalTokens field", () => {
 			const llm = getModel("xai", "grok-4.3");
 
 			console.log(`\nxAI / ${llm.id}:`);
-			const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.XAI_API_KEY });
+			const { first, second } = await testTotalTokensWithCache(llm, {
+				apiKey: process.env.XAI_API_KEY,
+			});
 
 			logUsage("First request", first);
 			logUsage("Second request", second);
@@ -270,7 +276,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("groq", "openai/gpt-oss-120b");
 
 				console.log(`\nGroq / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.GROQ_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.GROQ_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -293,7 +301,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("cerebras", "gpt-oss-120b");
 
 				console.log(`\nCerebras / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.CEREBRAS_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.CEREBRAS_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -363,7 +373,9 @@ describe("totalTokens field", () => {
 			const llm = getModel("huggingface", "moonshotai/Kimi-K2.5");
 
 			console.log(`\nHugging Face / ${llm.id}:`);
-			const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.HF_TOKEN });
+			const { first, second } = await testTotalTokensWithCache(llm, {
+				apiKey: process.env.HF_TOKEN,
+			});
 
 			logUsage("First request", first);
 			logUsage("Second request", second);
@@ -426,7 +438,9 @@ describe("totalTokens field", () => {
 			const llm = getModel("zai", "glm-5.2");
 
 			console.log(`\nz.ai / ${llm.id}:`);
-			const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.ZAI_API_KEY });
+			const { first, second } = await testTotalTokensWithCache(llm, {
+				apiKey: process.env.ZAI_API_KEY,
+			});
 
 			logUsage("First request", first);
 			logUsage("Second request", second);
@@ -448,7 +462,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("mistral", "devstral-medium-latest");
 
 				console.log(`\nMistral / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.MISTRAL_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.MISTRAL_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -471,7 +487,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("minimax", "MiniMax-M2.7");
 
 				console.log(`\nMiniMax / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.MINIMAX_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.MINIMAX_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -494,7 +512,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("xiaomi", "mimo-v2.5-pro");
 
 				console.log(`\nXiaomi MiMo / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.XIAOMI_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.XIAOMI_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -667,7 +687,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("kimi-coding", "kimi-for-coding");
 
 				console.log(`\nKimi For Coding / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.KIMI_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.KIMI_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -690,7 +712,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("vercel-ai-gateway", "google/gemini-2.5-flash");
 
 				console.log(`\nVercel AI Gateway / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.AI_GATEWAY_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.AI_GATEWAY_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -713,7 +737,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("openrouter", "anthropic/claude-sonnet-4");
 
 				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.OPENROUTER_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -730,7 +756,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("openrouter", "deepseek/deepseek-chat");
 
 				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.OPENROUTER_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -747,7 +775,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("openrouter", "mistralai/mistral-small-3.2-24b-instruct");
 
 				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.OPENROUTER_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -764,7 +794,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("openrouter", "google/gemini-2.5-flash");
 
 				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.OPENROUTER_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -781,7 +813,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("openrouter", "deepseek/deepseek-chat");
 
 				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: process.env.OPENROUTER_API_KEY,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -804,7 +838,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("github-copilot", "claude-haiku-4.5");
 
 				console.log(`\nGitHub Copilot / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: githubCopilotToken });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: githubCopilotToken,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);
@@ -821,7 +857,9 @@ describe("totalTokens field", () => {
 				const llm = getModel("github-copilot", "claude-sonnet-4.6");
 
 				console.log(`\nGitHub Copilot / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: githubCopilotToken });
+				const { first, second } = await testTotalTokensWithCache(llm, {
+					apiKey: githubCopilotToken,
+				});
 
 				logUsage("First request", first);
 				logUsage("Second request", second);

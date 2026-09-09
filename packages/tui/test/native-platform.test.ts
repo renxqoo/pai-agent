@@ -43,7 +43,9 @@ test(
 
 test(
 	"uses the native platform helper directly as the clipboard API",
-	{ skip: !["darwin", "win32"].includes(process.platform) || !["arm64", "x64"].includes(process.arch) },
+	{
+		skip: !["darwin", "win32"].includes(process.platform) || !["arm64", "x64"].includes(process.arch),
+	},
 	() => {
 		const clipboard = getNativeClipboard();
 		assert.ok(clipboard);

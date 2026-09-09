@@ -1469,7 +1469,11 @@ export class InteractiveMode {
 		}
 
 		if (source === "cli") {
-			return { label: "path", scopeLabel: scope === "temporary" ? "temp" : undefined, color: "muted" };
+			return {
+				label: "path",
+				scopeLabel: scope === "temporary" ? "temp" : undefined,
+				color: "muted",
+			};
 		}
 
 		const scopeLabel =
@@ -1747,7 +1751,10 @@ export class InteractiveMode {
 			const templates = this.session.promptTemplates;
 			if (templates.length > 0) {
 				const groups = this.buildScopeGroups(
-					templates.map((template) => ({ path: template.filePath, sourceInfo: template.sourceInfo })),
+					templates.map((template) => ({
+						path: template.filePath,
+						sourceInfo: template.sourceInfo,
+					})),
 				);
 				const templateByPath = new Map(templates.map((t) => [t.filePath, t]));
 				const templateList = this.formatScopeGroups(groups, {
@@ -2507,7 +2514,11 @@ export class InteractiveMode {
 					this.hideExtensionSelector();
 					resolve(undefined);
 				},
-				{ tui: this.ui, timeout: opts?.timeout, onToggleToolsExpanded: () => this.toggleToolOutputExpansion() },
+				{
+					tui: this.ui,
+					timeout: opts?.timeout,
+					onToggleToolsExpanded: () => this.toggleToolOutputExpansion(),
+				},
 			);
 
 			this.disposeActiveSelector();
@@ -3743,7 +3754,10 @@ export class InteractiveMode {
 							} else {
 								errorMessage = message.errorMessage || "Error";
 							}
-							component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
+							component.updateResult({
+								content: [{ type: "text", text: errorMessage }],
+								isError: true,
+							});
 						} else {
 							renderedPendingTools.set(content.id, component);
 						}

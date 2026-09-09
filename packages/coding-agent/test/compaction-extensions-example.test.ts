@@ -96,7 +96,11 @@ describe("Documentation example", () => {
 			{
 				preparation: {
 					messagesToSummarize: [
-						{ role: "user", content: [{ type: "text", text: "please remember this" }], timestamp: Date.now() },
+						{
+							role: "user",
+							content: [{ type: "text", text: "please remember this" }],
+							timestamp: Date.now(),
+						},
 					],
 					turnPrefixMessages: [],
 					tokensBefore: 42,

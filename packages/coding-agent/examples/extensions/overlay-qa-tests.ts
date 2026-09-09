@@ -88,8 +88,14 @@ export default function (pi: ExtensionAPI) {
 					name: "Margin: top=5, left=10",
 					options: { anchor: "top-left", width: 35, margin: { top: 5, left: 10 } },
 				},
-				{ name: "Center + offset (10, -3)", options: { anchor: "center", width: 35, offsetX: 10, offsetY: -3 } },
-				{ name: "Bottom-right, margin: 2", options: { anchor: "bottom-right", width: 35, margin: 2 } },
+				{
+					name: "Center + offset (10, -3)",
+					options: { anchor: "center", width: 35, offsetX: 10, offsetY: -3 },
+				},
+				{
+					name: "Bottom-right, margin: 2",
+					options: { anchor: "bottom-right", width: 35, margin: 2 },
+				},
 			];
 
 			let index = 0;

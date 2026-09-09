@@ -71,7 +71,11 @@ describe("issues #7027 and #7113 credential refresh hang", () => {
 			},
 		};
 		const credentials = AuthStorage.inMemory();
-		const runtime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
+		const runtime = await ModelRuntime.create({
+			credentials,
+			modelsPath: null,
+			allowModelNetwork: false,
+		});
 		runtime.registerNativeProvider(provider);
 		await runtime.refresh({ allowNetwork: false, providers: [provider.id] });
 

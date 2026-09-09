@@ -125,7 +125,11 @@ export type AuthType = "api_key" | "oauth";
 export type AuthPrompt = { signal?: AbortSignal } & (
 	| { type: "text"; message: string; placeholder?: string }
 	| { type: "secret"; message: string; placeholder?: string }
-	| { type: "select"; message: string; options: readonly { id: string; label: string; description?: string }[] }
+	| {
+			type: "select";
+			message: string;
+			options: readonly { id: string; label: string; description?: string }[];
+	  }
 	| { type: "manual_code"; message: string; placeholder?: string }
 );
 

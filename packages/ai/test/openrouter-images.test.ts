@@ -84,7 +84,11 @@ describe("openrouter images", () => {
 		expect(output.stopReason).toBe("stop");
 		expect(output.responseId).toBe("img-1");
 		expect(output.output[0]).toMatchObject({ type: "text", text: "Here is your image." });
-		expect(output.output[1]).toMatchObject({ type: "image", mimeType: "image/png", data: "ZmFrZS1wbmc=" });
+		expect(output.output[1]).toMatchObject({
+			type: "image",
+			mimeType: "image/png",
+			data: "ZmFrZS1wbmc=",
+		});
 
 		const params = mockState.lastParams as {
 			stream?: boolean;
@@ -93,7 +97,10 @@ describe("openrouter images", () => {
 		};
 		expect(params.stream).toBe(false);
 		expect(params.modalities).toEqual(["image", "text"]);
-		expect(params.messages?.[0]?.content?.[0]).toMatchObject({ type: "text", text: "Generate a dog" });
+		expect(params.messages?.[0]?.content?.[0]).toMatchObject({
+			type: "text",
+			text: "Generate a dog",
+		});
 	});
 
 	it("passes through abort signal and returns aborted result", async () => {
@@ -113,7 +120,10 @@ describe("openrouter images", () => {
 		const controller = new AbortController();
 		controller.abort();
 
-		const output = await generateImages(model, context, { apiKey: "test", signal: controller.signal });
+		const output = await generateImages(model, context, {
+			apiKey: "test",
+			signal: controller.signal,
+		});
 		expect(output.stopReason).toBe("aborted");
 		expect(output.errorMessage).toBe("Request aborted");
 		expect(mockState.lastRequestOptions).toMatchObject({ signal: controller.signal });

@@ -5,4 +5,4 @@ import values from "./data/moonshotai-cn.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
 export const MOONSHOTAI_CN_MODELS: ModelCatalog<typeof values, "moonshotai-cn"> =
-	flattenModelCatalog("moonshotai-cn", values);
+  flattenModelCatalog("moonshotai-cn", values);

@@ -179,6 +179,8 @@ describe("discoverUnixServers", () => {
 		const file = join(directory, "not-a-directory");
 		await writeFile(file, "content");
 
-		await expect(discoverUnixServers({ directory: file })).rejects.toMatchObject({ code: "ENOTDIR" });
+		await expect(discoverUnixServers({ directory: file })).rejects.toMatchObject({
+			code: "ENOTDIR",
+		});
 	});
 });

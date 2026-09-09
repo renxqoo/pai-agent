@@ -284,7 +284,10 @@ export class KeybindingsManager {
 	}
 
 	getConflicts(): KeybindingConflict[] {
-		return this.conflicts.map((conflict) => ({ ...conflict, keybindings: [...conflict.keybindings] }));
+		return this.conflicts.map((conflict) => ({
+			...conflict,
+			keybindings: [...conflict.keybindings],
+		}));
 	}
 
 	setUserBindings(userBindings: KeybindingsConfig): void {

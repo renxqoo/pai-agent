@@ -24,6 +24,9 @@ describe("RpcClient clearQueue", () => {
 		const result = await client.clearQueue();
 
 		expect(send).toHaveBeenCalledWith({ type: "clear_queue" });
-		expect(result).toEqual({ steering: ["Change direction"], followUp: ["Summarize when finished"] });
+		expect(result).toEqual({
+			steering: ["Change direction"],
+			followUp: ["Summarize when finished"],
+		});
 	});
 });

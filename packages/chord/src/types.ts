@@ -133,7 +133,12 @@ export type ServiceInstanceAddress = {
 
 export type ServiceMemberSnapshot =
 	| { readonly name: string; readonly kind: "method" }
-	| { readonly name: string; readonly kind: "state"; readonly sequence: number; readonly ops: readonly Op[] };
+	| {
+			readonly name: string;
+			readonly kind: "state";
+			readonly sequence: number;
+			readonly ops: readonly Op[];
+	  };
 
 export type ServiceInstanceSnapshot = {
 	readonly instance?: ServiceInstanceAddress;

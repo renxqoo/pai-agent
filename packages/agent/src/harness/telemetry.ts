@@ -93,12 +93,18 @@ export const AI_TELEMETRY_SCHEMA = {
 				"pi.ai.http.status_code": { type: "number", description: "Final HTTP status" },
 				"pi.ai.usage.input_tokens": { type: "number", description: "Reported input tokens" },
 				"pi.ai.usage.output_tokens": { type: "number", description: "Reported output tokens" },
-				"pi.ai.usage.cache_read_tokens": { type: "number", description: "Reported cache-read tokens" },
+				"pi.ai.usage.cache_read_tokens": {
+					type: "number",
+					description: "Reported cache-read tokens",
+				},
 				"pi.ai.usage.cache_write_tokens": {
 					type: "number",
 					description: "Reported cache-write tokens",
 				},
-				"pi.ai.usage.reasoning_tokens": { type: "number", description: "Reported reasoning tokens" },
+				"pi.ai.usage.reasoning_tokens": {
+					type: "number",
+					description: "Reported reasoning tokens",
+				},
 				"pi.ai.usage.total_tokens": { type: "number", description: "Reported total tokens" },
 				"pi.ai.usage.cost": { type: "number", description: "Reported total cost" },
 				"pi.ai.stream.chunk_count": { type: "number", description: "Streamed update chunk count" },

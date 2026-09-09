@@ -152,14 +152,18 @@ async function resolveStoredOAuth(
 						]);
 						return await oauth.refresh(current, refreshSignal);
 					} catch (error) {
-						throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, { cause: error });
+						throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, {
+							cause: error,
+						});
 					}
 				},
 				{ signal },
 			);
 		} catch (error) {
 			if (error instanceof ModelsError) throw error;
-			throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, { cause: error });
+			throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, {
+				cause: error,
+			});
 		}
 		if (post?.type !== "oauth") return undefined; // logged out meanwhile
 		credential = post;
@@ -174,7 +178,9 @@ async function resolveStoredOAuth(
 	try {
 		return { auth: await oauth.toAuth(credential), source: "OAuth" };
 	} catch (error) {
-		throw new ModelsError("oauth", `OAuth auth derivation failed for ${providerId}`, { cause: error });
+		throw new ModelsError("oauth", `OAuth auth derivation failed for ${providerId}`, {
+			cause: error,
+		});
 	}
 }
 
@@ -188,7 +194,9 @@ async function resolveApiKey(
 	try {
 		return await apiKey.resolve({ ctx: authContext, credential, signal });
 	} catch (error) {
-		throw new ModelsError("auth", `API key auth failed for provider ${providerId}`, { cause: error });
+		throw new ModelsError("auth", `API key auth failed for provider ${providerId}`, {
+			cause: error,
+		});
 	}
 }
 
@@ -200,6 +208,8 @@ async function readCredential(
 	try {
 		return await credentials.read(providerId, { signal });
 	} catch (error) {
-		throw new ModelsError("auth", `Credential store read failed for ${providerId}`, { cause: error });
+		throw new ModelsError("auth", `Credential store read failed for ${providerId}`, {
+			cause: error,
+		});
 	}
 }

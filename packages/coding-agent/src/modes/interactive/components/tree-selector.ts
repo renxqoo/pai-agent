@@ -780,7 +780,11 @@ class TreeList implements Component {
 					const content = normalize(this.extractContent(msgWithContent.content));
 					result = theme.fg("accent", "user: ") + content;
 				} else if (role === "assistant") {
-					const msgWithContent = msg as { content?: unknown; stopReason?: string; errorMessage?: string };
+					const msgWithContent = msg as {
+						content?: unknown;
+						stopReason?: string;
+						errorMessage?: string;
+					};
 					const textContent = normalize(this.extractContent(msgWithContent.content));
 					if (textContent) {
 						result = theme.fg("success", "assistant: ") + textContent;
@@ -1232,7 +1236,11 @@ const TREE_HELP_ITEMS: Array<{ keys: Keybinding[]; label: string; labelFirst?: b
 		label: "filters",
 		labelFirst: true,
 	},
-	{ keys: ["app.tree.filter.cycleForward", "app.tree.filter.cycleBackward"], label: "cycle", labelFirst: true },
+	{
+		keys: ["app.tree.filter.cycleForward", "app.tree.filter.cycleBackward"],
+		label: "cycle",
+		labelFirst: true,
+	},
 ];
 
 function formatHelpKeys(keybindings: Keybinding[]): string {

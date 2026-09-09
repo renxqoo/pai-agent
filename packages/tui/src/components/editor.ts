@@ -151,7 +151,11 @@ export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl
 			if (wrapOppIndex >= 0 && currentWidth - wrapOppWidth + gWidth <= maxWidth) {
 				// Backtrack to last wrap opportunity (the remaining content
 				// plus the current grapheme still fits within maxWidth).
-				chunks.push({ text: line.slice(chunkStart, wrapOppIndex), startIndex: chunkStart, endIndex: wrapOppIndex });
+				chunks.push({
+					text: line.slice(chunkStart, wrapOppIndex),
+					startIndex: chunkStart,
+					endIndex: wrapOppIndex,
+				});
 				chunkStart = wrapOppIndex;
 				currentWidth -= wrapOppWidth;
 			} else if (chunkStart < charIndex) {
@@ -160,7 +164,11 @@ export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl
 				// boundary wouldn't help because the remaining content plus
 				// the current grapheme (e.g. a wide character) still exceeds
 				// maxWidth.
-				chunks.push({ text: line.slice(chunkStart, charIndex), startIndex: chunkStart, endIndex: charIndex });
+				chunks.push({
+					text: line.slice(chunkStart, charIndex),
+					startIndex: chunkStart,
+					endIndex: charIndex,
+				});
 				chunkStart = charIndex;
 				currentWidth = 0;
 			}
@@ -176,7 +184,11 @@ export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl
 			const subChunks = wordWrapLine(grapheme, maxWidth);
 			for (let j = 0; j < subChunks.length - 1; j++) {
 				const sc = subChunks[j]!;
-				chunks.push({ text: sc.text, startIndex: charIndex + sc.startIndex, endIndex: charIndex + sc.endIndex });
+				chunks.push({
+					text: sc.text,
+					startIndex: charIndex + sc.startIndex,
+					endIndex: charIndex + sc.endIndex,
+				});
 			}
 			const last = subChunks[subChunks.length - 1]!;
 			chunkStart = charIndex + last.startIndex;
@@ -2102,7 +2114,11 @@ export class Editor implements Component, Focusable {
 	}
 
 	private pushUndoSnapshot(): void {
-		this.undoStack.push({ state: this.state, pastes: this.pastes, pasteCounter: this.pasteCounter });
+		this.undoStack.push({
+			state: this.state,
+			pastes: this.pastes,
+			pasteCounter: this.pasteCounter,
+		});
 	}
 
 	private undo(): void {

@@ -112,7 +112,10 @@ function createRemoteBashOps(remote: string, remoteCwd: string, localCwd: string
 }
 
 export default function (pi: ExtensionAPI) {
-	pi.registerFlag("ssh", { description: "SSH remote: user@host or user@host:/path", type: "string" });
+	pi.registerFlag("ssh", {
+		description: "SSH remote: user@host or user@host:/path",
+		type: "string",
+	});
 
 	const localCwd = process.cwd();
 	const localRead = createReadTool(localCwd);

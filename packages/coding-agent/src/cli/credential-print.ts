@@ -43,7 +43,11 @@ export async function resolveCredentialForPrint(
 	} else {
 		for (const provider of modelRuntime.getProviders()) {
 			if (!credentialTypes.has(provider.id)) continue;
-			const resolved = resolveCliModel({ cliProvider: provider.id, cliModel: cliModel!, modelRuntime });
+			const resolved = resolveCliModel({
+				cliProvider: provider.id,
+				cliModel: cliModel!,
+				modelRuntime,
+			});
 			if (resolved.model && !resolved.error && !resolved.warning?.includes("Using custom model id")) {
 				providers.push({ id: provider.id, model: resolved.model });
 			}

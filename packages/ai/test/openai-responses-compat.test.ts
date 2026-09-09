@@ -469,7 +469,10 @@ describe("openai-responses provider defaults", () => {
 	});
 
 	it("omits OpenAI cache-affinity headers when cacheRetention is none", async () => {
-		const captured = await captureOpenAIResponseHeaders({ cacheRetention: "none", sessionId: "session-123" });
+		const captured = await captureOpenAIResponseHeaders({
+			cacheRetention: "none",
+			sessionId: "session-123",
+		});
 
 		expect(captured.sessionId).toBeNull();
 		expect(captured.clientRequestId).toBeNull();

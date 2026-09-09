@@ -184,7 +184,11 @@ async function runAuthCommand(args: string[]): Promise<boolean> {
 					refresh: !command.noRefresh,
 				});
 				if (!credential) {
-					result = { status: "not_ready", provider: result.provider, reason: "credential_not_available" };
+					result = {
+						status: "not_ready",
+						provider: result.provider,
+						reason: "credential_not_available",
+					};
 				}
 			}
 		} catch {
@@ -788,7 +792,9 @@ export async function main(args: string[], options?: MainOptions) {
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
 		const scopedModels =
 			modelPatterns && modelPatterns.length > 0
-				? await resolveModelScope(modelPatterns, modelRuntime, { signal: AbortSignal.timeout(15_000) })
+				? await resolveModelScope(modelPatterns, modelRuntime, {
+						signal: AbortSignal.timeout(15_000),
+					})
 				: [];
 		const {
 			options: sessionOptions,

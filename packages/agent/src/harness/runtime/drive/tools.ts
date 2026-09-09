@@ -36,7 +36,11 @@ import {
 } from "./tool-placement.ts";
 
 type ToolCallTask = { completion: Promise<void> };
-type ToolOutcome = { toolCall: AgentToolCall; message: ToolResultMessage<unknown>; terminate: boolean };
+type ToolOutcome = {
+	toolCall: AgentToolCall;
+	message: ToolResultMessage<unknown>;
+	terminate: boolean;
+};
 type PreparedToolInvocation<TContext extends object | undefined> =
 	| { kind: "ready"; cleared: ClearedToolCall<TContext> }
 	| { kind: "outcome"; outcome: ToolOutcome };
@@ -181,7 +185,11 @@ function truncatedOutcome(toolCall: AgentToolCall): ToolOutcome {
 }
 
 function outcomeFromFinalizedCall(finalized: FinalizedToolCall): ToolOutcome {
-	return { toolCall: finalized.toolCall, message: createToolResultMessage(finalized), terminate: finalized.terminate };
+	return {
+		toolCall: finalized.toolCall,
+		message: createToolResultMessage(finalized),
+		terminate: finalized.terminate,
+	};
 }
 
 async function publishToolIntent<TContext extends object | undefined>(
@@ -252,7 +260,10 @@ async function publishToolOutcome<TContext extends object | undefined>(
 			return {
 				kind: "commit",
 				writes: [
-					setValue(pendingEntry(call.resultEntryId), { type: "message", payload: finalized.message }),
+					setValue(pendingEntry(call.resultEntryId), {
+						type: "message",
+						payload: finalized.message,
+					}),
 					deleteValue(pendingToolOutput(drive.operationId, call.resultEntryId)),
 					...memos.map(({ address }) => deleteValue(address)),
 				],
@@ -430,7 +441,11 @@ async function performToolInvocation<TContext extends object | undefined>(
 		patch = undefined;
 	}
 	const finalized = finalizeToolCall(cleared, executed, patch);
-	return { toolCall: finalized.toolCall, message: createToolResultMessage(finalized), terminate: finalized.terminate };
+	return {
+		toolCall: finalized.toolCall,
+		message: createToolResultMessage(finalized),
+		terminate: finalized.terminate,
+	};
 }
 
 async function prepareToolInvocation<TContext extends object | undefined>(

@@ -499,8 +499,18 @@ export function createSessionRepoForkBehaviorConformance<TMetadata extends Sessi
 					mutator.commit(
 						[
 							insertEntry({ id: ROOT_ID, parentId: null, type: "custom", customType: "root" }),
-							insertEntry({ id: CHILD_ID, parentId: ROOT_ID, type: "custom", customType: "child" }),
-							insertEntry({ id: SIBLING_ID, parentId: ROOT_ID, type: "custom", customType: "sibling" }),
+							insertEntry({
+								id: CHILD_ID,
+								parentId: ROOT_ID,
+								type: "custom",
+								customType: "child",
+							}),
+							insertEntry({
+								id: SIBLING_ID,
+								parentId: ROOT_ID,
+								type: "custom",
+								customType: "sibling",
+							}),
 							setValue(branchTip("main"), CHILD_ID),
 							setValue(laneConfig("main"), configuration),
 							setValue(laneState("main"), idleLaneState),
@@ -537,7 +547,13 @@ export function createSessionRepoForkBehaviorConformance<TMetadata extends Sessi
 
 			const beforeRoot = await repo.fork(
 				source.metadata,
-				{ id: "before-root", scope: "branch", branch: "main", entryId: ROOT_ID, position: "before" },
+				{
+					id: "before-root",
+					scope: "branch",
+					branch: "main",
+					entryId: ROOT_ID,
+					position: "before",
+				},
 				BACKGROUND_CONTEXT,
 			);
 			strictEqual(await getBranchTip(beforeRoot), null);
@@ -661,7 +677,9 @@ export function createSessionRepoForkBehaviorConformance<TMetadata extends Sessi
 			strictEqual(await fork.getValue(laneState("notes"), BACKGROUND_CONTEXT), undefined);
 			deepStrictEqual((await fork.getValue(laneConfig("review"), BACKGROUND_CONTEXT))?.value, configuration);
 			deepStrictEqual((await fork.getValue(laneState("review"), BACKGROUND_CONTEXT))?.value, idleLaneState);
-			deepStrictEqual((await fork.getValue(applicationValue, BACKGROUND_CONTEXT))?.value, { copied: true });
+			deepStrictEqual((await fork.getValue(applicationValue, BACKGROUND_CONTEXT))?.value, {
+				copied: true,
+			});
 			await Promise.all([source.close(BACKGROUND_CONTEXT), fork.close(BACKGROUND_CONTEXT)]);
 		}),
 		createCase(factory, "forks", "rejects only surviving unknown reserved scalar state", async ({ repo }) => {

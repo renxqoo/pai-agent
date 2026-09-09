@@ -230,8 +230,14 @@ describe("detectCapabilities", () => {
 			{ images: "kitty", trueColor: true, hyperlinks: true },
 		);
 		assert.deepStrictEqual(
-			withEnv({ TERM_PROGRAM: "iterm.app", PI_HYPERLINKS: "0", PI_IMAGE_PROTOCOL: "none", PI_TRUE_COLOR: "0" }, () =>
-				detectCapabilities(),
+			withEnv(
+				{
+					TERM_PROGRAM: "iterm.app",
+					PI_HYPERLINKS: "0",
+					PI_IMAGE_PROTOCOL: "none",
+					PI_TRUE_COLOR: "0",
+				},
+				() => detectCapabilities(),
 			),
 			{ images: null, trueColor: false, hyperlinks: false },
 		);
@@ -256,9 +262,17 @@ describe("detectCapabilities", () => {
 		withEnv({ PI_HYPERLINKS: "1", PI_IMAGE_PROTOCOL: "kitty", PI_TRUE_COLOR: "1" }, () => {
 			setCapabilityOverrides({ images: null, trueColor: false, hyperlinks: false });
 			try {
-				assert.deepStrictEqual(getCapabilities(), { images: null, trueColor: false, hyperlinks: false });
+				assert.deepStrictEqual(getCapabilities(), {
+					images: null,
+					trueColor: false,
+					hyperlinks: false,
+				});
 				setCapabilityOverrides({});
-				assert.deepStrictEqual(getCapabilities(), { images: "kitty", trueColor: true, hyperlinks: true });
+				assert.deepStrictEqual(getCapabilities(), {
+					images: "kitty",
+					trueColor: true,
+					hyperlinks: true,
+				});
 			} finally {
 				setCapabilityOverrides({});
 				resetCapabilitiesCache();
@@ -403,7 +417,11 @@ describe("detectCapabilities", () => {
 
 	it("enables Alacritty capabilities for Zed", () => {
 		withEnv({ TERM_PROGRAM: "zed" }, () => {
-			assert.deepStrictEqual(detectCapabilities(), { images: null, trueColor: true, hyperlinks: true });
+			assert.deepStrictEqual(detectCapabilities(), {
+				images: null,
+				trueColor: true,
+				hyperlinks: true,
+			});
 		});
 	});
 

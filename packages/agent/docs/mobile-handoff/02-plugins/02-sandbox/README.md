@@ -63,20 +63,20 @@ Resource bounds:
 
 One probe gave a **false positive** in a first draft: testing `f.deref === undefined`
 to prove a returned host function is a Proxy rather than a Reference. The
-membrane's proxy returns a proxy for *every* property, so `f.deref` is truthy.
+membrane's proxy returns a proxy for _every_ property, so `f.deref` is truthy.
 That is not a leak — calling it routes to `hostFn["deref"]`, which does not exist
 and throws host-side. The audit now calls it instead of checking for absence.
 
 ## Performance
 
-| | isolated-vm | QuickJS | native |
-| --- | --- | --- | --- |
-| 300 markdown components, small | **70 ms** | 494 ms | ~40 ms |
-| 300 markdown components, typical | **108 ms** | 1118 ms | 64 ms |
-| 300 markdown components, large | **419 ms** | 4260 ms | ~150 ms |
-| 146 KB bundle load | **35 ms** | 104 ms | — |
-| membrane crossing | **4.5 µs** | 7–17 µs | — |
-| per compartment | 1080 KB, 5.5 ms | **77 KB, 0.8 ms** | — |
+|                                  | isolated-vm     | QuickJS           | native  |
+| -------------------------------- | --------------- | ----------------- | ------- |
+| 300 markdown components, small   | **70 ms**       | 494 ms            | ~40 ms  |
+| 300 markdown components, typical | **108 ms**      | 1118 ms           | 64 ms   |
+| 300 markdown components, large   | **419 ms**      | 4260 ms           | ~150 ms |
+| 146 KB bundle load               | **35 ms**       | 104 ms            | —       |
+| membrane crossing                | **4.5 µs**      | 7–17 µs           | —       |
+| per compartment                  | 1080 KB, 5.5 ms | **77 KB, 0.8 ms** | —       |
 
 **~1.8× native at typical size.** QuickJS is 8–17× and gets worse with input size.
 
@@ -90,7 +90,7 @@ would not be.
 ## Limitations
 
 **Budgets do not nest.** A timeout bounds one `evalSync`. A guest function
-re-entered *by the host* — a contributed callback, a component method — gets
+re-entered _by the host_ — a contributed callback, a component method — gets
 `callGuestRef`'s own budget, not the outer one. Asserted explicitly in
 `property-test.ts`; a runaway callback took 5005 ms under an outer budget of 50 ms.
 Bounding total facet time needs separate accounting.
@@ -105,11 +105,11 @@ only falls back to `node-gyp rebuild` when none matches — which is why install
 takes a second, not an hour. It is **not** building V8; V8 is already in the Node
 binary. But coverage is narrow:
 
-| version | engines | prebuilds |
-| --- | --- | --- |
+| version   | engines    | prebuilds                                                 |
+| --------- | ---------- | --------------------------------------------------------- |
 | **6.2.0** | `>=22.0.0` | linux-x64/arm64, darwin-arm64, win32-x64 — abi127, abi137 |
-| 7.0.1 | `>=24.0.0` | — |
-| 7.0.0 | `>=26.0.0` | — |
+| 7.0.1     | `>=24.0.0` | —                                                         |
+| 7.0.0     | `>=26.0.0` | —                                                         |
 
 darwin-**x64** is absent everywhere. Installing `isolated-vm@7` on Node 22 falls
 through to a source build and **fails without Python and a C++ toolchain** —
@@ -143,7 +143,7 @@ disposed"`; the membrane guards this.
 > A `heapMB()` helper was removed from the membrane rather than shipped.
 
 **Still one process, one engine.** A separate isolate is a far stronger boundary
-than SES, but Figma's argument for QuickJS was that a *different VM* cannot
+than SES, but Figma's argument for QuickJS was that a _different VM_ cannot
 confuse objects because the representations differ. Here the guarantee is V8's
 isolate boundary plus the membrane's discipline — strong, and structurally
 enforced above, but not the same category of claim.

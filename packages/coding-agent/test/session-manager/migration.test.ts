@@ -5,7 +5,11 @@ describe("migrateSessionEntries", () => {
 	it("should add id/parentId to v1 entries", () => {
 		const entries: FileEntry[] = [
 			{ type: "session", id: "sess-1", timestamp: "2025-01-01T00:00:00Z", cwd: "/tmp" },
-			{ type: "message", timestamp: "2025-01-01T00:00:01Z", message: { role: "user", content: "hi", timestamp: 1 } },
+			{
+				type: "message",
+				timestamp: "2025-01-01T00:00:01Z",
+				message: { role: "user", content: "hi", timestamp: 1 },
+			},
 			{
 				type: "message",
 				timestamp: "2025-01-01T00:00:02Z",

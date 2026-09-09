@@ -155,7 +155,9 @@ describe("azure-openai-responses base URL normalization", () => {
 	it("throws on invalid URLs", async () => {
 		process.env.AZURE_OPENAI_BASE_URL = "not-a-url";
 		const model = getModel("azure-openai-responses", "gpt-4o-mini");
-		const result = await streamAzureOpenAIResponses(model, context, { apiKey: "test-api-key" }).result();
+		const result = await streamAzureOpenAIResponses(model, context, {
+			apiKey: "test-api-key",
+		}).result();
 		expect(result.stopReason).toBe("error");
 		expect(result.errorMessage).toContain("Invalid Azure OpenAI base URL");
 	});

@@ -65,7 +65,9 @@ describe("AssistantMessageComponent", () => {
 		initTheme("dark");
 
 		const component = new AssistantMessageComponent(
-			createAssistantMessage([{ type: "thinking", thinking: "private reasoning" }], { stopReason: "length" }),
+			createAssistantMessage([{ type: "thinking", thinking: "private reasoning" }], {
+				stopReason: "length",
+			}),
 			true,
 		);
 		const rendered = component.render(80).join("\n");
@@ -158,7 +160,11 @@ describe("AssistantMessageComponent", () => {
 		const component = new AssistantMessageComponent(message, false, undefined, "Thinking...", 1, [
 			(markdown, context) => {
 				calls.push("formula");
-				expect(context).toEqual({ messageType: "assistant", isStreaming: false, availableWidth: 78 });
+				expect(context).toEqual({
+					messageType: "assistant",
+					isStreaming: false,
+					availableWidth: 78,
+				});
 				return markdown.replace("$x^2$", "x²");
 			},
 			(markdown) => {

@@ -25,7 +25,11 @@ describe("loadPromptTemplates", () => {
 		expect(diagnostics).toEqual([]);
 		expect(promptTemplates).toEqual([
 			{ name: "one", description: "One template", content: "Hello $1" },
-			{ name: "two", description: "First line description", content: "First line description\nBody" },
+			{
+				name: "two",
+				description: "First line description",
+				content: "First line description\nBody",
+			},
 		]);
 	});
 

@@ -100,7 +100,11 @@ describe("parseOsc11BackgroundColor", () => {
 	});
 
 	it("parses OSC 11 hex responses", () => {
-		assert.deepStrictEqual(parseOsc11BackgroundColor("\x1b]11;#ffffff\x1b\\"), { r: 255, g: 255, b: 255 });
+		assert.deepStrictEqual(parseOsc11BackgroundColor("\x1b]11;#ffffff\x1b\\"), {
+			r: 255,
+			g: 255,
+			b: 255,
+		});
 		assert.deepStrictEqual(parseOsc11BackgroundColor("\x1b]11;#000000\x07"), { r: 0, g: 0, b: 0 });
 	});
 

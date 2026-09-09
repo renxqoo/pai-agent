@@ -34,7 +34,10 @@ export class InMemoryCredentialStore implements CredentialStore {
 
 	async list(options?: AuthOperationOptions): Promise<readonly CredentialInfo[]> {
 		options?.signal?.throwIfAborted();
-		return [...this.credentials].map(([providerId, credential]) => ({ providerId, type: credential.type }));
+		return [...this.credentials].map(([providerId, credential]) => ({
+			providerId,
+			type: credential.type,
+		}));
 	}
 
 	modify(

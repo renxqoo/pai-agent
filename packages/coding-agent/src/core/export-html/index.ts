@@ -265,7 +265,11 @@ export async function exportSessionToHtml(
 		entries,
 		leafId: sm.getLeafId(),
 		systemPrompt: state?.systemPrompt,
-		tools: state?.tools?.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
+		tools: state?.tools?.map((t) => ({
+			name: t.name,
+			description: t.description,
+			parameters: t.parameters,
+		})),
 		renderedTools,
 	};
 

@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { createCompartment } from "./membrane.ts";
-const mounted = new Map(), commands = new Map(), notifications = [], subs = [];
+const mounted = new Map(),
+  commands = new Map(),
+  notifications = [],
+  subs = [];
 const Tui = {
   slots: { claim: (s, f) => mounted.set(s, f) },
   commands: { add: (n, h) => commands.set(n, h) },
@@ -11,7 +14,11 @@ const c = await createCompartment();
 await c.endow("__host", { use: (t) => (t === "Tui" ? Tui : Transcript) });
 c.load(readFileSync(new URL("./facet-example.js", import.meta.url), "utf8"));
 c.load(`globalThis.__r = __facet.construct({ use: function (t) { return __host.use(t); } });`);
-console.log("contributions:", { slots: [...mounted.keys()], commands: [...commands.keys()], subs: subs.length });
+console.log("contributions:", {
+  slots: [...mounted.keys()],
+  commands: [...commands.keys()],
+  subs: subs.length,
+});
 const comp = mounted.get("footer")({ label: "presses" });
 console.log(comp.render(30).join("\n"));
 comp.handleInput("abc");

@@ -66,11 +66,25 @@ export function commitWrite(write: Write, seq: number, timestamp: number): Commi
 			return { kind: "usage", ...write.row, seq };
 		case "value":
 			return write.op === "set"
-				? { kind: "value", op: "set", seq, namespace: write.namespace, key: write.key, value: write.value }
+				? {
+						kind: "value",
+						op: "set",
+						seq,
+						namespace: write.namespace,
+						key: write.key,
+						value: write.value,
+					}
 				: { kind: "value", op: "delete", seq, namespace: write.namespace, key: write.key };
 		case "list":
 			return write.op === "append"
-				? { kind: "list", op: "append", seq, namespace: write.namespace, key: write.key, value: write.value }
+				? {
+						kind: "list",
+						op: "append",
+						seq,
+						namespace: write.namespace,
+						key: write.key,
+						value: write.value,
+					}
 				: { kind: "list", op: "delete", seq, namespace: write.namespace, key: write.key };
 	}
 }

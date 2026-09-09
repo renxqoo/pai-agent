@@ -47,18 +47,32 @@ type AgentEvent =
   | { type: "message_end"; message: AgentMessage }
   // Tool execution
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
-  | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
-  | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
+  | {
+      type: "tool_execution_update";
+      toolCallId: string;
+      toolName: string;
+      args: any;
+      partialResult: any;
+    }
+  | {
+      type: "tool_execution_end";
+      toolCallId: string;
+      toolName: string;
+      result: any;
+      isError: boolean;
+    };
 ```
 
 ## Message Types
 
 Base messages from [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/types.ts#L134):
+
 - `UserMessage` (line 134)
 - `AssistantMessage` (line 140)
 - `ToolResultMessage` (line 152)
 
 Extended messages from [`packages/coding-agent/src/core/messages.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/messages.ts#L29):
+
 - `BashExecutionMessage` (line 29)
 - `CustomMessage` (line 46)
 - `BranchSummaryMessage` (line 55)
@@ -69,7 +83,7 @@ Extended messages from [`packages/coding-agent/src/core/messages.ts`](https://gi
 Each line is a JSON object. The first line is the session header:
 
 ```json
-{"type":"session","version":3,"id":"uuid","timestamp":"...","cwd":"/path"}
+{ "type": "session", "version": 3, "id": "uuid", "timestamp": "...", "cwd": "/path" }
 ```
 
 Followed by events as they occur:

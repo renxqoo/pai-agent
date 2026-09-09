@@ -75,7 +75,9 @@ describe("node:sqlite adapter", () => {
 				changes: 1,
 				lastInsertRowid: 2,
 			});
-			expect(db.prepare("SELECT value FROM values_table WHERE id = ?").get(1)).toEqual({ value: "positional" });
+			expect(db.prepare("SELECT value FROM values_table WHERE id = ?").get(1)).toEqual({
+				value: "positional",
+			});
 			expect(db.prepare("SELECT value FROM values_table WHERE id >= :id ORDER BY id").all({ id: 2 })).toEqual([
 				{ value: "named" },
 			]);

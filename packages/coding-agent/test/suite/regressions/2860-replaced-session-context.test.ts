@@ -46,7 +46,10 @@ describe("regression #2860: replaced session callbacks", () => {
 		faux.setResponses(responses.map((response) => fauxAssistantMessage(response)));
 
 		const authStorage = AuthStorage.inMemory();
-		await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		await authStorage.modify(faux.getModel().provider, async () => ({
+			type: "api_key",
+			key: "faux-key",
+		}));
 		const modelRuntime = await ModelRuntime.create({
 			credentials: authStorage,
 			modelsPath: join(tempDir, "models.json"),

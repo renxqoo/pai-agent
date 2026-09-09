@@ -11,7 +11,7 @@
 >
 > Every claim here was checked against `runtime/lane.ts`, `runtime/progress.ts`
 > and `runtime/drive/*.ts`. The type-level enforcement in §6 was verified with
-> `tsc --strict`, including that mixed-scope commits are the *only* thing it
+> `tsc --strict`, including that mixed-scope commits are the _only_ thing it
 > rejects.
 
 ## 1. The problem
@@ -19,7 +19,7 @@
 Operation state — pending tool output, pending assistant output — matters only
 while the operation runs. It is crash-recovery scaffolding, not history.
 
-The JSONL log is append-only, so it persists anyway. Worse, deleting it *adds*
+The JSONL log is append-only, so it persists anyway. Worse, deleting it _adds_
 records: `deleteValue` and `deleteList` write a line each, and those lines also
 persist. Today only a full snapshot rewrite reclaims the space, and no in-place
 compaction exists (`jsonl/storage.ts` has `createFromSnapshot`, used for fork).
@@ -27,9 +27,9 @@ compaction exists (`jsonl/storage.ts` has `createFromSnapshot`, used for fork).
 Measured on 20 operations, each 400 assistant frames plus 2 tools at 60
 checkpoints of a 50 KB window:
 
-| | size |
-| --- | --- |
-| total JSONL | 93.89 MB |
+|                                                                | size        |
+| -------------------------------------------------------------- | ----------- |
+| total JSONL                                                    | 93.89 MB    |
 | settled transcript entries — the part that is actually history | **0.06 MB** |
 
 Three orders of magnitude of the file is scaffolding for finished operations.
@@ -49,7 +49,7 @@ Scope has two halves that must not be confused: a **type-level tag** carrying no
 data, and a **runtime scope id** that names the file.
 
 ```ts
-export type SessionScope   = { readonly kind: "session" };
+export type SessionScope = { readonly kind: "session" };
 export type EphemeralScope = { readonly kind: "ephemeral" };
 export type Scope = SessionScope | EphemeralScope;
 
@@ -58,7 +58,11 @@ export function value<T>(namespace: string, key: string): Value<T, SessionScope>
 export function value<T>(namespace: string, key: string, scopeId: string): Value<T, EphemeralScope>;
 
 export function list<T>(namespace: string, key: string): ValueList<T, SessionScope>;
-export function list<T>(namespace: string, key: string, scopeId: string): ValueList<T, EphemeralScope>;
+export function list<T>(
+  namespace: string,
+  key: string,
+  scopeId: string,
+): ValueList<T, EphemeralScope>;
 
 /** A main-log record retiring an ephemeral scope. See §5. */
 export function retireScope(id: string): Write<SessionScope>;
@@ -79,8 +83,8 @@ interface Value<T, Sc extends Scope = SessionScope> extends ScopedAddress<Sc> {
 
 The id is a plain runtime string, because it is an operation id — generated at
 runtime and unavailable to the type system. That is precisely why §6 can
-distinguish *session from ephemeral* statically but cannot distinguish *two
-different ephemeral scopes*: the tag is in the type, the id is not.
+distinguish _session from ephemeral_ statically but cannot distinguish _two
+different ephemeral scopes_: the tag is in the type, the id is not.
 
 ```ts
 // Durable lists carry encoded batches; one encoder/decoder pair belongs to each value stream.
@@ -128,12 +132,12 @@ crash produce a lane that believes it is somewhere the data does not support.
 
 The **bulk** values behave differently. `openProgress` commits exactly one write
 (`runtime/progress.ts:51`), and `pendingToolOutput` / `pendingAssistantFrames`
-appear in multi-write transactions only as *deletes*.
+appear in multi-write transactions only as _deletes_.
 
-| | addresses |
-| --- | --- |
-| **ephemeral (sidecar)** | `pi.pending.tool_output`, `pi.pending.assistant_output`, `pi.op.tool_memo` |
-| **session (main log)** | `pi.lane.state`, `pi.op.state`, `pi.op.meta`, `pi.result`, `pi.pending.entry`, `pi.branch.tip`, `pi.op.tool_args`, `pi.op.preparation` |
+|                         | addresses                                                                                                                              |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **ephemeral (sidecar)** | `pi.pending.tool_output`, `pi.pending.assistant_output`, `pi.op.tool_memo`                                                             |
+| **session (main log)**  | `pi.lane.state`, `pi.op.state`, `pi.op.meta`, `pi.result`, `pi.pending.entry`, `pi.branch.tip`, `pi.op.tool_args`, `pi.op.preparation` |
 
 `operationToolMemo` is ephemeral so that the memo-plus-checkpoint bundling in
 `harness-tools.md` §7.5 is a single-file transaction. `terminal.ts:34` already
@@ -156,7 +160,7 @@ exist:
 
 That is achievable because it is already true of the code — see §5 for the audit.
 
-Two consequences of *not* needing cross-file commits:
+Two consequences of _not_ needing cross-file commits:
 
 - **No write ordering between files is required.** The commit-record pattern
   (sidecar first, fsync, then a main-log record acknowledging it) is unnecessary if
@@ -178,7 +182,7 @@ Every commit in `lane.ts` (12 sites) and every `writes:` producer in
 `runtime/drive/*.ts` (32 sites) was read.
 
 **Result: yes, with one adjustment.** No transaction writes to two files. The
-spanning cases are all *deletes* of ephemeral state bundled with main-log writes:
+spanning cases are all _deletes_ of ephemeral state bundled with main-log writes:
 
 - `response.ts:340` — the settle commit: `insertEntry`, `insertUsage`,
   `setValue(branchTip)`, plus `deleteList(pendingAssistantFrames(...))`.
@@ -199,7 +203,7 @@ and ignores — then removes — the sidecar. Unlinking eagerly after commit is 
 optimisation; losing the unlink costs disk, never correctness.
 
 This makes all four sites above single-scope, because the individual ephemeral
-deletes disappear. It also *simplifies* `operationCleanupWrites`: the `scanValues`
+deletes disappear. It also _simplifies_ `operationCleanupWrites`: the `scanValues`
 calls for `operationToolMemoPrefix` and `pendingToolOutputPrefix` are replaced by
 one `retireScope`.
 
@@ -227,7 +231,6 @@ against a future change, not a live gap.
 > compile if they ever start type-checking, so it catches the enforcement being
 > weakened as well as broken.
 
-
 Two phantom types, differing only in where `Sc` appears. This distinction is
 load-bearing and is the single easiest thing to get wrong here.
 
@@ -252,7 +255,7 @@ export interface ValueSetWrite<Sc extends Scope> extends Scoped<Sc> { … }
 
 **Why they differ.** Reading an address is safe at any scope — `getValue` does not
 care which file a value lives in, so `Value<T, SessionScope>` must be usable where
-`Value<T, Scope>` is expected. Forming a transaction is *not* safe at any scope,
+`Value<T, Scope>` is expected. Forming a transaction is _not_ safe at any scope,
 because two files are not atomic, so a commit must pin down exactly one.
 
 Enforcement therefore belongs where transactions are formed, not where addresses
@@ -269,8 +272,8 @@ infers the scope from a covariant address and stamps it onto an invariant write.
 Verified with `tsc --noEmit --strict`. Reads pass at both scopes:
 
 ```ts
-getValue(laneState);        // Value<T, SessionScope>
-getValue(pendingOutput);    // Value<T, EphemeralScope>
+getValue(laneState); // Value<T, SessionScope>
+getValue(pendingOutput); // Value<T, EphemeralScope>
 ```
 
 Single-scope commits pass:
@@ -281,11 +284,11 @@ commit([setValue(toolMemo, m), setValue(pendingOutput, o)]);
 commit([setValue(laneState, a), retireScope("op_1")]);
 ```
 
-Mixed-scope commits fail, and are the *only* things that fail:
+Mixed-scope commits fail, and are the _only_ things that fail:
 
 ```ts
-commit([setValue(laneState, a), setValue(pendingOutput, o)]);   // ERROR
-commit([setValue(pendingOutput, o), retireScope("op_1")]);      // ERROR
+commit([setValue(laneState, a), setValue(pendingOutput, o)]); // ERROR
+commit([setValue(pendingOutput, o), retireScope("op_1")]); // ERROR
 ```
 
 ### 6.1 What the type system cannot catch
@@ -317,12 +320,12 @@ high-water mark would need separate persistence.
 
 Same workload as §1:
 
-| | size | of today |
-| --- | --- | --- |
-| today, single JSONL | 93.89 MB | — |
-| ops + interned addresses, single JSONL | 5.32 MB | 5.7% |
-| **plus scopes — main log** | **0.06 MB** | **0.06%** |
-| — sidecars, retired on settle | 5.26 MB | peak 0.26 MB per operation |
+|                                        | size        | of today                   |
+| -------------------------------------- | ----------- | -------------------------- |
+| today, single JSONL                    | 93.89 MB    | —                          |
+| ops + interned addresses, single JSONL | 5.32 MB     | 5.7%                       |
+| **plus scopes — main log**             | **0.06 MB** | **0.06%**                  |
+| — sidecars, retired on settle          | 5.26 MB     | peak 0.26 MB per operation |
 
 The 5.7% figure is **rate-dependent and must not be quoted alone**: it holds at
 2 KB of tool output per checkpoint and inverts above the cap, where a whole-value
@@ -360,13 +363,13 @@ see §5.
 
 **Call sites that must change** — each currently mixes scopes in one transaction:
 
-| site | what it does today | what it becomes |
-| --- | --- | --- |
+| site                                         | what it does today                                                                              | what it becomes                                                 |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `drive/terminal.ts` `operationCleanupWrites` | enumerates tool memos and tool outputs via `scanValues`, deletes each alongside session deletes | one `retireScope(operationId)`; two of its four scans disappear |
-| `drive/response.ts` (settle) | `deleteList(pendingAssistantOutput)` bundled with operation state | drop it — the sidecar is discarded at retire |
-| `drive/deferred.ts` (superseded response) | same | same |
-| `drive/tools.ts` (tool settle) | `deleteValue(pendingToolOutput)` plus memo deletes in a session write array | drop them |
-| `drive/tool-placement.ts` | `deleteValue(pendingToolOutput)` | drop it |
+| `drive/response.ts` (settle)                 | `deleteList(pendingAssistantOutput)` bundled with operation state                               | drop it — the sidecar is discarded at retire                    |
+| `drive/deferred.ts` (superseded response)    | same                                                                                            | same                                                            |
+| `drive/tools.ts` (tool settle)               | `deleteValue(pendingToolOutput)` plus memo deletes in a session write array                     | drop them                                                       |
+| `drive/tool-placement.ts`                    | `deleteValue(pendingToolOutput)`                                                                | drop it                                                         |
 
 The pattern is the same everywhere: **intra-operation cleanup of ephemeral state
 is impossible**, because those commits also write operation and lane state. The
@@ -473,7 +476,7 @@ checkpoint" gets it.
 
 Two dictionaries at two layers. They are the same trick and are independent: the
 **address** dictionary is over `namespace` + `key` on the record; the **path**
-dictionary is over paths *inside* a value's ops (`delta.md` §4).
+dictionary is over paths _inside_ a value's ops (`delta.md` §4).
 
 ### 12.1 Records
 
@@ -524,15 +527,15 @@ Four writes across two addresses, before and after.
 ["v",0,12,[["s","assistant.ready"]]]
 ```
 
-| line | before | after |
-| --- | --- | --- |
-| address definition | – | 61 |
-| op.state -> `starting` (base batch) | 353 | 256 |
-| address definition | – | 31 |
-| lane.state (base batch) | 181 | 114 |
-| op.state -> `checkpoint` | 355 | **48** |
-| op.state -> `assistant.ready` | 361 | **37** |
-| **total** | **1250** | **547** (44%) |
+| line                                | before   | after         |
+| ----------------------------------- | -------- | ------------- |
+| address definition                  | –        | 61            |
+| op.state -> `starting` (base batch) | 353      | 256           |
+| address definition                  | –        | 31            |
+| lane.state (base batch)             | 181      | 114           |
+| op.state -> `checkpoint`            | 355      | **48**        |
+| op.state -> `assistant.ready`       | 361      | **37**        |
+| **total**                           | **1250** | **547** (44%) |
 
 The shape matters more than the total. Base batches barely shrink — 353 to 256 is
 envelope only, since the value ships whole either way. The transitions collapse
@@ -567,7 +570,7 @@ definitions are inside the same record as their first use.
 - fsync policy for sidecars (§4) — matched to the main log, or relaxed given the
   contents are bounded-loss scaffolding.
 - Whether a long-running operation should rotate its sidecar. `rebase()`
-  (`delta.md` §3.2.3) bounds *recovery* length but not file size, so a command
+  (`delta.md` §3.2.3) bounds _recovery_ length but not file size, so a command
   running for hours still grows its sidecar without bound.
 - Whether an in-place compaction pass for the main log is worth building anyway.
   `createFromSnapshot` plus atomic replace is the mechanism; scopes reduce the need

@@ -57,7 +57,11 @@ describe("bound value addresses", () => {
 		expect(() => value<unknown>("")).toThrow("must not be empty");
 		expect(() => value<unknown>("app\0state")).toThrow("must not contain");
 		expect(() => list<unknown>("app.events", "bad\0key")).toThrow("must not contain");
-		expect(value<unknown>("pi.application")).toEqual({ kind: "value", namespace: "pi.application", key: "" });
+		expect(value<unknown>("pi.application")).toEqual({
+			kind: "value",
+			namespace: "pi.application",
+			key: "",
+		});
 	});
 
 	it("preserves invariant address and helper types", () => {

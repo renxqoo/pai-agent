@@ -111,7 +111,9 @@ export function createLlamaProvider(): LlamaProviderController {
 							message: "API key (optional)",
 						})
 					).trim();
-					await new LlamaClient(serverUrl, apiKey || undefined).list({ signal: interaction.signal });
+					await new LlamaClient(serverUrl, apiKey || undefined).list({
+						signal: interaction.signal,
+					});
 					return {
 						type: "api_key",
 						key: apiKey || undefined,

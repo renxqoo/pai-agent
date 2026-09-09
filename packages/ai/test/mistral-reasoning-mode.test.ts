@@ -44,7 +44,9 @@ async function capturePayload(
 
 describe("Mistral reasoning mode selection", () => {
 	it("uses reasoning_effort for Mistral Small 4", async () => {
-		const payload = await capturePayload(getModel("mistral", "mistral-small-2603"), { reasoning: "medium" });
+		const payload = await capturePayload(getModel("mistral", "mistral-small-2603"), {
+			reasoning: "medium",
+		});
 
 		expect(payload.reasoningEffort).toBe("high");
 		expect(payload.promptMode).toBeUndefined();
@@ -58,14 +60,18 @@ describe("Mistral reasoning mode selection", () => {
 	});
 
 	it("uses prompt_mode for Magistral reasoning models", async () => {
-		const payload = await capturePayload(getModel("mistral", "magistral-medium-latest"), { reasoning: "medium" });
+		const payload = await capturePayload(getModel("mistral", "magistral-medium-latest"), {
+			reasoning: "medium",
+		});
 
 		expect(payload.promptMode).toBe("reasoning");
 		expect(payload.reasoningEffort).toBeUndefined();
 	});
 
 	it("uses reasoning_effort for Mistral Medium 3.5", async () => {
-		const payload = await capturePayload(getModel("mistral", "mistral-medium-3.5"), { reasoning: "medium" });
+		const payload = await capturePayload(getModel("mistral", "mistral-medium-3.5"), {
+			reasoning: "medium",
+		});
 
 		expect(payload.reasoningEffort).toBe("high");
 		expect(payload.promptMode).toBeUndefined();

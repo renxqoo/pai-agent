@@ -574,7 +574,10 @@ async function loadExtension(
 		const factory = await loadExtensionModule(resolvedPath, cacheToken);
 		time(`${extensionPath} module import`, "extensions");
 		if (!factory) {
-			return { extension: null, error: `Extension does not export a valid factory function: ${extensionPath}` };
+			return {
+				extension: null,
+				error: `Extension does not export a valid factory function: ${extensionPath}`,
+			};
 		}
 
 		const extension = await initializeExtension(factory, extensionPath, resolvedPath, cwd, eventBus, runtime);

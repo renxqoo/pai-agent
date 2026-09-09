@@ -714,7 +714,11 @@ async function consumeChatStream(
 				};
 				output.content.push(block);
 				toolBlocksByKey.set(key, output.content.length - 1);
-				stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
+				stream.push({
+					type: "toolcall_start",
+					contentIndex: output.content.length - 1,
+					partial: output,
+				});
 			}
 
 			const argsDelta =
@@ -918,7 +922,10 @@ function mapToolChoice(
 	};
 }
 
-function mapChatStopReason(reason: string | null): { stopReason: StopReason; errorMessage?: string } {
+function mapChatStopReason(reason: string | null): {
+	stopReason: StopReason;
+	errorMessage?: string;
+} {
 	if (reason === null) return { stopReason: "stop" };
 	switch (reason) {
 		case "stop":

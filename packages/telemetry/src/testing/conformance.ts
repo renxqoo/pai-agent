@@ -157,14 +157,20 @@ export function createTelemetryAdapterConformance(
 			const rejected = new Error("after async explicit status");
 			await rejectsWithSameValue(
 				fixture.context.startSpan({ name: "explicit-before-rejection" }, (span) => {
-					span.setStatus({ status: "error", error: { name: "Expected", message: "async failure" } });
+					span.setStatus({
+						status: "error",
+						error: { name: "Expected", message: "async failure" },
+					});
 					return Promise.reject(rejected);
 				}),
 				rejected,
 			);
 
 			await fixture.context.startSpan({ name: "expected-failure" }, (span) => {
-				span.setStatus({ status: "error", error: { name: "Expected", message: "returned failure" } });
+				span.setStatus({
+					status: "error",
+					error: { name: "Expected", message: "returned failure" },
+				});
 				return { ok: false };
 			});
 
@@ -273,7 +279,10 @@ export function createTelemetryAdapterConformance(
 
 		createCase(factory, "passivity", "suppresses unreadable telemetry payload failures", async (fixture) => {
 			let calls = 0;
-			const options = unreadable<SpanOptions>({ name: "unreadable-options", attributes: { secret: "value" } });
+			const options = unreadable<SpanOptions>({
+				name: "unreadable-options",
+				attributes: { secret: "value" },
+			});
 			const result = fixture.context.startSpan(options, () => {
 				calls++;
 				return 9;

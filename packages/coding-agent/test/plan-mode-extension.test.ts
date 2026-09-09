@@ -146,7 +146,9 @@ describe("plan-mode example extension", () => {
 		await runCommand("plan");
 		await triggerAgentEnd("Plan:\n1. Inspect the current implementation\n2. Add a regression test");
 
-		expect(sendUserMessage).toHaveBeenCalledWith("Add a regression test.", { deliverAs: "followUp" });
+		expect(sendUserMessage).toHaveBeenCalledWith("Add a regression test.", {
+			deliverAs: "followUp",
+		});
 	});
 
 	it("queues plan execution as a follow-up custom message", async () => {

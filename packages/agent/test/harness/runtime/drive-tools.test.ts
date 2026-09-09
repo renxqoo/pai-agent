@@ -422,7 +422,10 @@ describe("durable tool batch", () => {
 		const safeExecute = vi.fn(async (_value: string, _onUpdate: unknown, invocation: AgentHarnessToolInvocation) => {
 			expect(invocation.invocationId).toBeDefined();
 			expect(await invocation.getMemo("step/a")).toEqual({ complete: true });
-			return { content: [{ type: "text" as const, text: "safe replay" }], details: { value: "safe" } };
+			return {
+				content: [{ type: "text" as const, text: "safe replay" }],
+				details: { value: "safe" },
+			};
 		});
 		const unsafeExecute = vi.fn(async () => ({
 			content: [{ type: "text" as const, text: "must not run" }],
@@ -436,8 +439,12 @@ describe("durable tool batch", () => {
 				{ status: "effect_pending", sourceIndex: 1, resultEntryId: ids[1]!, replay: "never" },
 			],
 			extraWrites: ({ operationId, resultEntryIds }) => [
-				storedValues.setValue(storedValues.operationToolArgs(operationId, "turn-1", 0), { value: "persisted" }),
-				storedValues.setValue(storedValues.operationToolArgs(operationId, "turn-1", 1), { value: "unsafe" }),
+				storedValues.setValue(storedValues.operationToolArgs(operationId, "turn-1", 0), {
+					value: "persisted",
+				}),
+				storedValues.setValue(storedValues.operationToolArgs(operationId, "turn-1", 1), {
+					value: "unsafe",
+				}),
 				storedValues.setValue(storedValues.operationToolMemo(operationId, resultEntryIds[0]!, "step/a"), {
 					complete: true,
 				}),
@@ -495,7 +502,9 @@ describe("durable tool batch", () => {
 				{ status: "effect_pending", sourceIndex: 1, resultEntryId: ids[1]!, replay: "safe" },
 			],
 			extraWrites: ({ operationId, resultEntryIds }) => [
-				storedValues.setValue(storedValues.operationToolArgs(operationId, "turn-1", 1), { value: "pending" }),
+				storedValues.setValue(storedValues.operationToolArgs(operationId, "turn-1", 1), {
+					value: "pending",
+				}),
 				storedValues.setValue(storedValues.pendingToolOutput(operationId, resultEntryIds[1]!), {
 					content: [{ type: "text", text: "checkpoint" }],
 					details: {},
@@ -528,7 +537,9 @@ describe("durable tool batch", () => {
 		expect(starts).toHaveLength(1);
 		expect(starts[0]).toMatchObject({ toolName: "planned", args: { value: "planned" } });
 		expect(ends).toHaveLength(2);
-		expect(ends.find((event) => event.toolCallId === starts[0]?.toolCallId)).toMatchObject({ isError: true });
+		expect(ends.find((event) => event.toolCallId === starts[0]?.toolCallId)).toMatchObject({
+			isError: true,
+		});
 	});
 
 	it("materializes outcome-ready state without resolving tools or tool context", async () => {
@@ -564,8 +575,16 @@ describe("durable tool batch", () => {
 			continuation: { kind: "may_finish", includeFinalAssistant: false },
 		});
 		expect(fixture.lane.state.configuration.activeToolNames).toEqual(["ready", "later"]);
-		expect(fixture.events[0]).toMatchObject({ type: "turn_start", turnId: "turn-1", recovery: true });
-		expect(fixture.events.at(-1)).toMatchObject({ type: "turn_end", turnId: "turn-1", recovery: true });
+		expect(fixture.events[0]).toMatchObject({
+			type: "turn_start",
+			turnId: "turn-1",
+			recovery: true,
+		});
+		expect(fixture.events.at(-1)).toMatchObject({
+			type: "turn_end",
+			turnId: "turn-1",
+			recovery: true,
+		});
 	});
 
 	it("never executes genuine-length or missing tool calls", async () => {
@@ -617,7 +636,10 @@ describe("durable tool batch", () => {
 			args: { value: "missing" },
 		});
 		expect(missingEnds[0]).toMatchObject({
-			result: { content: [{ type: "text", text: 'Tool "missing" is unavailable' }], details: undefined },
+			result: {
+				content: [{ type: "text", text: 'Tool "missing" is unavailable' }],
+				details: undefined,
+			},
 			isError: true,
 		});
 	});
@@ -711,7 +733,10 @@ describe("durable tool batch", () => {
 			return undefined;
 		});
 		const executing = tool("slow", async (_value, onUpdate, _invocation, context) => {
-			onUpdate?.({ content: [{ type: "text", text: "partial" }], details: { progress: "partial" } });
+			onUpdate?.({
+				content: [{ type: "text", text: "partial" }],
+				details: { progress: "partial" },
+			});
 			started.resolve();
 			await new Promise<void>((_resolve, reject) => {
 				context.abortSignal?.addEventListener("abort", () => reject(new Error("cancelled effect")), { once: true });

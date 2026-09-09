@@ -77,7 +77,12 @@ describe("runtime public drive", () => {
 	it("composes prompt, skill, and template acceptance with drive", async () => {
 		const resources: Resources = {
 			skills: [
-				{ name: "review", description: "Review", content: "Inspect it", filePath: "/skills/review/SKILL.md" },
+				{
+					name: "review",
+					description: "Review",
+					content: "Inspect it",
+					filePath: "/skills/review/SKILL.md",
+				},
 			],
 			promptTemplates: [{ name: "fix", content: "Fix $1" }],
 		};
@@ -513,7 +518,11 @@ describe("runtime public drive", () => {
 
 		expect(await lane.drive({ operationId: "stale" }, BACKGROUND_CONTEXT)).toMatchObject({
 			ok: false,
-			error: { _tag: "OperationMismatch", expectedOperationId: "stale", currentOperationId: "current" },
+			error: {
+				_tag: "OperationMismatch",
+				expectedOperationId: "stale",
+				currentOperationId: "current",
+			},
 		});
 		expect(runtimeLane.activeDrive).toBeUndefined();
 		expect(faux.state.callCount).toBe(0);

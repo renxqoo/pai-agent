@@ -95,7 +95,12 @@ export function readLaneQueues(
 				throw new SessionInvariantError(`Pending ${item.kind} entry ${item.entryId} is missing its payload`);
 			}
 			if (stored.value.type === "message") {
-				return { entryId: item.entryId, kind: item.kind, type: "message", message: stored.value.payload };
+				return {
+					entryId: item.entryId,
+					kind: item.kind,
+					type: "message",
+					message: stored.value.payload,
+				};
 			}
 			if (item.kind !== "write") {
 				throw new SessionInvariantError(`Pending ${item.kind} entry ${item.entryId} is not a message`);

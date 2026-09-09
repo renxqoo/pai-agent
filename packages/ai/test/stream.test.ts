@@ -46,7 +46,13 @@ const calculatorTool: Tool<typeof calculatorSchema> = {
 async function basicTextGeneration<TApi extends Api>(model: Model<TApi>, options?: StreamOptionsWithExtras) {
 	const context: Context = {
 		systemPrompt: "You are a helpful assistant. Be concise.",
-		messages: [{ role: "user", content: "Reply with exactly: 'Hello test successful'", timestamp: Date.now() }],
+		messages: [
+			{
+				role: "user",
+				content: "Reply with exactly: 'Hello test successful'",
+				timestamp: Date.now(),
+			},
+		],
 	};
 	const response = await complete(model, context, options);
 
@@ -58,7 +64,11 @@ async function basicTextGeneration<TApi extends Api>(model: Model<TApi>, options
 	expect(response.content.map((b) => (b.type === "text" ? b.text : "")).join("")).toContain("Hello test successful");
 
 	context.messages.push(response);
-	context.messages.push({ role: "user", content: "Now say 'Goodbye test successful'", timestamp: Date.now() });
+	context.messages.push({
+		role: "user",
+		content: "Now say 'Goodbye test successful'",
+		timestamp: Date.now(),
+	});
 
 	const secondResponse = await complete(model, context, options);
 
@@ -1353,18 +1363,30 @@ describe("Generate E2E Tests", () => {
 		});
 
 		it.skipIf(!anthropicOAuthToken)("should handle adaptive thinking with effort high", { retry: 3 }, async () => {
-			await handleThinking(model, { apiKey: anthropicOAuthToken, thinkingEnabled: true, effort: "high" });
+			await handleThinking(model, {
+				apiKey: anthropicOAuthToken,
+				thinkingEnabled: true,
+				effort: "high",
+			});
 		});
 
 		it.skipIf(!anthropicOAuthToken)("should handle adaptive thinking with effort medium", { retry: 3 }, async () => {
-			await handleThinking(model, { apiKey: anthropicOAuthToken, thinkingEnabled: true, effort: "medium" });
+			await handleThinking(model, {
+				apiKey: anthropicOAuthToken,
+				thinkingEnabled: true,
+				effort: "medium",
+			});
 		});
 
 		it.skipIf(!anthropicOAuthToken)(
 			"should handle multi-turn with adaptive thinking and tools",
 			{ retry: 3 },
 			async () => {
-				await multiTurn(model, { apiKey: anthropicOAuthToken, thinkingEnabled: true, effort: "high" });
+				await multiTurn(model, {
+					apiKey: anthropicOAuthToken,
+					thinkingEnabled: true,
+					effort: "high",
+				});
 			},
 		);
 

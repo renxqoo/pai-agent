@@ -132,7 +132,9 @@ describe("Radius provider", () => {
 		writeFileSync(
 			modelsPath,
 			JSON.stringify({
-				providers: { "radius-dev": { name: "Radius (dev)", baseUrl: "http://localhost:8788", oauth: "radius" } },
+				providers: {
+					"radius-dev": { name: "Radius (dev)", baseUrl: "http://localhost:8788", oauth: "radius" },
+				},
 			}),
 		);
 		const runtime = await ModelRuntime.create({

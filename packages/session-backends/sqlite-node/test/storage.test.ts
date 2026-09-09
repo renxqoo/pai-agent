@@ -96,7 +96,10 @@ describe("SqliteStorage", () => {
 		try {
 			await applyInitialSchema(db);
 			insertCommitSessionRow(db);
-			const storage = new SqliteStorage(db, { sessionId: SESSION_ID, now: () => 1_700_000_000_000 });
+			const storage = new SqliteStorage(db, {
+				sessionId: SESSION_ID,
+				now: () => 1_700_000_000_000,
+			});
 
 			await storage.commit([storedValues.setValue(storedValues.sessionName, "name")], BACKGROUND_CONTEXT);
 
@@ -196,8 +199,20 @@ describe("SqliteStorage", () => {
 					db,
 				),
 			).toEqual([
-				{ branch_id: "right", tip_entry_id: "right", tip_seq: 3, base_branch_id: null, base_seq: null },
-				{ branch_id: "root", tip_entry_id: "left", tip_seq: 2, base_branch_id: null, base_seq: null },
+				{
+					branch_id: "right",
+					tip_entry_id: "right",
+					tip_seq: 3,
+					base_branch_id: null,
+					base_seq: null,
+				},
+				{
+					branch_id: "root",
+					tip_entry_id: "left",
+					tip_seq: 2,
+					base_branch_id: null,
+					base_seq: null,
+				},
 			]);
 			expect(
 				sql`SELECT branch_id, entry_id, entry_seq, entry_type FROM branch_entries ORDER BY branch_id, entry_seq`.all(
@@ -302,8 +317,16 @@ describe("SqliteStorage", () => {
 			const entries = await storage.getEntries(["second", "missing", "first"], BACKGROUND_CONTEXT);
 
 			expect([...entries.keys()]).toEqual(["second", "first"]);
-			expect(entries.get("second")).toMatchObject({ id: "second", type: "message", parentId: "first" });
-			expect(entries.get("first")).toMatchObject({ id: "first", type: "custom", customType: "note" });
+			expect(entries.get("second")).toMatchObject({
+				id: "second",
+				type: "message",
+				parentId: "first",
+			});
+			expect(entries.get("first")).toMatchObject({
+				id: "first",
+				type: "custom",
+				customType: "note",
+			});
 		});
 	});
 
@@ -556,7 +579,11 @@ describe("SqliteStorage", () => {
 			1_700_000_000_000,
 		);
 
-		expect(prepared.result).toEqual({ firstSeq: 7, seqs: [7, 8, 9, 10], timestamp: 1_700_000_000_000 });
+		expect(prepared.result).toEqual({
+			firstSeq: 7,
+			seqs: [7, 8, 9, 10],
+			timestamp: 1_700_000_000_000,
+		});
 		expect(prepared.writes).toMatchObject([
 			{ kind: "entry", id: "entry", seq: 7, timestamp: 1_700_000_000_000 },
 			{ kind: "usage", id: "usage", seq: 8 },
@@ -625,7 +652,10 @@ describe("SqliteStorage", () => {
 			);
 			await storage.close(BACKGROUND_CONTEXT);
 
-			const reopened = new SqliteStorage(db, { sessionId: SESSION_ID, now: () => 1_700_000_000_000 });
+			const reopened = new SqliteStorage(db, {
+				sessionId: SESSION_ID,
+				now: () => 1_700_000_000_000,
+			});
 			const result = await reopened.commit(
 				[storedValues.setValue(storedValues.sessionName, "reopened")],
 				BACKGROUND_CONTEXT,

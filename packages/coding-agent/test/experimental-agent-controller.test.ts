@@ -61,7 +61,11 @@ describe("AgentController service", () => {
 			expect(host.services.catalogue).toEqual([{ serviceId: AgentController.id, mode: "singleton" }]);
 			await expect(
 				host.services.invoke(
-					{ serviceId: AgentController.id, member: "prompt", args: [{ message: "hello", images: null }] },
+					{
+						serviceId: AgentController.id,
+						member: "prompt",
+						args: [{ message: "hello", images: null }],
+					},
 					BACKGROUND_CONTEXT,
 				),
 			).resolves.toEqual({ accepted: true, operationId: "operation-1", error: null });
@@ -73,13 +77,21 @@ describe("AgentController service", () => {
 			).resolves.toBeUndefined();
 			await expect(
 				host.services.invoke(
-					{ serviceId: AgentController.id, member: "steer", args: [{ message: "later", images: null }] },
+					{
+						serviceId: AgentController.id,
+						member: "steer",
+						args: [{ message: "later", images: null }],
+					},
 					BACKGROUND_CONTEXT,
 				),
 			).resolves.toEqual({ accepted: true, entryId: "queue-1", error: null });
 			await expect(
 				host.services.invoke(
-					{ serviceId: AgentController.id, member: "followUp", args: [{ message: "after", images: null }] },
+					{
+						serviceId: AgentController.id,
+						member: "followUp",
+						args: [{ message: "after", images: null }],
+					},
 					BACKGROUND_CONTEXT,
 				),
 			).resolves.toEqual({ accepted: true, entryId: "queue-2", error: null });
@@ -94,15 +106,22 @@ describe("AgentController service", () => {
 
 	test("wraps queue, resume, compaction, and navigation lane operations", async () => {
 		const nextRun = vi.fn(async () => ({ ok: true as const, value: { entryId: "queue-3" } }));
-		const cancelQueued = vi.fn(async () => ({ ok: true as const, value: { kind: "cancelled" as const } }));
+		const cancelQueued = vi.fn(async () => ({
+			ok: true as const,
+			value: { kind: "cancelled" as const },
+		}));
 		const resume = vi.fn(async () => ({ ok: true as const, value: completed }));
 		const compact = vi.fn(async () => ({
 			ok: true as const,
-			value: { compaction: { ...completed, operationId: "compact-1", kind: "compaction" as const } },
+			value: {
+				compaction: { ...completed, operationId: "compact-1", kind: "compaction" as const },
+			},
 		}));
 		const navigateTree = vi.fn(async () => ({
 			ok: true as const,
-			value: { navigation: { ...completed, operationId: "navigation-1", kind: "navigation" as const } },
+			value: {
+				navigation: { ...completed, operationId: "navigation-1", kind: "navigation" as const },
+			},
 		}));
 		const controller = createAgentController({
 			nextRun,
@@ -120,7 +139,9 @@ describe("AgentController service", () => {
 		await expect(controller.cancelQueued("queue-3", BACKGROUND_CONTEXT)).resolves.toEqual({
 			outcome: "cancelled",
 		});
-		await expect(controller.resume(BACKGROUND_CONTEXT)).resolves.toMatchObject({ operationId: "operation-1" });
+		await expect(controller.resume(BACKGROUND_CONTEXT)).resolves.toMatchObject({
+			operationId: "operation-1",
+		});
 		await expect(controller.compact({ customInstructions: "short" }, BACKGROUND_CONTEXT)).resolves.toMatchObject({
 			operationId: "compact-1",
 		});

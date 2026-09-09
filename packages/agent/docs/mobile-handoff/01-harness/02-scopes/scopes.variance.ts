@@ -20,20 +20,43 @@ type EphemeralScope = { readonly kind: "ephemeral" };
 type Scope = SessionScope | EphemeralScope;
 
 /** Addresses: COVARIANT — Sc only in return position. Readers take any scope. */
-interface ScopedAddress<Sc extends Scope> { readonly [tag]?: () => Sc }
+interface ScopedAddress<Sc extends Scope> {
+  readonly [tag]?: () => Sc;
+}
 /** Writes: INVARIANT — Sc in both positions. Mixed commits cannot unify. */
-interface Scoped<Sc extends Scope> { readonly [tag]?: (s: Sc) => Sc }
+interface Scoped<Sc extends Scope> {
+  readonly [tag]?: (s: Sc) => Sc;
+}
 
-interface Value<T, Sc extends Scope = SessionScope> extends ScopedAddress<Sc> { k: "v" }
-interface ValueList<T, Sc extends Scope = SessionScope> extends ScopedAddress<Sc> { k: "l" }
-interface VSet<Sc extends Scope = Scope> extends Scoped<Sc> { kind: "value"; op: "set" }
-interface VDel<Sc extends Scope = Scope> extends Scoped<Sc> { kind: "value"; op: "delete" }
-interface LApp<Sc extends Scope = Scope> extends Scoped<Sc> { kind: "list"; op: "append" }
-interface EntryWrite { kind: "entry" }
-interface RetireWrite extends Scoped<SessionScope> { kind: "scope" }
+interface Value<T, Sc extends Scope = SessionScope> extends ScopedAddress<Sc> {
+  k: "v";
+}
+interface ValueList<T, Sc extends Scope = SessionScope> extends ScopedAddress<Sc> {
+  k: "l";
+}
+interface VSet<Sc extends Scope = Scope> extends Scoped<Sc> {
+  kind: "value";
+  op: "set";
+}
+interface VDel<Sc extends Scope = Scope> extends Scoped<Sc> {
+  kind: "value";
+  op: "delete";
+}
+interface LApp<Sc extends Scope = Scope> extends Scoped<Sc> {
+  kind: "list";
+  op: "append";
+}
+interface EntryWrite {
+  kind: "entry";
+}
+interface RetireWrite extends Scoped<SessionScope> {
+  kind: "scope";
+}
 
 type Write<Sc extends Scope = SessionScope> =
-  | VSet<Sc> | VDel<Sc> | LApp<Sc>
+  | VSet<Sc>
+  | VDel<Sc>
+  | LApp<Sc>
   | (Sc extends SessionScope ? EntryWrite | RetireWrite : never);
 
 declare function setValue<T, Sc extends Scope>(a: Value<T, Sc>, v: T): VSet<Sc>;
@@ -42,10 +65,10 @@ declare function appendList<T, Sc extends Scope>(a: ValueList<T, Sc>, v: T): LAp
 declare function retireScope(id: string): RetireWrite;
 declare function insertEntry(e: unknown): EntryWrite;
 declare function commit<Sc extends Scope = SessionScope>(w: readonly Write<Sc>[]): void;
-declare function getValue<T>(a: Value<T, Scope>): T;              // reader: any scope
+declare function getValue<T>(a: Value<T, Scope>): T; // reader: any scope
 
-const laneState = null as unknown as Value<string>;                          // session
-const pendingOut = null as unknown as ValueList<string, EphemeralScope>;     // ephemeral
+const laneState = null as unknown as Value<string>; // session
+const pendingOut = null as unknown as ValueList<string, EphemeralScope>; // ephemeral
 const toolMemo = null as unknown as Value<string, EphemeralScope>;
 
 // READS accept either scope — that is what covariance buys.

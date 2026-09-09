@@ -82,7 +82,11 @@ function parseAuthorizationInput(input: string): { code?: string; state?: string
 function formatErrorDetails(error: unknown): string {
 	if (error instanceof Error) {
 		const details: string[] = [`${error.name}: ${error.message}`];
-		const errorWithCode = error as Error & { code?: string; errno?: number | string; cause?: unknown };
+		const errorWithCode = error as Error & {
+			code?: string;
+			errno?: number | string;
+			cause?: unknown;
+		};
 		if (errorWithCode.code) details.push(`code=${errorWithCode.code}`);
 		if (typeof errorWithCode.errno !== "undefined") details.push(`errno=${String(errorWithCode.errno)}`);
 		if (typeof error.cause !== "undefined") {
@@ -216,7 +220,11 @@ async function exchangeAuthorizationCode(
 
 	let tokenData: { access_token: string; refresh_token: string; expires_in: number };
 	try {
-		tokenData = JSON.parse(responseBody) as { access_token: string; refresh_token: string; expires_in: number };
+		tokenData = JSON.parse(responseBody) as {
+			access_token: string;
+			refresh_token: string;
+			expires_in: number;
+		};
 	} catch (error) {
 		throw new Error(
 			`Token exchange returned invalid JSON. url=${TOKEN_URL}; body=${responseBody}; details=${formatErrorDetails(error)}`,
@@ -302,7 +310,10 @@ async function loginAnthropic(interaction: ProviderAuthInteraction): Promise<OAu
 
 		if (!code) throw new Error("Missing authorization code");
 		if (!state) throw new Error("Missing OAuth state");
-		interaction.notify({ type: "progress", message: "Exchanging authorization code for tokens..." });
+		interaction.notify({
+			type: "progress",
+			message: "Exchanging authorization code for tokens...",
+		});
 		return exchangeAuthorizationCode(code, state, verifier, REDIRECT_URI, interaction.signal);
 	} finally {
 		interaction.signal.removeEventListener("abort", onAbort);

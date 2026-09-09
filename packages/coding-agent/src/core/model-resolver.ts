@@ -338,7 +338,12 @@ export function resolveModelScopeFromModels(
 		const { model, thinkingLevel, warning } = parseModelPattern(pattern, availableModels);
 
 		if (warning) {
-			diagnostics.push({ type: "warning", code: "invalid-thinking-level", message: warning, pattern });
+			diagnostics.push({
+				type: "warning",
+				code: "invalid-thinking-level",
+				message: warning,
+				pattern,
+			});
 		}
 
 		if (!model) {
@@ -472,7 +477,12 @@ export function resolveCliModel(options: {
 			(m) => m.id.toLowerCase() === lower || `${m.provider}/${m.id}`.toLowerCase() === lower,
 		);
 		if (exactMatches.length === 1) {
-			return { model: exactMatches[0], warning: undefined, thinkingLevel: undefined, error: undefined };
+			return {
+				model: exactMatches[0],
+				warning: undefined,
+				thinkingLevel: undefined,
+				error: undefined,
+			};
 		}
 		if (exactMatches.length > 1) {
 			const authenticatedExactMatches = exactMatches.filter((m) => modelRuntime.hasConfiguredAuth(m.provider));
@@ -656,7 +666,11 @@ export async function findInitialModel(options: {
 			process.exit(1);
 		}
 		if (resolved.model) {
-			return { model: resolved.model, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
+			return {
+				model: resolved.model,
+				thinkingLevel: DEFAULT_THINKING_LEVEL,
+				fallbackMessage: undefined,
+			};
 		}
 	}
 
@@ -700,7 +714,11 @@ export async function findInitialModel(options: {
 		}
 
 		// If no default found, use first available
-		return { model: availableModels[0], thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
+		return {
+			model: availableModels[0],
+			thinkingLevel: DEFAULT_THINKING_LEVEL,
+			fallbackMessage: undefined,
+		};
 	}
 
 	// 5. No model found

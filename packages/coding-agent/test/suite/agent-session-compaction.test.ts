@@ -576,7 +576,9 @@ describe("AgentSession compaction characterization", () => {
 		harness.setResponses([
 			fauxAssistantMessage(`old-history:${"a".repeat(800)}`),
 			fauxAssistantMessage(`recent-history:${"b".repeat(800)}`),
-			fauxAssistantMessage(fauxToolCall("terminate_with_large_result", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("terminate_with_large_result", {}), {
+				stopReason: "toolUse",
+			}),
 		]);
 
 		await harness.session.prompt("seed old history");
@@ -620,8 +622,16 @@ describe("AgentSession compaction characterization", () => {
 		});
 		harnesses.push(harness);
 		harness.setResponses([
-			() => fauxAssistantMessage("x".repeat(64), { stopReason: "length", timestamp: Date.now() + 10_000 }),
-			() => fauxAssistantMessage("y".repeat(64), { stopReason: "length", timestamp: Date.now() + 10_000 }),
+			() =>
+				fauxAssistantMessage("x".repeat(64), {
+					stopReason: "length",
+					timestamp: Date.now() + 10_000,
+				}),
+			() =>
+				fauxAssistantMessage("y".repeat(64), {
+					stopReason: "length",
+					timestamp: Date.now() + 10_000,
+				}),
 		]);
 
 		await harness.session.prompt("x".repeat(5000));
@@ -653,7 +663,10 @@ describe("AgentSession compaction characterization", () => {
 		});
 
 		await sessionInternals._checkCompaction(lengthOverflowMessage);
-		await sessionInternals._checkCompaction({ ...lengthOverflowMessage, timestamp: Date.now() + 1 });
+		await sessionInternals._checkCompaction({
+			...lengthOverflowMessage,
+			timestamp: Date.now() + 1,
+		});
 
 		expect(runAutoCompactionSpy).toHaveBeenCalledTimes(1);
 		expect(compactionErrors).toContain(
@@ -907,9 +920,17 @@ describe("AgentSession compaction characterization", () => {
 			timestamp: Date.now(),
 		});
 		harness.session.agent.state.messages = [
-			{ role: "user", content: [{ type: "text", text: "kept user" }], timestamp: preCompactionTimestamp - 1000 },
+			{
+				role: "user",
+				content: [{ type: "text", text: "kept user" }],
+				timestamp: preCompactionTimestamp - 1000,
+			},
 			keptAssistant,
-			{ role: "user", content: [{ type: "text", text: "new prompt" }], timestamp: Date.now() - 500 },
+			{
+				role: "user",
+				content: [{ type: "text", text: "new prompt" }],
+				timestamp: Date.now() - 500,
+			},
 			errorAssistant,
 		];
 
@@ -935,10 +956,18 @@ describe("AgentSession compaction characterization", () => {
 		const disabledSpy = vi.spyOn(disabledInternals, "_runAutoCompaction").mockResolvedValue(false);
 
 		await belowThresholdInternals._checkCompaction(
-			createAssistant(belowThresholdHarness, { stopReason: "stop", totalTokens: 1_000, timestamp: Date.now() }),
+			createAssistant(belowThresholdHarness, {
+				stopReason: "stop",
+				totalTokens: 1_000,
+				timestamp: Date.now(),
+			}),
 		);
 		await disabledInternals._checkCompaction(
-			createAssistant(disabledHarness, { stopReason: "stop", totalTokens: 1_000_000, timestamp: Date.now() }),
+			createAssistant(disabledHarness, {
+				stopReason: "stop",
+				totalTokens: 1_000_000,
+				timestamp: Date.now(),
+			}),
 		);
 
 		expect(belowThresholdSpy).not.toHaveBeenCalled();

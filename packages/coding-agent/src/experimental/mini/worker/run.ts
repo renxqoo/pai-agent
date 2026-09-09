@@ -57,11 +57,18 @@ export async function runSessionWorker(options: {
 	const context = BACKGROUND_CONTEXT;
 	const { cwd } = options;
 	const modelRuntime = await ModelRuntime.create();
-	const { model, thinkingLevel } = await findInitialModel({ scopedModels: [], isContinuing: false, modelRuntime });
+	const { model, thinkingLevel } = await findInitialModel({
+		scopedModels: [],
+		isContinuing: false,
+		modelRuntime,
+	});
 	if (!model) throw new Error("No model available. Configure credentials with `pi` first.");
 
 	const executionEnv = new NodeExecutionEnv({ cwd });
-	const repo = new JsonlSessionRepo({ fileSystem: executionEnv, sessionsRoot: options.sessionsRoot });
+	const repo = new JsonlSessionRepo({
+		fileSystem: executionEnv,
+		sessionsRoot: options.sessionsRoot,
+	});
 	const session = await openSession(repo, options.sessionId, cwd, context);
 	const { harness, open } = await AgentHarness.create(
 		{

@@ -56,7 +56,10 @@ export function cloudflareWorkersAIAuth(): ApiKeyAuth {
 		name: "Cloudflare API key",
 		login: async (interaction) => {
 			const key = await interaction.prompt({ type: "secret", message: "Enter Cloudflare API key" });
-			const accountId = await interaction.prompt({ type: "text", message: "Enter Cloudflare account ID" });
+			const accountId = await interaction.prompt({
+				type: "text",
+				message: "Enter Cloudflare account ID",
+			});
 			return { type: "api_key", key, env: { CLOUDFLARE_ACCOUNT_ID: accountId } };
 		},
 		resolve: async ({ ctx, credential, signal }) => {
@@ -76,8 +79,14 @@ export function cloudflareAIGatewayAuth(): ApiKeyAuth {
 		name: "Cloudflare API key",
 		login: async (interaction) => {
 			const key = await interaction.prompt({ type: "secret", message: "Enter Cloudflare API key" });
-			const accountId = await interaction.prompt({ type: "text", message: "Enter Cloudflare account ID" });
-			const gatewayId = await interaction.prompt({ type: "text", message: "Enter Cloudflare AI Gateway ID" });
+			const accountId = await interaction.prompt({
+				type: "text",
+				message: "Enter Cloudflare account ID",
+			});
+			const gatewayId = await interaction.prompt({
+				type: "text",
+				message: "Enter Cloudflare AI Gateway ID",
+			});
 			return {
 				type: "api_key",
 				key,

@@ -173,7 +173,11 @@ class MiniTui {
 		});
 
 		this.#editorContainer.addChild(this.#editor);
-		const transcript = new ScrollView(this.#chat, { follow: "end", primary: true, overscroll: "chain" });
+		const transcript = new ScrollView(this.#chat, {
+			follow: "end",
+			primary: true,
+			overscroll: "chain",
+		});
 		const dock = new VStack([
 			{ component: this.#queue, shrink: 1, minSize: 0 },
 			{ component: this.#status, shrink: 1, minSize: 0 },

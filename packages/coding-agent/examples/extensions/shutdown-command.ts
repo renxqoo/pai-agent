@@ -45,13 +45,19 @@ export default function (pi: ExtensionAPI) {
 			environment: Type.String({ description: "Target environment (e.g., production, staging)" }),
 		}),
 		async execute(_toolCallId, params, _signal, onUpdate, ctx) {
-			onUpdate?.({ content: [{ type: "text", text: `Deploying to ${params.environment}...` }], details: {} });
+			onUpdate?.({
+				content: [{ type: "text", text: `Deploying to ${params.environment}...` }],
+				details: {},
+			});
 
 			// Example deployment logic
 			// const result = await pi.exec("npm", ["run", "deploy", params.environment], { signal });
 
 			// On success, request graceful shutdown
-			onUpdate?.({ content: [{ type: "text", text: "Deployment complete, exiting..." }], details: {} });
+			onUpdate?.({
+				content: [{ type: "text", text: "Deployment complete, exiting..." }],
+				details: {},
+			});
 			ctx.shutdown();
 
 			return {

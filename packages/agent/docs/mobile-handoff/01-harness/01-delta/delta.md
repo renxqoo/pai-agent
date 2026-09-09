@@ -20,11 +20,11 @@ same story — the engine shifts every index, so each is a write.
 
 Measured, all four:
 
-| operation | what they emit |
-| --- | --- |
-| `text += "x"` on 40 KB | `replace` carrying 40 KB |
-| `arr.unshift(x)` on 100 items | ~100 index writes |
-| `arr.pop()` | a write to a `length` path, which is not a document location |
+| operation                     | what they emit                                               |
+| ----------------------------- | ------------------------------------------------------------ |
+| `text += "x"` on 40 KB        | `replace` carrying 40 KB                                     |
+| `arr.unshift(x)` on 100 items | ~100 index writes                                            |
+| `arr.pop()`                   | a write to a `length` path, which is not a document location |
 
 Immer's own pitfalls page states the guarantee: patches are correct and
 **explicitly not minimal**. Colyseus documents the same array weakness — removing
@@ -32,7 +32,7 @@ the first of 20 items costs 38 extra bytes.
 
 Diffing base against result ourselves does not fix it either. A differ sees two
 values, not intent. Prefix comparison catches pure growth, but a rolling window
-that drops from the front *and* appends is neither a prefix nor a suffix of the
+that drops from the front _and_ appends is neither a prefix nor a suffix of the
 old value; measured on 5000 elements the fallback was
 `{index: 0, remove: 5000, items: 5000}` — a full replace, in exactly the case the
 optimisation existed for.
@@ -50,12 +50,12 @@ export type Path = readonly Seg[];
 export type NonEmptyPath = readonly [Seg, ...Seg[]];
 
 export type Op =
-  | readonly ["r", JsonValue]                            // replace the value
-  | readonly ["s", NonEmptyPath, JsonValue]              // set
-  | readonly ["d", NonEmptyPath]                         // delete
-  | readonly ["a", NonEmptyPath, string]                 // append
-  | readonly ["t", NonEmptyPath, number]                 // truncate, in chars
-  | readonly ["p", Path, number, number, JsonValue[]]    // splice: index, remove, items
+  | readonly ["r", JsonValue] // replace the value
+  | readonly ["s", NonEmptyPath, JsonValue] // set
+  | readonly ["d", NonEmptyPath] // delete
+  | readonly ["a", NonEmptyPath, string] // append
+  | readonly ["t", NonEmptyPath, number] // truncate, in chars
+  | readonly ["p", Path, number, number, JsonValue[]]; // splice: index, remove, items
 ```
 
 Interning, id references and omitted paths are **not** here — they live in
@@ -89,7 +89,7 @@ since there is exactly one authoritative writer.
 `chars` counts UTF-16 code units, matching `String.prototype.slice`. **Not bytes.**
 Byte caps are a producer concern and never cross a boundary.
 
-The format is JSON-Patch-*shaped*, not RFC 6902 conformant. That costs nothing:
+The format is JSON-Patch-_shaped_, not RFC 6902 conformant. That costs nothing:
 RFC 6902 has had no successor since 2013, still has the same six ops, and nothing
 anywhere adds a string splice. Immer was never conformant either.
 
@@ -100,10 +100,10 @@ decorators. You mutate normally.
 
 ```ts
 const t = track(laneView);
-t.state.operation.streamingMessage.content[0].text += delta;   // -> append
-t.state.transcript.push(entry);                         // -> splice
-t.state.tools[0].details.failures.push({ name, msg });  // -> splice
-delete t.state.config.model;                            // -> delete
+t.state.operation.streamingMessage.content[0].text += delta; // -> append
+t.state.transcript.push(entry); // -> splice
+t.state.tools[0].details.failures.push({ name, msg }); // -> splice
+delete t.state.config.model; // -> delete
 const ops = t.flush();
 ```
 
@@ -113,7 +113,7 @@ Three mechanisms, one per case:
 
 **Arrays — mutator methods intercepted in the `get` trap.** `arr.push(x)` passes
 through `get(arr, "push")` first, so the tracker returns its own function that
-records `splice(len, 0, [x])` and then delegates. Intent is captured *before* the
+records `splice(len, 0, [x])` and then delegates. Intent is captured _before_ the
 engine performs its index writes, which is why `unshift` is one op rather than
 O(n). This is the thing no other library does.
 
@@ -190,7 +190,7 @@ in the workload that surfaced it — it would have corrupted silently when it di
 Assigning to `state` replaces it:
 
 ```ts
-tracker.state = next;    // emits ["r", next]; discards ops recorded before it
+tracker.state = next; // emits ["r", next]; discards ops recorded before it
 ```
 
 `state` **must be a setter on the tracker**, not a plain property. Without one,
@@ -200,7 +200,7 @@ the first thing anyone tries.
 
 Prior ops are discarded because they describe a value that no longer exists.
 
-Only a *full* replacement collapses to `r`. Rewrite part of the value and the ops
+Only a _full_ replacement collapses to `r`. Rewrite part of the value and the ops
 survive, because they are genuinely cheaper:
 
 ```
@@ -218,9 +218,9 @@ always emits `["r", value]` — carrying any mutations made before it:
 const t = track({ x: 0, l: [] });
 t.state.x = 100;
 t.state.l.push("xyz");
-t.flush();      // [["r", { x: 100, l: ["xyz"] }]]
+t.flush(); // [["r", { x: 100, l: ["xyz"] }]]
 t.state.x = 101;
-t.flush();      // [["s", ["x"], 101]]
+t.flush(); // [["s", ["x"], 101]]
 ```
 
 Requiring the producer to remember a `rebase()` first would fail at runtime, in
@@ -229,7 +229,7 @@ the consumer, far from the mistake.
 ### 3.2.3 Forcing a base batch later
 
 ```ts
-tracker.rebase();        // next flush is ["r", value]; value unchanged
+tracker.rebase(); // next flush is ["r", value]; value unchanged
 ```
 
 Discarding the pending ops is correct: the proxy mutates the target directly, so
@@ -242,10 +242,10 @@ stream of deltas indefinitely.
 Recovery replays from the last base batch (§9). From `delta.examples.ts`, a
 bash-shaped workload of 500 durable writes into a 50 KB rolling window:
 
-| | batches written | to replay on recovery |
-| --- | --- | --- |
-| never | 500 | **499** |
-| `rebase()` every 50 | 500 | 0 |
+|                     | batches written | to replay on recovery |
+| ------------------- | --------------- | --------------------- |
+| never               | 500             | **499**               |
+| `rebase()` every 50 | 500             | 0                     |
 
 Two callers need this:
 
@@ -314,7 +314,7 @@ encoder. Sharing one across consumers hands the late subscriber ids it cannot
 resolve, and a base batch does not rescue it — `["r", value]` carries no refs and
 leaves the table empty.
 
-**Reset the table on a base batch.** A reader replays from the *last* base batch
+**Reset the table on a base batch.** A reader replays from the _last_ base batch
 with a fresh decoder, so everything after one must be self-contained. Carrying
 ids across a replacement emits references to definitions the reader never saw:
 
@@ -340,11 +340,11 @@ workload: **255.5 KB first-use versus 179.6 KB with no interning at all.**
 
 Wire bytes against inline paths, round-trip verified:
 
-| stream | inline | wire | saved |
-| --- | --- | --- | --- |
-| one hot path (a rolling tool-output window) | 11,290 B | 7,538 B | **33.2%** |
-| four alternating paths (lane state) | 14,160 B | 11,032 B | **22.1%** |
-| 200 distinct paths | 16,455 B | 16,035 B | 2.6% |
+| stream                                      | inline   | wire     | saved     |
+| ------------------------------------------- | -------- | -------- | --------- |
+| one hot path (a rolling tool-output window) | 11,290 B | 7,538 B  | **33.2%** |
+| four alternating paths (lane state)         | 14,160 B | 11,032 B | **22.1%** |
+| 200 distinct paths                          | 16,455 B | 16,035 B | 2.6%      |
 
 Omission does the work in the first case, interning in the second. In the third
 neither helps and the definitions cost a little — which is the case second-use
@@ -392,12 +392,12 @@ guarantees `r` appears at index 0 or not at all (§5).
 
 Everything a frame used to do is now done by something that already existed:
 
-| was on the frame | now |
-| --- | --- |
-| `seq` | the list element's `seq`, or the SSE `id:` |
-| `kind: "replace"` | the `r` op |
-| which value it belongs to | the address |
-| "this is a snapshot" | the `"base"` storage tag |
+| was on the frame          | now                                        |
+| ------------------------- | ------------------------------------------ |
+| `seq`                     | the list element's `seq`, or the SSE `id:` |
+| `kind: "replace"`         | the `r` op                                 |
+| which value it belongs to | the address                                |
+| "this is a snapshot"      | the `"base"` storage tag                   |
 
 **Resubscription is a base batch plus buffered batches** — the same thing the lane
 adapter already does for the harness: snapshot first, then whatever accumulated
@@ -420,21 +420,21 @@ data meets trusted machinery is where this design has to hold.
 
 The reference point is CVE-2025-55182 — RCE in React Server Components, CVSS 10.0,
 exploited in the wild. Their Flight protocol is a compact tagged wire format that
-reconstructs structure, so the resemblance is real. The failure was *"fails to
-validate the structure correctly... treats the fake object as genuine"*: a forged
+reconstructs structure, so the resemblance is real. The failure was _"fails to
+validate the structure correctly... treats the fake object as genuine"_: a forged
 Chunk resolved as a Promise and exposed internal state containing gadgets to reach
 `Function`.
 
 **We are structurally safer, and not because of diligence:**
 
-| | Flight | ops |
-| --- | --- | --- |
-| can describe runtime objects | yes — Chunks resolve as Promises | no |
-| can reference code or modules | yes — client components | no |
-| values | arbitrary object graphs | `JsonValue` |
-| worst case from a forged payload | RCE | corrupted replica state |
+|                                  | Flight                           | ops                     |
+| -------------------------------- | -------------------------------- | ----------------------- |
+| can describe runtime objects     | yes — Chunks resolve as Promises | no                      |
+| can reference code or modules    | yes — client components          | no                      |
+| values                           | arbitrary object graphs          | `JsonValue`             |
+| worst case from a forged payload | RCE                              | corrupted replica state |
 
-Flight *must* reference code; that is its job. An op can only put a `JsonValue` at
+Flight _must_ reference code; that is its job. An op can only put a `JsonValue` at
 a path, so there is no first link in a gadget chain. This is why an attacker cannot
 plant a non-resolving `then` on `Object.prototype`: a data-only `then` is not
 callable, and `await` resolves normally when `then` is not callable.
@@ -446,10 +446,10 @@ callable, and `await` resolves normally when `then` is not callable.
 
 ### 7.1 Paths are the dangerous part
 
-`JSON.parse` is safe on its own — `{"__proto__":{}}` becomes an *own* property.
+`JSON.parse` is safe on its own — `{"__proto__":{}}` becomes an _own_ property.
 The hazard is `parent[key]`, which is exactly what applying a path does.
 
-A single key is not enough. `x["__proto__"] = v` swaps *x's own* parent, which is
+A single key is not enough. `x["__proto__"] = v` swaps _x's own_ parent, which is
 local. It takes a **walk** — `x["__proto__"]["polluted"] = v` — to reach the shared
 prototype, and a path is precisely a walk.
 
@@ -458,10 +458,10 @@ prototype, and a path is precisely a walk.
 it is closed properly by rejecting the segment.
 
 **Reserved path segments: `__proto__`, `constructor`, `prototype`.** Rejected at
-record time *and* at apply time, including through an interned path id.
+record time _and_ at apply time, including through an interned path id.
 
-They are reserved as *segments*, not as values. An object with a literal
-`"__proto__"` key replicates fine as a whole value; only a path walking *through*
+They are reserved as _segments_, not as values. An object with a literal
+`"__proto__"` key replicates fine as a whole value; only a path walking _through_
 it is refused. This is a genuine restriction on what is mutable — document it, do
 not pretend it away.
 
@@ -501,11 +501,11 @@ the gap.
 This is the RSC lesson applied to us. A decoder must not trust tuple shape.
 Measured against an unvalidated applier:
 
-| malformed op | result |
-| --- | --- |
-| `["p",["xs"],0,0,"not-an-array"]` | string spread into the array: `["n","o","t",…]` |
-| `["s","a",9]` — path is a string | accepted; `"a".slice(0,-1)` is `""`, so it wrote at the root |
-| `["ZZZ",["a"],9]` | silently ignored, replica diverges with no error |
+| malformed op                      | result                                                       |
+| --------------------------------- | ------------------------------------------------------------ |
+| `["p",["xs"],0,0,"not-an-array"]` | string spread into the array: `["n","o","t",…]`              |
+| `["s","a",9]` — path is a string  | accepted; `"a".slice(0,-1)` is `""`, so it wrote at the root |
+| `["ZZZ",["a"],9]`                 | silently ignored, replica diverges with no error             |
 
 Validate: verb is known, arity matches the verb, a path is an array of strings and
 non-negative integers, `p` carries integer index and count plus an array of items,
@@ -524,13 +524,13 @@ A facet cannot forge an op: it mutates plain objects and the tracker builds the
 tuples, so shape is well-formed by construction. Values and keys are another
 matter, and `structuredClone` is **not** a JSON check.
 
-| what a facet writes | what happens |
-| --- | --- |
-| a function | throws (`DataCloneError`) |
-| a BigInt, a cycle | throws |
-| `new Map([[1,2]])` | op carries `{}`, producer keeps a real Map — **silent divergence** |
-| `new Date(0)` | op carries an ISO string, producer keeps a Date |
-| `state[Symbol("s")] = 1` | emits `["s",[null],1]` — **a malformed op from our own tracker** |
+| what a facet writes      | what happens                                                       |
+| ------------------------ | ------------------------------------------------------------------ |
+| a function               | throws (`DataCloneError`)                                          |
+| a BigInt, a cycle        | throws                                                             |
+| `new Map([[1,2]])`       | op carries `{}`, producer keeps a real Map — **silent divergence** |
+| `new Date(0)`            | op carries an ISO string, producer keeps a Date                    |
+| `state[Symbol("s")] = 1` | emits `["s",[null],1]` — **a malformed op from our own tracker**   |
 
 So the tracker must check what it is given, at record time, where the mistake is:
 
@@ -540,7 +540,7 @@ So the tracker must check what it is given, at record time, where the mistake is
   §3.2 was a comment; it has to be a check.
 
 A getter on state is safe — the trap records the computed result — and a facet
-value that *looks* like an op is nested inside `["s", path, value]` and can never
+value that _looks_ like an op is nested inside `["s", path, value]` and can never
 be read as a top-level op, because nothing flattens.
 
 ### 7.5 Applier
@@ -591,10 +591,10 @@ A tracked value is stored as a **list of encoded `WireOp[]` batches**, one appen
 Recovery reads backwards to the last base batch and applies forward:
 
 ```ts
-readList(address, { order: "desc", stopAtTag: "base", limit: 100 })
+readList(address, { order: "desc", stopAtTag: "base", limit: 100 });
 ```
 
-`stopAtTag` is a stop condition *within a page*: if no base batch is in the page,
+`stopAtTag` is a stop condition _within a page_: if no base batch is in the page,
 the consumer pages again with the cursor. The tag lives on the storage record
 beside `seq`, never inside the value, so storage never parses ops. See
 [scopes.md](../02-scopes/scopes.md) §11.

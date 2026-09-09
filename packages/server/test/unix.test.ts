@@ -19,7 +19,10 @@ async function makeSocketPath(nested = false): Promise<string> {
 }
 
 function makeServer(path: string): Server {
-	const server = createUnixServer(new TestServerHost(), { path, serverId: "00000000-0000-4000-8000-000000000001" });
+	const server = createUnixServer(new TestServerHost(), {
+		path,
+		serverId: "00000000-0000-4000-8000-000000000001",
+	});
 	servers.add(server);
 	return server;
 }

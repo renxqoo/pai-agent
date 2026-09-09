@@ -701,7 +701,10 @@ function isPreviousResponseNotFoundError(error: unknown): boolean {
 	return error instanceof CodexApiError && error.code === PREVIOUS_RESPONSE_NOT_FOUND_CODE;
 }
 
-function extractCodexEventError(event: Record<string, unknown>): { code?: string; message?: string } {
+function extractCodexEventError(event: Record<string, unknown>): {
+	code?: string;
+	message?: string;
+} {
 	const nested = event.error && typeof event.error === "object" ? (event.error as Record<string, unknown>) : undefined;
 	return {
 		code: typeof event.code === "string" ? event.code : typeof nested?.code === "string" ? nested.code : undefined,
@@ -745,7 +748,11 @@ async function* mapCodexEvents(
 			const normalizedResponse = response
 				? { ...response, status: normalizeCodexStatus(response.status) }
 				: response;
-			yield { ...event, type: "response.completed", response: normalizedResponse } as ResponseStreamEvent;
+			yield {
+				...event,
+				type: "response.completed",
+				response: normalizedResponse,
+			} as ResponseStreamEvent;
 			return;
 		}
 
@@ -1556,7 +1563,13 @@ async function parseErrorResponse(response: Response): Promise<{ message: string
 
 	try {
 		const parsed = JSON.parse(raw) as {
-			error?: { code?: string; type?: string; message?: string; plan_type?: string; resets_at?: number };
+			error?: {
+				code?: string;
+				type?: string;
+				message?: string;
+				plan_type?: string;
+				resets_at?: number;
+			};
 		};
 		const err = parsed?.error;
 		if (err) {

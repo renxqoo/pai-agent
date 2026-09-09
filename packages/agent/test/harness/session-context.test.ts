@@ -37,7 +37,14 @@ function assistantMessage(stopReason: AssistantMessage["stopReason"], text: stri
 		usage,
 		stopReason,
 		...(stopReason === "deferred"
-			? { deferred: { provider: "anthropic", modelId: "claude-sonnet-4-5", api: "anthropic-messages", id: "job" } }
+			? {
+					deferred: {
+						provider: "anthropic",
+						modelId: "claude-sonnet-4-5",
+						api: "anthropic-messages",
+						id: "job",
+					},
+				}
 			: {}),
 		timestamp: NOW,
 	};

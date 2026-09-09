@@ -48,7 +48,7 @@ The original handoff incorrectly treated `intervalMs = 100` as 100 emits/s. It i
 `packages/agent/src/harness/utils/adaptive-publisher.ts` implements:
 
 ```ts
-nextDelayMs = max(globalMinEmitInterval, encodedUpdateBytes * 1000 / globalTargetBytesPerSecond);
+nextDelayMs = max(globalMinEmitInterval, (encodedUpdateBytes * 1000) / globalTargetBytesPerSecond);
 ```
 
 Current harness-global policy:

@@ -99,7 +99,11 @@ describe("OpenAI to Anthropic session migration for Copilot Claude", () => {
 						id: "call_123",
 						name: "bash",
 						arguments: { command: "ls" },
-						thoughtSignature: JSON.stringify({ type: "reasoning.encrypted", id: "call_123", data: "encrypted" }),
+						thoughtSignature: JSON.stringify({
+							type: "reasoning.encrypted",
+							id: "call_123",
+							data: "encrypted",
+						}),
 					},
 				],
 				api: "openai-responses",

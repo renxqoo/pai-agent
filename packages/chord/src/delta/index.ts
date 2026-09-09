@@ -980,7 +980,12 @@ function applyOps<T>(target: T | undefined, ops: readonly Op[]): T {
 		// defineProperty rather than assignment: a setter inherited from the prototype
 		// chain would otherwise run on write.
 		const write = (value: JsonValue) => {
-			Object.defineProperty(parent, key, { value, writable: true, enumerable: true, configurable: true });
+			Object.defineProperty(parent, key, {
+				value,
+				writable: true,
+				enumerable: true,
+				configurable: true,
+			});
 		};
 		const read = (): unknown => (Object.hasOwn(parent, key) ? parent[key] : undefined);
 		switch (op[0]) {

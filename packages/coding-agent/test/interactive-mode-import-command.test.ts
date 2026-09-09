@@ -11,7 +11,9 @@ type InteractiveModePrototype = {
 
 type ImportCommandContext = {
 	clearStatusIndicator: () => void;
-	runtimeHost: { importFromJsonl: (inputPath: string, cwdOverride?: string) => Promise<{ cancelled: boolean }> };
+	runtimeHost: {
+		importFromJsonl: (inputPath: string, cwdOverride?: string) => Promise<{ cancelled: boolean }>;
+	};
 	showError: (message: string) => void;
 	showStatus: (message: string) => void;
 	showExtensionConfirm: (title: string, message: string) => Promise<boolean>;

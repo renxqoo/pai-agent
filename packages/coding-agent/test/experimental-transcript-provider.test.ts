@@ -99,7 +99,10 @@ describe("Transcript service", () => {
 			event: { type: "navigation_end" },
 		});
 		expect(states.at(-1)).toMatchObject({ snapshot: { tipId: "replacement-tip" }, event: null });
-		expect(runtime.service.state.value).toMatchObject({ snapshot: { tipId: "replacement-tip" }, event: null });
+		expect(runtime.service.state.value).toMatchObject({
+			snapshot: { tipId: "replacement-tip" },
+			event: null,
+		});
 		expect(resnapshot).toHaveBeenCalledOnce();
 
 		await runtime.dispose();

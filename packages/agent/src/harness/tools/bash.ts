@@ -132,7 +132,9 @@ export function createBashTool<TContext extends ExecutionToolContext = Execution
 						: result.error.code === "aborted"
 							? "Command aborted"
 							: result.error.message;
-				throw new Error(outputText ? `${outputText}\n\n${status}` : status, { cause: result.error });
+				throw new Error(outputText ? `${outputText}\n\n${status}` : status, {
+					cause: result.error,
+				});
 			}
 			if (result.value.exitCode !== 0) {
 				throw new Error(

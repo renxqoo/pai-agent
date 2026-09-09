@@ -212,7 +212,12 @@ function operationError(code: string, message: string, details?: JsonValue): Ope
 
 type StructuralOutcome =
 	| { kind: "compaction"; resultEntryId: string; result: CompactResult; fromHook: boolean }
-	| { kind: "branch_summary"; resultEntryId: string; result: BranchSummaryResult; fromHook: boolean }
+	| {
+			kind: "branch_summary";
+			resultEntryId: string;
+			result: BranchSummaryResult;
+			fromHook: boolean;
+	  }
 	| { kind: "declined" }
 	| { kind: "failed"; error: OperationError };
 
@@ -282,7 +287,10 @@ async function publishStructuralOutcome<TContext extends object | undefined>(
 					type: "branch_summary",
 					fromId: meta.sourceTipId,
 					summary: outcome.result.summary,
-					details: { readFiles: outcome.result.readFiles, modifiedFiles: outcome.result.modifiedFiles },
+					details: {
+						readFiles: outcome.result.readFiles,
+						modifiedFiles: outcome.result.modifiedFiles,
+					},
 					...(outcome.result.usage === undefined ? {} : { usage: outcome.result.usage }),
 					fromHook: outcome.fromHook,
 				};
@@ -807,7 +815,10 @@ async function performStructuralAttempt<TContext extends object | undefined>(
 	let requestIndex = 0;
 	let lastResponse: AssistantMessage | undefined;
 	const request: SummaryRequest = async (aiContext, options, requestContext) => {
-		const baseOptions: AgentHarnessStreamOptions = { ...effect.summaryContext.streamOptions, deferred: false };
+		const baseOptions: AgentHarnessStreamOptions = {
+			...effect.summaryContext.streamOptions,
+			deferred: false,
+		};
 		const beforeRequest = await lane.hooks
 			.runWithGate(
 				"before_request",
@@ -1146,7 +1157,10 @@ export async function prepareCompactionThreshold<TContext extends object | undef
 	}
 	return {
 		kind: "result",
-		value: { taskId: lane.session.idGenerator.next(), preparation: durableCompactionPreparation(prepared.value) },
+		value: {
+			taskId: lane.session.idGenerator.next(),
+			preparation: durableCompactionPreparation(prepared.value),
+		},
 	};
 }
 

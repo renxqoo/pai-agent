@@ -110,7 +110,13 @@ describe("openai-codex streaming", () => {
 		const sse = `${[
 			`data: ${JSON.stringify({
 				type: "response.output_item.added",
-				item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+				item: {
+					type: "message",
+					id: "msg_1",
+					role: "assistant",
+					status: "in_progress",
+					content: [],
+				},
 			})}`,
 			`data: ${JSON.stringify({ type: "response.content_part.added", part: { type: "output_text", text: "" } })}`,
 			`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "Hello" })}`,
@@ -191,7 +197,10 @@ describe("openai-codex streaming", () => {
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
 		};
 
-		const streamResult = streamOpenAICodexResponses(model, context, { apiKey: token, transport: "sse" });
+		const streamResult = streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "sse",
+		});
 		let sawTextDelta = false;
 		let sawDone = false;
 
@@ -431,7 +440,13 @@ describe("openai-codex streaming", () => {
 					`${[
 						`data: ${JSON.stringify({
 							type: "response.output_item.added",
-							item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+							item: {
+								type: "message",
+								id: "msg_1",
+								role: "assistant",
+								status: "in_progress",
+								content: [],
+							},
 						})}`,
 						`data: ${JSON.stringify({ type: "response.content_part.added", part: { type: "output_text", text: "" } })}`,
 						`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "one" })}`,
@@ -538,7 +553,13 @@ describe("openai-codex streaming", () => {
 		const sse = `${[
 			`data: ${JSON.stringify({
 				type: "response.output_item.added",
-				item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+				item: {
+					type: "message",
+					id: "msg_1",
+					role: "assistant",
+					status: "in_progress",
+					content: [],
+				},
 			})}`,
 			`data: ${JSON.stringify({ type: "response.content_part.added", part: { type: "output_text", text: "" } })}`,
 			`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "Hello" })}`,
@@ -622,7 +643,11 @@ describe("openai-codex streaming", () => {
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
 		};
 
-		const streamResult = streamOpenAICodexResponses(model, context, { apiKey: token, sessionId, transport: "sse" });
+		const streamResult = streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			sessionId,
+			transport: "sse",
+		});
 		await streamResult.result();
 	});
 
@@ -875,7 +900,11 @@ describe("openai-codex streaming", () => {
 			model,
 			{
 				messages: [
-					{ role: "user", content: "Do not call ping. Respond with text instead.", timestamp: Date.now() },
+					{
+						role: "user",
+						content: "Do not call ping. Respond with text instead.",
+						timestamp: Date.now(),
+					},
 				],
 				tools: [
 					{
@@ -973,7 +1002,13 @@ describe("openai-codex streaming", () => {
 		const sse = `${[
 			`data: ${JSON.stringify({
 				type: "response.output_item.added",
-				item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+				item: {
+					type: "message",
+					id: "msg_1",
+					role: "assistant",
+					status: "in_progress",
+					content: [],
+				},
 			})}`,
 			`data: ${JSON.stringify({ type: "response.content_part.added", part: { type: "output_text", text: "" } })}`,
 			`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "Hello" })}`,
@@ -1074,7 +1109,13 @@ describe("openai-codex streaming", () => {
 			const sse = `${[
 				`data: ${JSON.stringify({
 					type: "response.output_item.added",
-					item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+					item: {
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						status: "in_progress",
+						content: [],
+					},
 				})}`,
 				`data: ${JSON.stringify({ type: "response.content_part.added", part: { type: "output_text", text: "" } })}`,
 				`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "Hello" })}`,
@@ -1172,7 +1213,13 @@ describe("openai-codex streaming", () => {
 		const sse = `${[
 			`data: ${JSON.stringify({
 				type: "response.output_item.added",
-				item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+				item: {
+					type: "message",
+					id: "msg_1",
+					role: "assistant",
+					status: "in_progress",
+					content: [],
+				},
 			})}`,
 			`data: ${JSON.stringify({ type: "response.content_part.added", part: { type: "output_text", text: "" } })}`,
 			`data: ${JSON.stringify({ type: "response.output_text.delta", delta: "Hello" })}`,
@@ -1252,7 +1299,10 @@ describe("openai-codex streaming", () => {
 		};
 
 		// No sessionId provided
-		const streamResult = streamOpenAICodexResponses(model, context, { apiKey: token, transport: "sse" });
+		const streamResult = streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "sse",
+		});
 		await streamResult.result();
 	});
 	it("forwards auto transport from streamSimple options and uses cached websocket context", async () => {
@@ -1291,7 +1341,13 @@ describe("openai-codex streaming", () => {
 				const events = [
 					{
 						type: "response.output_item.added",
-						item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+						item: {
+							type: "message",
+							id: "msg_1",
+							role: "assistant",
+							status: "in_progress",
+							content: [],
+						},
 					},
 					{ type: "response.content_part.added", part: { type: "output_text", text: "" } },
 					{ type: "response.output_text.delta", delta: "Hello" },
@@ -1447,9 +1503,18 @@ describe("openai-codex streaming", () => {
 		const context: Context = { systemPrompt: "", messages: [] };
 		const options = { sessionId: "shared-session", transport: "websocket-cached" as const };
 
-		await streamOpenAICodexResponses(model, context, { ...options, apiKey: mockToken("account-a") }).result();
-		await streamOpenAICodexResponses(model, context, { ...options, apiKey: mockToken("account-b") }).result();
-		await streamOpenAICodexResponses(model, context, { ...options, apiKey: mockToken("account-a") }).result();
+		await streamOpenAICodexResponses(model, context, {
+			...options,
+			apiKey: mockToken("account-a"),
+		}).result();
+		await streamOpenAICodexResponses(model, context, {
+			...options,
+			apiKey: mockToken("account-b"),
+		}).result();
+		await streamOpenAICodexResponses(model, context, {
+			...options,
+			apiKey: mockToken("account-a"),
+		}).result();
 
 		expect(connectedHeaders.map((headers) => headers["chatgpt-account-id"])).toEqual(["account-a", "account-b"]);
 		expect(connectedHeaders.map((headers) => headers.authorization)).toEqual([
@@ -1842,7 +1907,13 @@ describe("openai-codex streaming", () => {
 					this.dispatch("message", {
 						data: JSON.stringify({
 							type: "response.output_item.added",
-							item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] },
+							item: {
+								type: "message",
+								id: "msg_1",
+								role: "assistant",
+								status: "in_progress",
+								content: [],
+							},
 						}),
 					});
 				});
@@ -2146,8 +2217,16 @@ describe("openai-codex streaming", () => {
 		}).result();
 
 		expect(sentBodies).toHaveLength(2);
-		const firstBody = sentBodies[0] as { input: unknown[]; previous_response_id?: string; store?: boolean };
-		const secondBody = sentBodies[1] as { input: unknown[]; previous_response_id?: string; store?: boolean };
+		const firstBody = sentBodies[0] as {
+			input: unknown[];
+			previous_response_id?: string;
+			store?: boolean;
+		};
+		const secondBody = sentBodies[1] as {
+			input: unknown[];
+			previous_response_id?: string;
+			store?: boolean;
+		};
 		expect(firstBody.store).toBe(false);
 		expect(firstBody.previous_response_id).toBeUndefined();
 		expect(firstBody.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "Use the tool" }] }]);
@@ -2393,7 +2472,10 @@ describe("openai-codex streaming", () => {
 		["retry-after seconds", () => ({ "content-type": "application/json", "retry-after": "60" }), 60_000],
 		[
 			"retry-after HTTP date",
-			() => ({ "content-type": "application/json", "retry-after": new Date(Date.now() + 45_000).toUTCString() }),
+			() => ({
+				"content-type": "application/json",
+				"retry-after": new Date(Date.now() + 45_000).toUTCString(),
+			}),
 			45_000,
 		],
 	] as const)("uses %s for SSE retries", async (_name, makeHeaders, expectedDelay) => {

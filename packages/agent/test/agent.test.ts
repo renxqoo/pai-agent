@@ -269,7 +269,11 @@ describe("Agent", () => {
 					stream.push({ type: "start", partial: createAssistantMessage("") });
 					const checkAbort = () => {
 						if (options?.signal?.aborted) {
-							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+							stream.push({
+								type: "error",
+								reason: "aborted",
+								error: createAssistantMessage("Aborted"),
+							});
 						} else {
 							setTimeout(checkAbort, 5);
 						}
@@ -468,7 +472,10 @@ describe("Agent", () => {
 		expect(agent.state.messages).not.toBe(messages); // Should be a copy
 
 		// Test appendMessage
-		const newMessage = { role: "assistant" as const, content: [{ type: "text" as const, text: "Hi" }] };
+		const newMessage = {
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: "Hi" }],
+		};
 		agent.state.messages.push(newMessage as any);
 		expect(agent.state.messages).toHaveLength(2);
 		expect(agent.state.messages[1]).toBe(newMessage);
@@ -551,7 +558,11 @@ describe("Agent", () => {
 					// Check abort signal periodically
 					const checkAbort = () => {
 						if (abortSignal?.aborted) {
-							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+							stream.push({
+								type: "error",
+								reason: "aborted",
+								error: createAssistantMessage("Aborted"),
+							});
 						} else {
 							setTimeout(checkAbort, 5);
 						}
@@ -589,7 +600,11 @@ describe("Agent", () => {
 					stream.push({ type: "start", partial: createAssistantMessage("") });
 					const checkAbort = () => {
 						if (abortSignal?.aborted) {
-							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+							stream.push({
+								type: "error",
+								reason: "aborted",
+								error: createAssistantMessage("Aborted"),
+							});
 						} else {
 							setTimeout(checkAbort, 5);
 						}
@@ -620,7 +635,11 @@ describe("Agent", () => {
 			streamFn: () => {
 				const stream = new MockAssistantStream();
 				queueMicrotask(() => {
-					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Processed") });
+					stream.push({
+						type: "done",
+						reason: "stop",
+						message: createAssistantMessage("Processed"),
+					});
 				});
 				return stream;
 			},

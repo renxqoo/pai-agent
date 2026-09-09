@@ -84,7 +84,11 @@ function loginGitHubCopilotForTest(options: {
 		signal: options.signal ?? neverAbortedSignal,
 		prompt: (prompt) => {
 			if (prompt.type !== "text") throw new Error(`Unexpected prompt: ${prompt.type}`);
-			return options.onPrompt({ message: prompt.message, placeholder: prompt.placeholder, allowEmpty: true });
+			return options.onPrompt({
+				message: prompt.message,
+				placeholder: prompt.placeholder,
+				allowEmpty: true,
+			});
 		},
 		notify: (event) => {
 			if (event.type === "device_code") {
@@ -418,7 +422,11 @@ describe("GitHub Copilot OAuth device flow", () => {
 		stubGitHubCopilotLoginFetch({
 			models: () =>
 				jsonResponse({
-					data: modelIds.map((id) => ({ id, model_picker_enabled: true, policy: { state: "unconfigured" } })),
+					data: modelIds.map((id) => ({
+						id,
+						model_picker_enabled: true,
+						policy: { state: "unconfigured" },
+					})),
 				}),
 			policy: (modelId) => {
 				policyModelIds.push(modelId);

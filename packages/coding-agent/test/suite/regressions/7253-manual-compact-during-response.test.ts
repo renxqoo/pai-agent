@@ -64,7 +64,9 @@ describe("issue #7253: manual compaction during an active response", () => {
 		await secondResponseStarted;
 
 		const compactPromise = harness.session.compact();
-		const compactExpectation = expect(compactPromise).resolves.toMatchObject({ summary: "manual summary" });
+		const compactExpectation = expect(compactPromise).resolves.toMatchObject({
+			summary: "manual summary",
+		});
 		releaseSecondResponse();
 		await Promise.all([promptPromise, compactExpectation]);
 

@@ -236,6 +236,9 @@ describe("remote catalog provider", () => {
 
 		await expect(refreshProvider(provider, store)).resolves.toBeUndefined();
 		expect(provider.getModels().map((entry) => entry.id)).toEqual(["static"]);
-		expect(await store.read(provider.id)).toMatchObject({ models: [], checkedAt: expect.any(Number) });
+		expect(await store.read(provider.id)).toMatchObject({
+			models: [],
+			checkedAt: expect.any(Number),
+		});
 	});
 });

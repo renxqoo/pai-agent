@@ -137,7 +137,9 @@ describe("Google thinking level maps", () => {
 			reasoning,
 		);
 
-		expect(payload).toMatchObject({ config: { thinkingConfig: { includeThoughts: true, thinkingLevel: "HIGH" } } });
+		expect(payload).toMatchObject({
+			config: { thinkingConfig: { includeThoughts: true, thinkingLevel: "HIGH" } },
+		});
 	});
 
 	it("honors uppercase provider values for standard Google Generative AI levels", async () => {
@@ -157,7 +159,9 @@ describe("Google thinking level maps", () => {
 	it("maps Google Vertex extended levels", async () => {
 		const payload = await captureVertexPayload(vertexModel("gemini-3.7-flash", { xhigh: "high" }), "xhigh");
 
-		expect(payload).toMatchObject({ config: { thinkingConfig: { includeThoughts: true, thinkingLevel: "HIGH" } } });
+		expect(payload).toMatchObject({
+			config: { thinkingConfig: { includeThoughts: true, thinkingLevel: "HIGH" } },
+		});
 	});
 
 	it("uses mapped Google Vertex levels for token budgets", async () => {

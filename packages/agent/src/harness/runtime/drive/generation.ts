@@ -73,7 +73,10 @@ async function prepareGeneration<TContext extends object | undefined>(
 	const identity = generation.generationContext.configuration.model;
 	const model = lane.models.getModel(identity.provider, identity.modelId);
 	if (model === undefined) {
-		return { kind: "configuration_failure", error: configurationError("model_unavailable", identity) };
+		return {
+			kind: "configuration_failure",
+			error: configurationError("model_unavailable", identity),
+		};
 	}
 
 	const config = lane.readConfig();
@@ -148,7 +151,10 @@ async function publishGenerationIntent<TContext extends object | undefined>(
 	return lane.continueOperation(
 		ready,
 		(_state, current) => {
-			const nextState: AssistantEffectPendingOperation = { ...operationScopeOf(current), ...pending };
+			const nextState: AssistantEffectPendingOperation = {
+				...operationScopeOf(current),
+				...pending,
+			};
 			return {
 				kind: "commit",
 				writes: [],

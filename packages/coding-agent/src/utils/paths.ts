@@ -133,7 +133,10 @@ export function markPathIgnoredByCloudSync(path: string): void {
 		if (process.platform === "darwin") {
 			spawnProcessSync("xattr", ["-w", attr, "1", path], { encoding: "utf-8", stdio: "ignore" });
 		} else {
-			spawnProcessSync("setfattr", ["-n", attr, "-v", "1", path], { encoding: "utf-8", stdio: "ignore" });
+			spawnProcessSync("setfattr", ["-n", attr, "-v", "1", path], {
+				encoding: "utf-8",
+				stdio: "ignore",
+			});
 		}
 	}
 }

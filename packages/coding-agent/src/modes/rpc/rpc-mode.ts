@@ -266,7 +266,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					},
 					reject,
 				});
-				output({ type: "extension_ui_request", id, method: "editor", title, prefill } as RpcExtensionUIRequest);
+				output({
+					type: "extension_ui_request",
+					id,
+					method: "editor",
+					title,
+					prefill,
+				} as RpcExtensionUIRequest);
 			});
 		},
 
@@ -346,7 +352,12 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				shutdownRequested = true;
 			},
 			onError: (err) => {
-				output({ type: "extension_error", extensionPath: err.extensionPath, event: err.event, error: err.error });
+				output({
+					type: "extension_error",
+					extensionPath: err.extensionPath,
+					event: err.event,
+					error: err.error,
+				});
 			},
 		});
 
@@ -650,7 +661,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 
 			case "get_tree": {
 				const sessionManager = session.sessionManager;
-				return success(id, "get_tree", { tree: sessionManager.getTree(), leafId: sessionManager.getLeafId() });
+				return success(id, "get_tree", {
+					tree: sessionManager.getTree(),
+					leafId: sessionManager.getLeafId(),
+				});
 			}
 
 			case "get_last_assistant_text": {

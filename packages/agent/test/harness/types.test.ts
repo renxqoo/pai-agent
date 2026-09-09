@@ -166,12 +166,21 @@ const operationStates = [
 	{
 		...runScope,
 		at: "summary.deciding",
-		task: { taskId: "task", reason: "threshold", boundary: { kind: "resume_checkpoint", resumeAfter: checkpoint } },
+		task: {
+			taskId: "task",
+			reason: "threshold",
+			boundary: { kind: "resume_checkpoint", resumeAfter: checkpoint },
+		},
 	},
 	{
 		...runScope,
 		at: "summary.ready",
-		task: { taskId: "task", reason: "manual", customInstructions: "compact", boundary: { kind: "finish" } },
+		task: {
+			taskId: "task",
+			reason: "manual",
+			customInstructions: "compact",
+			boundary: { kind: "finish" },
+		},
 		summaryContext,
 		nextAttempt: 1,
 	},
@@ -190,7 +199,11 @@ const operationStates = [
 	{
 		...runScope,
 		at: "summary.retry_wait",
-		task: { taskId: "task", reason: "overflow", boundary: { kind: "resume_checkpoint", resumeAfter: checkpoint } },
+		task: {
+			taskId: "task",
+			reason: "overflow",
+			boundary: { kind: "resume_checkpoint", resumeAfter: checkpoint },
+		},
 		summaryContext,
 		nextAttempt: 2,
 		notBefore: 10,

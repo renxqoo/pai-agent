@@ -67,7 +67,11 @@ describe("provider request retries", () => {
 		const controller = new AbortController();
 		const request = vi.fn<() => Promise<string>>().mockRejectedValue(providerError(429, { "retry-after": "277403" }));
 
-		const result = retryProviderRequest(request, { maxRetries: 2, maxRetryDelayMs: 0, signal: controller.signal });
+		const result = retryProviderRequest(request, {
+			maxRetries: 2,
+			maxRetryDelayMs: 0,
+			signal: controller.signal,
+		});
 		await vi.advanceTimersByTimeAsync(0);
 		expect(request).toHaveBeenCalledTimes(1);
 		expect(vi.getTimerCount()).toBe(1);

@@ -187,7 +187,9 @@ export class JsonlStorage implements Storage {
 		}
 		const parsedHeader = parseJsonlSessionHeader(lines[0]);
 		if (!parsedHeader.ok) {
-			throw new Error(`Invalid JSONL storage ${options.path}: invalid header`, { cause: parsedHeader.error });
+			throw new Error(`Invalid JSONL storage ${options.path}: invalid header`, {
+				cause: parsedHeader.error,
+			});
 		}
 		if (parsedHeader.value.format === "v3-legacy") {
 			return JsonlStorage.openLegacyV3(options, parsedHeader.value.header, lines.slice(1), context);
@@ -203,7 +205,9 @@ export class JsonlStorage implements Storage {
 			try {
 				storage.replayCommitted(parseTransaction(line));
 			} catch (error) {
-				throw new Error(`Invalid JSONL storage ${options.path}: line ${index + 1}`, { cause: error });
+				throw new Error(`Invalid JSONL storage ${options.path}: line ${index + 1}`, {
+					cause: error,
+				});
 			}
 		}
 		if (header.nextSeq !== undefined) storage.storageState.advanceNextSeq(header.nextSeq);

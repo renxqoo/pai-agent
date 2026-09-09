@@ -37,7 +37,10 @@ describe("settings diagnostics", () => {
 	});
 
 	it("deduplicates diagnostics by type and message", () => {
-		const warning = { type: "warning" as const, message: "Invalid settings file /tmp/settings.json" };
+		const warning = {
+			type: "warning" as const,
+			message: "Invalid settings file /tmp/settings.json",
+		};
 
 		expect(deduplicateDiagnostics([warning, warning, { ...warning, type: "error" }])).toEqual([
 			warning,

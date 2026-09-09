@@ -122,9 +122,15 @@ describe("tool execution primitives", () => {
 		const execute: AgentHarnessTool<undefined, typeof parameters, { value: string }>["execute"] = vi.fn(
 			async (_id, args, onUpdate, _toolContext, _invocation, context) => {
 				expect(context.abortSignal).toBe(gate.signal);
-				onUpdate?.({ content: [{ type: "text", text: "partial" }], details: { value: args.value } });
+				onUpdate?.({
+					content: [{ type: "text", text: "partial" }],
+					details: { value: args.value },
+				});
 				lateUpdate = onUpdate;
-				return { content: [{ type: "text" as const, text: "done" }], details: { value: args.value } };
+				return {
+					content: [{ type: "text" as const, text: "done" }],
+					details: { value: args.value },
+				};
 			},
 		);
 		const cleared = clearPrepared(prepareToolCall(call(), [tool({ execute })]));

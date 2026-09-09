@@ -32,7 +32,9 @@ describe("image processing pipeline", () => {
 	});
 
 	it("converts BMP files to PNG attachments when auto-resize is disabled", async () => {
-		const result = await processImage(createTinyBmp1x1Red24bpp(), "image/bmp", { autoResizeImages: false });
+		const result = await processImage(createTinyBmp1x1Red24bpp(), "image/bmp", {
+			autoResizeImages: false,
+		});
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;

@@ -157,7 +157,10 @@ export class SqliteStorage implements Storage {
 		if (sourceTip === undefined) throw new Error(`Unknown source branch: ${options.branch}`);
 		return sourceTip.value === null
 			? []
-			: scanBranchEntries(this.db, this.sessionId, { start: sourceTip.value, order: "oldestFirst" });
+			: scanBranchEntries(this.db, this.sessionId, {
+					start: sourceTip.value,
+					order: "oldestFirst",
+				});
 	}
 
 	private applyCommit(writes: Write[]): CommitResult {

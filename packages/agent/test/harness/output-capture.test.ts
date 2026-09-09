@@ -144,7 +144,10 @@ describe("OutputCapture", () => {
 		const { capture, updates, errors } = createCapture();
 		capture.push("output");
 		capture.setSpillPath("/tmp/output.log");
-		expect(updates.at(-1)).toMatchObject({ kind: "metadata", metadata: { spillPath: "/tmp/output.log" } });
+		expect(updates.at(-1)).toMatchObject({
+			kind: "metadata",
+			metadata: { spillPath: "/tmp/output.log" },
+		});
 		expect(fold(updates)?.spillPath).toBe("/tmp/output.log");
 		expect(errors).toEqual([]);
 	});

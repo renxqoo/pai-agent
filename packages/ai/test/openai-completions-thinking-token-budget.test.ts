@@ -26,7 +26,10 @@ vi.mock("openai", () => {
 						},
 					};
 					const promise = Promise.resolve(stream) as Promise<typeof stream> & {
-						withResponse: () => Promise<{ data: typeof stream; response: { status: number; headers: Headers } }>;
+						withResponse: () => Promise<{
+							data: typeof stream;
+							response: { status: number; headers: Headers };
+						}>;
 					};
 					promise.withResponse = async () => ({
 						data: stream,
@@ -103,7 +106,10 @@ describe("openai-completions thinking token budget", () => {
 	});
 
 	it("sends the configured budget for the requested level", async () => {
-		const params = await capture(vllmModel(), { reasoning: "medium", thinkingBudgets: { medium: 4096 } });
+		const params = await capture(vllmModel(), {
+			reasoning: "medium",
+			thinkingBudgets: { medium: 4096 },
+		});
 		expect(params.thinking_token_budget).toBe(4096);
 	});
 
@@ -118,12 +124,18 @@ describe("openai-completions thinking token budget", () => {
 	});
 
 	it("omits the budget when thinking is off", async () => {
-		const params = await capture(vllmModel(), { reasoning: undefined, thinkingBudgets: { high: 8192 } });
+		const params = await capture(vllmModel(), {
+			reasoning: undefined,
+			thinkingBudgets: { high: 8192 },
+		});
 		expect(params.thinking_token_budget).toBeUndefined();
 	});
 
 	it("clamps xhigh and max to the high budget", async () => {
-		const xhigh = await capture(vllmModel(), { reasoning: "xhigh", thinkingBudgets: { high: 8192 } });
+		const xhigh = await capture(vllmModel(), {
+			reasoning: "xhigh",
+			thinkingBudgets: { high: 8192 },
+		});
 		const max = await capture(vllmModel(), { reasoning: "max", thinkingBudgets: { high: 8192 } });
 		expect(xhigh.thinking_token_budget).toBe(8192);
 		expect(max.thinking_token_budget).toBe(8192);

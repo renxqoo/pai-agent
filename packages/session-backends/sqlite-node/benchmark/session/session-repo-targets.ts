@@ -6,28 +6,28 @@ import { createNodeSqliteFactory, SqliteSessionRepo } from "../../src/index.ts";
 import type { BenchmarkTarget } from "../../../../agent/benchmark/session/benchmark.ts";
 
 export interface SessionRepoBenchmarkFixture extends AsyncDisposable {
-	readonly repo: SessionRepo;
+  readonly repo: SessionRepo;
 }
 
 const NOW = 1_700_000_000_000;
 
 export const sessionRepoBenchmarkTargets = [
-	{
-		name: "sqlite",
-		async createFixture() {
-			const directory = await mkdtemp(join(tmpdir(), "pi-sqlite-session-repo-benchmark-"));
-			const repo = new SqliteSessionRepo({
-				directory,
-				databaseFactory: createNodeSqliteFactory(),
-				now: () => NOW,
-			});
-			return {
-				repo,
-				async [Symbol.asyncDispose]() {
-					await repo.close(BACKGROUND_CONTEXT);
-					await rm(directory, { recursive: true, force: true });
-				},
-			};
-		},
-	},
+  {
+    name: "sqlite",
+    async createFixture() {
+      const directory = await mkdtemp(join(tmpdir(), "pi-sqlite-session-repo-benchmark-"));
+      const repo = new SqliteSessionRepo({
+        directory,
+        databaseFactory: createNodeSqliteFactory(),
+        now: () => NOW,
+      });
+      return {
+        repo,
+        async [Symbol.asyncDispose]() {
+          await repo.close(BACKGROUND_CONTEXT);
+          await rm(directory, { recursive: true, force: true });
+        },
+      };
+    },
+  },
 ] satisfies readonly BenchmarkTarget<SessionRepoBenchmarkFixture>[];

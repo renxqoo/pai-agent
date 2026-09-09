@@ -38,7 +38,10 @@ async function collectShellOutput(
 	command: string,
 	options: ShellExecOptions | undefined,
 	context: Parameters<NodeExecutionEnv["exec"]>[2],
-): Promise<{ result: Awaited<ReturnType<NodeExecutionEnv["exec"]>>; output: ShellOutputView | undefined }> {
+): Promise<{
+	result: Awaited<ReturnType<NodeExecutionEnv["exec"]>>;
+	output: ShellOutputView | undefined;
+}> {
 	let output: ShellOutputView | undefined;
 	const result = await env.exec(
 		command,
@@ -507,7 +510,10 @@ describe("NodeExecutionEnv", () => {
 
 		expect(result).toMatchObject({
 			ok: false,
-			error: { code: "spawn_error", message: expect.stringContaining("Working directory does not exist") },
+			error: {
+				code: "spawn_error",
+				message: expect.stringContaining("Working directory does not exist"),
+			},
 		});
 	});
 
@@ -553,7 +559,10 @@ describe("NodeExecutionEnv", () => {
 
 	it("returns shell unavailable and spawn errors", async () => {
 		const root = createTempDir();
-		const missingShellEnv = new NodeExecutionEnv({ cwd: root, shellPath: join(root, "missing-shell") });
+		const missingShellEnv = new NodeExecutionEnv({
+			cwd: root,
+			shellPath: join(root, "missing-shell"),
+		});
 		const missingShell = await missingShellEnv.exec("printf ok", undefined, BACKGROUND_CONTEXT);
 		expect(missingShell.ok).toBe(false);
 		if (!missingShell.ok) expect(missingShell.error).toMatchObject({ code: "shell_unavailable" });
@@ -669,7 +678,10 @@ describe("NodeExecutionEnv", () => {
 		);
 		expect(result).toMatchObject({
 			ok: false,
-			error: { code: "unknown", message: expect.stringContaining("Failed to preserve complete shell output") },
+			error: {
+				code: "unknown",
+				message: expect.stringContaining("Failed to preserve complete shell output"),
+			},
 		});
 	});
 

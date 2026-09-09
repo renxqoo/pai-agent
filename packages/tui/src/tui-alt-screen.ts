@@ -259,7 +259,10 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 				for (const child of this.children) child.invalidate();
 			},
 		};
-		this.implicitScrollView = new ScrollView(this.implicitDocument, { follow: "end", primary: true });
+		this.implicitScrollView = new ScrollView(this.implicitDocument, {
+			follow: "end",
+			primary: true,
+		});
 		this.flashes = new AltScreenFlashContainer(() => this.requestRender());
 		this.wheelScrollLines = Math.max(1, Math.floor(options.wheelScrollLines ?? 1));
 		this.mouseEnabled = options.mouse ?? true;

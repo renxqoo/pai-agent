@@ -155,7 +155,9 @@ describe("constrained tool sampling", () => {
 	it("falls back or rejects schemas that cannot be safely converted", () => {
 		const cases: Array<{ parameters: Tool["parameters"]; error: string }> = [
 			{
-				parameters: Type.Object({ metadata: Type.Object({}, { additionalProperties: Type.String() }) }),
+				parameters: Type.Object({
+					metadata: Type.Object({}, { additionalProperties: Type.String() }),
+				}),
 				error: "additionalProperties is unsupported",
 			},
 			{
@@ -274,7 +276,13 @@ describe("constrained tool sampling", () => {
 			{
 				type: "response.output_item.added",
 				output_index: 0,
-				item: { type: "custom_tool_call", call_id: "call_1", id: "ctc_1", name: "sample_tool", input: "a" },
+				item: {
+					type: "custom_tool_call",
+					call_id: "call_1",
+					id: "ctc_1",
+					name: "sample_tool",
+					input: "a",
+				},
 			},
 			{
 				type: "response.custom_tool_call_input.delta",
@@ -291,11 +299,20 @@ describe("constrained tool sampling", () => {
 			{
 				type: "response.output_item.done",
 				output_index: 0,
-				item: { type: "custom_tool_call", call_id: "call_1", id: "ctc_1", name: "sample_tool", input: "abc" },
+				item: {
+					type: "custom_tool_call",
+					call_id: "call_1",
+					id: "ctc_1",
+					name: "sample_tool",
+					input: "abc",
+				},
 			},
 			{
 				type: "response.completed",
-				response: { status: "completed", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } },
+				response: {
+					status: "completed",
+					usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+				},
 			},
 		] as ResponseStreamEvent[];
 

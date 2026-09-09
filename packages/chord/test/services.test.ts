@@ -627,7 +627,9 @@ describe("remote services", () => {
 		firstRequest.state.question = "Updated?";
 		firstRequest.publish(BACKGROUND_CONTEXT);
 		expect(firstService.request.value).toEqual({ question: "Updated?" });
-		await expect(firstService.submit("yes", BACKGROUND_CONTEXT)).resolves.toEqual({ accepted: true });
+		await expect(firstService.submit("yes", BACKGROUND_CONTEXT)).resolves.toEqual({
+			accepted: true,
+		});
 		expect(firstSubmit).toHaveBeenCalledWith("yes", expect.objectContaining({ abortSignal: undefined }));
 
 		const retainedFirstSubmit = firstService.submit;

@@ -114,7 +114,12 @@ export type OperationRequest =
 	| { kind: "skill"; operationId?: string; name: string; additionalInstructions?: string }
 	| { kind: "prompt_template"; operationId?: string; name: string; args?: string[] }
 	| { kind: "compaction"; operationId?: string; customInstructions?: string }
-	| { kind: "navigation"; operationId?: string; targetId: string | null; options?: NavigateOptions };
+	| {
+			kind: "navigation";
+			operationId?: string;
+			targetId: string | null;
+			options?: NavigateOptions;
+	  };
 
 export interface OperationAdmission {
 	operationId: string;
@@ -255,12 +260,26 @@ export interface SessionSnapshot {
 export type HarnessEventPayload =
 	| { type: "run_start"; runId: string; startedAt: number }
 	| { type: "run_resume"; runId: string }
-	| { type: "run_suspend"; runId: string; reason: "deferred"; deferred: DeferredHandle; poll: number }
-	| { type: "operation_abort"; operationId: string; steer: AgentMessage[]; followUp: AgentMessage[] }
-	| ({ type: "run_end"; runId: string; fromTipId: string | null; tipId: string | null; endedAt: number } & (
-			| { status: "completed" | "aborted"; error?: never }
-			| { status: "failed"; error: OperationError }
-	  ))
+	| {
+			type: "run_suspend";
+			runId: string;
+			reason: "deferred";
+			deferred: DeferredHandle;
+			poll: number;
+	  }
+	| {
+			type: "operation_abort";
+			operationId: string;
+			steer: AgentMessage[];
+			followUp: AgentMessage[];
+	  }
+	| ({
+			type: "run_end";
+			runId: string;
+			fromTipId: string | null;
+			tipId: string | null;
+			endedAt: number;
+	  } & ({ status: "completed" | "aborted"; error?: never } | { status: "failed"; error: OperationError }))
 	| { type: "fault"; code: string; message: string }
 	| ({ type: "handler_error"; error: string; stack?: string } & (
 			| { kind: "hook"; hook: string }
@@ -359,13 +378,24 @@ export type HarnessEventPayload =
 			reason: "manual" | "threshold" | "overflow";
 			startedAt: number;
 	  }
-	| ({ type: "compaction_end"; runId: string; reason: "manual" | "threshold" | "overflow"; endedAt: number } & (
+	| ({
+			type: "compaction_end";
+			runId: string;
+			reason: "manual" | "threshold" | "overflow";
+			endedAt: number;
+	  } & (
 			| { status: "completed"; entryId: string; error?: never }
 			| { status: "declined" | "aborted"; entryId?: never; error?: never }
 			| { status: "failed"; entryId?: never; error: OperationError }
 	  ))
 	| { type: "navigation_start"; runId: string; targetId: string | null; startedAt: number }
-	| ({ type: "navigation_end"; runId: string; fromTipId: string | null; tipId: string | null; endedAt: number } & (
+	| ({
+			type: "navigation_end";
+			runId: string;
+			fromTipId: string | null;
+			tipId: string | null;
+			endedAt: number;
+	  } & (
 			| { status: "completed" | "declined" | "aborted"; error?: never }
 			| { status: "failed"; error: OperationError }
 	  ))
@@ -399,7 +429,9 @@ export type HarnessEvent =
 type LaneWatchSourceEvent =
 	| Exclude<
 			HarnessEvent,
-			| { type: "handler_error" | "turn_start" | "turn_end" | "value_update" | "lane_created" | "message_update" }
+			| {
+					type: "handler_error" | "turn_start" | "turn_end" | "value_update" | "lane_created" | "message_update";
+			  }
 			| ({ type: "config_update" } & { property: string })
 	  >
 	| Extract<HarnessEvent, { type: "config_update"; property: "model" | "thinkingLevel" | "activeTools" }>

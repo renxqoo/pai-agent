@@ -160,7 +160,10 @@ export function applyShellOutputUpdate(
 		case "append":
 			return { text: `${current?.text ?? ""}${update.text}`, ...update.metadata };
 		case "slide":
-			return { text: `${current?.text.slice(update.drop) ?? ""}${update.text}`, ...update.metadata };
+			return {
+				text: `${current?.text.slice(update.drop) ?? ""}${update.text}`,
+				...update.metadata,
+			};
 		case "metadata":
 			return { text: current?.text ?? "", ...update.metadata };
 	}

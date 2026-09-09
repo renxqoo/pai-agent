@@ -89,7 +89,7 @@ Policy is harness-global rather than per tool:
 ```ts
 minIntervalMs = 100;
 targetBytesPerSecond = 100 * 1024;
-nextDelayMs = max(minIntervalMs, encodedUpdateBytes * 1000 / targetBytesPerSecond);
+nextDelayMs = max(minIntervalMs, (encodedUpdateBytes * 1000) / targetBytesPerSecond);
 ```
 
 The first dirty state after idle is immediate. Writes received before the deadline collapse into the latest bounded state. One trailing timer guarantees eventual publication. Finalization bypasses the deadline once, still bounded by the retained cap.
@@ -98,14 +98,14 @@ The publisher commits its baseline before invoking the consumer. If a consumer a
 
 ### Workload behavior
 
-| workload | result |
-| --- | --- |
-| Finishes below cap | immediate initial state, small appends, forced final state |
-| Below-cap trickle | isolated writes are immediate; sustained writes are at most 100 ms apart |
-| Full-force output after cap | complete turnovers are cap-sized replacements spaced by their encoded size |
-| Post-cap trickle | small verified `slide` updates remain responsive; the complete window is not resent |
-| Burst then silence | one leading update and one trailing update |
-| Error, timeout, or abort | latest bounded state is forced before the error settles |
+| workload                    | result                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------- |
+| Finishes below cap          | immediate initial state, small appends, forced final state                          |
+| Below-cap trickle           | isolated writes are immediate; sustained writes are at most 100 ms apart            |
+| Full-force output after cap | complete turnovers are cap-sized replacements spaced by their encoded size          |
+| Post-cap trickle            | small verified `slide` updates remain responsive; the complete window is not resent |
+| Burst then silence          | one leading update and one trailing update                                          |
+| Error, timeout, or abort    | latest bounded state is forced before the error settles                             |
 
 At a 50 KB cap and 100 KB/s target, repeated complete turnovers settle near two updates per second. Small post-cap slides still use the 100 ms floor.
 

@@ -51,7 +51,14 @@ function compaction(id: string, parentId: string | null, summary: string, firstK
 }
 
 function branchSummary(id: string, parentId: string | null, summary: string, fromId: string): BranchSummaryEntry {
-	return { type: "branch_summary", id, parentId, timestamp: "2025-01-01T00:00:00Z", summary, fromId };
+	return {
+		type: "branch_summary",
+		id,
+		parentId,
+		timestamp: "2025-01-01T00:00:00Z",
+		summary,
+		fromId,
+	};
 }
 
 function custom(id: string, parentId: string | null, customType: string, data?: unknown): CustomEntry {
@@ -59,11 +66,24 @@ function custom(id: string, parentId: string | null, customType: string, data?: 
 }
 
 function thinkingLevel(id: string, parentId: string | null, level: string): ThinkingLevelChangeEntry {
-	return { type: "thinking_level_change", id, parentId, timestamp: "2025-01-01T00:00:00Z", thinkingLevel: level };
+	return {
+		type: "thinking_level_change",
+		id,
+		parentId,
+		timestamp: "2025-01-01T00:00:00Z",
+		thinkingLevel: level,
+	};
 }
 
 function modelChange(id: string, parentId: string | null, provider: string, modelId: string): ModelChangeEntry {
-	return { type: "model_change", id, parentId, timestamp: "2025-01-01T00:00:00Z", provider, modelId };
+	return {
+		type: "model_change",
+		id,
+		parentId,
+		timestamp: "2025-01-01T00:00:00Z",
+		provider,
+		modelId,
+	};
 }
 
 describe("buildSessionContext", () => {

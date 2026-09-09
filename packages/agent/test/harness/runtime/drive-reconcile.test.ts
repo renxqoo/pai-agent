@@ -205,9 +205,18 @@ async function installOperation(fixture: Fixture, installed: InstalledOperation)
 function deferredOperation(
 	fixture: Fixture,
 	effectPending: boolean,
-): { state: DeferredSuspendedOperation | DeferredEffectPendingOperation; entry: NewEntry; handle: DeferredHandle } {
+): {
+	state: DeferredSuspendedOperation | DeferredEffectPendingOperation;
+	entry: NewEntry;
+	handle: DeferredHandle;
+} {
 	const model = fixture.faux.getModel();
-	const handle = { provider: model.provider, modelId: model.id, api: model.api, id: "deferred-job" };
+	const handle = {
+		provider: model.provider,
+		modelId: model.id,
+		api: model.api,
+		id: "deferred-job",
+	};
 	const entry: NewEntry = {
 		id: "deferred-source",
 		parentId: null,
@@ -256,7 +265,11 @@ function cases(fixture: Fixture): InstalledOperation[] {
 			},
 		},
 	};
-	const compactionTask: SummaryTask = { taskId: "compaction", reason: "manual", boundary: { kind: "finish" } };
+	const compactionTask: SummaryTask = {
+		taskId: "compaction",
+		reason: "manual",
+		boundary: { kind: "finish" },
+	};
 	const navigationTask: SummaryTask = {
 		taskId: "navigation",
 		boundary: { kind: "commit_navigation", targetId: "target" },
@@ -463,7 +476,9 @@ describe("runtime cancellation reconciliation", () => {
 			});
 			expect(beforeDrive).not.toHaveBeenCalled();
 			expect(fixture.lane.state.operation).toBeNull();
-			expect(await fixture.lane.getResult(operationId, BACKGROUND_CONTEXT)).toMatchObject({ status: "aborted" });
+			expect(await fixture.lane.getResult(operationId, BACKGROUND_CONTEXT)).toMatchObject({
+				status: "aborted",
+			});
 			expect(
 				await fixture.session.getValue(storedValues.operationMeta(operationId), BACKGROUND_CONTEXT),
 			).toBeUndefined();

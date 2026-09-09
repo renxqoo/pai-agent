@@ -13,9 +13,16 @@ state → facet → wire → consumer.
 
 ```ts
 // packages/agent/src/harness/tools/bash.ts
-export interface BashToolDetails { spillPath?: string; truncation?: ShellOutputTruncation }
+export interface BashToolDetails {
+  spillPath?: string;
+  truncation?: ShellOutputTruncation;
+}
 
-export function createBashTool(): AgentHarnessTool<ExecutionToolContext, typeof bashSchema, BashToolDetails> {
+export function createBashTool(): AgentHarnessTool<
+  ExecutionToolContext,
+  typeof bashSchema,
+  BashToolDetails
+> {
   return {
     name: "bash",
     parameters: bashSchema,
@@ -25,19 +32,25 @@ export function createBashTool(): AgentHarnessTool<ExecutionToolContext, typeof 
       const env = context.env;
       let view: ShellOutputView | undefined;
 
-      const result = getOrThrow(await env.exec(command, {
-        cwd: env.cwd,
-        inheritEnv: true,
-        timeout,
-        capture: { limits: this.output, spill: true },
-        onUpdate: (u) => {
-          view = applyShellOutputUpdate(view, u);
-          if (u.kind === "append") out.write(u.text);
-          else out.replace(view.text);
-          out.details.truncation = view.truncation;
-          if (view.spillPath) out.details.spillPath = view.spillPath;
-        },
-      }, context));
+      const result = getOrThrow(
+        await env.exec(
+          command,
+          {
+            cwd: env.cwd,
+            inheritEnv: true,
+            timeout,
+            capture: { limits: this.output, spill: true },
+            onUpdate: (u) => {
+              view = applyShellOutputUpdate(view, u);
+              if (u.kind === "append") out.write(u.text);
+              else out.replace(view.text);
+              out.details.truncation = view.truncation;
+              if (view.spillPath) out.details.spillPath = view.spillPath;
+            },
+          },
+          context,
+        ),
+      );
 
       if (result.spillPath) out.details.spillPath = result.spillPath;
       if (result.truncation.truncated) out.write(`\n\n[${describe(result.truncation)}]`);
@@ -153,17 +166,21 @@ commit that mixes scopes, so this cannot regress silently.
 export function reduceLaneSnapshot(view: LaneView, event: HarnessEvent): void {
   switch (event.type) {
     case "tool_start":
-      view.operation.tools.push({ id: event.toolCallId, name: event.toolName,
-                                  args: event.args, output: undefined });
+      view.operation.tools.push({
+        id: event.toolCallId,
+        name: event.toolName,
+        args: event.args,
+        output: undefined,
+      });
       return;
     case "tool_update": {
       const tool = view.operation.tools.find((t) => t.id === event.toolCallId);
-      if (tool === undefined) return;                  // host will send a base batch
+      if (tool === undefined) return; // host will send a base batch
       tool.output = apply(tool.output, event.ops);
       return;
     }
     case "tool_end": {
-      const i = view.operation.tools.findIndex(t => t.id === event.toolCallId);
+      const i = view.operation.tools.findIndex((t) => t.id === event.toolCallId);
       if (i >= 0) view.operation.tools.splice(i, 1);
       return;
     }
@@ -196,14 +213,14 @@ code, against a plain mutable object it owns.
 
 256 KB of output, ~20 flushes, 50 KB window:
 
-| | today | this design |
-|---|---|---|
-| durable writes | full `AgentToolResult` per checkpoint | structural ops plus explicit periodic capped base batches |
-| durable location | main log, forever | sidecar, unlinked on settle |
-| wire per flush | whole snapshot | one `truncate` + one `append` |
-| details written | rebuilt whole, every flush | one `set`, once |
-| truncation logic | in `bash.ts` | in the exec env, shared by all tools |
-| spill location | `/tmp`, OS-cleaned | exec env, session-scoped |
+|                  | today                                 | this design                                               |
+| ---------------- | ------------------------------------- | --------------------------------------------------------- |
+| durable writes   | full `AgentToolResult` per checkpoint | structural ops plus explicit periodic capped base batches |
+| durable location | main log, forever                     | sidecar, unlinked on settle                               |
+| wire per flush   | whole snapshot                        | one `truncate` + one `append`                             |
+| details written  | rebuilt whole, every flush            | one `set`, once                                           |
+| truncation logic | in `bash.ts`                          | in the exec env, shared by all tools                      |
+| spill location   | `/tmp`, OS-cleaned                    | exec env, session-scoped                                  |
 
 The details row is the one worth dwelling on. Nothing about bash's details
 changed — they were always small. What changed is that they stopped riding inside

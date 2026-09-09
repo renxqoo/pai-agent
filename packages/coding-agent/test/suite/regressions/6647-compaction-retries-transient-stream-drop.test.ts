@@ -83,7 +83,9 @@ describe("#6647 compaction retries transient summarization failures", () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		harness.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 3, baseDelayMs: 0 } });
+		harness.settingsManager.applyOverrides({
+			retry: { enabled: true, maxRetries: 3, baseDelayMs: 0 },
+		});
 
 		const model = harness.getModel();
 		const error = (errorMessage: string): AssistantMessage => ({
@@ -115,7 +117,9 @@ describe("#6647 compaction retries transient summarization failures", () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		harness.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 3, baseDelayMs: 0 } });
+		harness.settingsManager.applyOverrides({
+			retry: { enabled: true, maxRetries: 3, baseDelayMs: 0 },
+		});
 
 		const error: AssistantMessage = {
 			...fauxAssistantMessage("", { stopReason: "error", errorMessage: "insufficient_quota" }),
@@ -132,7 +136,9 @@ describe("#6647 compaction retries transient summarization failures", () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		harness.settingsManager.applyOverrides({ retry: { enabled: false, maxRetries: 3, baseDelayMs: 0 } });
+		harness.settingsManager.applyOverrides({
+			retry: { enabled: false, maxRetries: 3, baseDelayMs: 0 },
+		});
 
 		const error: AssistantMessage = {
 			...fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }),
@@ -149,7 +155,9 @@ describe("#6647 compaction retries transient summarization failures", () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		harness.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 2, baseDelayMs: 0 } });
+		harness.settingsManager.applyOverrides({
+			retry: { enabled: true, maxRetries: 2, baseDelayMs: 0 },
+		});
 
 		const error: AssistantMessage = {
 			...fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }),
@@ -170,7 +178,9 @@ describe("#6647 compaction retries transient summarization failures", () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		harness.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 5, baseDelayMs: 30_000 } });
+		harness.settingsManager.applyOverrides({
+			retry: { enabled: true, maxRetries: 5, baseDelayMs: 30_000 },
+		});
 
 		const error: AssistantMessage = {
 			...fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }),

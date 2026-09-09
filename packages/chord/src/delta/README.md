@@ -45,10 +45,10 @@ const dec = decoder(); // consumer side
 let replica: { output: string } | undefined;
 
 const send = () => {
-	const ops = tracker.flush();
-	const wire = enc.encode(ops); // serialize or store WireOp[] here
-	const received = dec.decode(wire);
-	replica = apply(replica, received);
+  const ops = tracker.flush();
+  const wire = enc.encode(ops); // serialize or store WireOp[] here
+  const received = dec.decode(wire);
+  replica = apply(replica, received);
 };
 ```
 
@@ -70,21 +70,21 @@ batches use the same ordered transport connection.
 A path is an array of object keys and array indices:
 
 ```ts
-["operation", "message", "content", 0, "text"]
+["operation", "message", "content", 0, "text"];
 ```
 
 ### Decoded `Op`
 
 `track().flush()` returns these tuples, and `apply()` accepts them:
 
-| Tuple | Meaning |
-| --- | --- |
-| `["r", value]` | Replace the complete value. |
-| `["s", path, value]` | Set a property or array element. |
-| `["d", path]` | Delete an object property. |
-| `["a", path, text]` | Append to a string. |
-| `["t", path, count]` | Remove UTF-16 code units from a string's front. |
-| `["p", path, index, remove, items]` | Splice an array. |
+| Tuple                               | Meaning                                         |
+| ----------------------------------- | ----------------------------------------------- |
+| `["r", value]`                      | Replace the complete value.                     |
+| `["s", path, value]`                | Set a property or array element.                |
+| `["d", path]`                       | Delete an object property.                      |
+| `["a", path, text]`                 | Append to a string.                             |
+| `["t", path, count]`                | Remove UTF-16 code units from a string's front. |
+| `["p", path, index, remove, items]` | Splice an array.                                |
 
 Except for `r`, every decoded operation carries its complete path. `s`, `d`,
 `a`, and `t` cannot address the root. `p` may address a root array.
@@ -94,37 +94,37 @@ Except for `r`, every decoded operation carries its complete path. `s`, `d`,
 A `PathRef` is either an inline path or a non-negative numeric path ID.
 `WireOp` supports the following tuples:
 
-| Tuple | Meaning |
-| --- | --- |
-| `["r", value]` | Complete replacement; identical to decoded form. |
-| `["#", id, path]` | Define a numeric path ID. |
-| `["s", pathRef, value]` | Set with an inline or interned path. |
-| `["s", value]` | Set using the previous path in this batch. |
-| `["d", pathRef]` | Delete with an inline or interned path. |
-| `["d"]` | Delete using the previous path. |
-| `["a", pathRef, text]` | Append with an inline or interned path. |
-| `["a", text]` | Append using the previous path. |
-| `["t", pathRef, count]` | Front-truncate with an inline or interned path. |
-| `["t", count]` | Front-truncate using the previous path. |
-| `["p", pathRef, index, remove, items]` | Splice with an inline or interned path. |
-| `["p", index, remove, items]` | Splice using the previous path. |
+| Tuple                                  | Meaning                                          |
+| -------------------------------------- | ------------------------------------------------ |
+| `["r", value]`                         | Complete replacement; identical to decoded form. |
+| `["#", id, path]`                      | Define a numeric path ID.                        |
+| `["s", pathRef, value]`                | Set with an inline or interned path.             |
+| `["s", value]`                         | Set using the previous path in this batch.       |
+| `["d", pathRef]`                       | Delete with an inline or interned path.          |
+| `["d"]`                                | Delete using the previous path.                  |
+| `["a", pathRef, text]`                 | Append with an inline or interned path.          |
+| `["a", text]`                          | Append using the previous path.                  |
+| `["t", pathRef, count]`                | Front-truncate with an inline or interned path.  |
+| `["t", count]`                         | Front-truncate using the previous path.          |
+| `["p", pathRef, index, remove, items]` | Splice with an inline or interned path.          |
+| `["p", index, remove, items]`          | Splice using the previous path.                  |
 
 For example, adjacent decoded operations on one path:
 
 ```ts
 [
-	["t", ["output"], 200],
-	["a", ["output"], "next chunk"],
-]
+  ["t", ["output"], 200],
+  ["a", ["output"], "next chunk"],
+];
 ```
 
 encode to:
 
 ```ts
 [
-	["t", ["output"], 200],
-	["a", "next chunk"], // reuses ["output"]
-]
+  ["t", ["output"], 200],
+  ["a", "next chunk"], // reuses ["output"]
+];
 ```
 
 When `output` is used again in a later batch, the encoder defines an ID on its
@@ -132,9 +132,9 @@ second explicit use:
 
 ```ts
 [
-	["#", 0, ["output"]],
-	["a", 0, "more"],
-]
+  ["#", 0, ["output"]],
+  ["a", 0, "more"],
+];
 ```
 
 Later batches can use `0` directly until a complete-value operation resets the
@@ -164,8 +164,8 @@ with the previously published value:
 
 ```ts
 tracker.state.settings = {
-	...plainSettings,
-	theme: "dark",
+  ...plainSettings,
+  theme: "dark",
 };
 ```
 

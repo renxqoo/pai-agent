@@ -17,4 +17,6 @@ export interface PresentationUI {
 	showStatus(message: string, context: Context): void;
 }
 
-export const PresentationUI = defineService<PresentationUI>("pi.local.presentation-ui", { local: true });
+export const PresentationUI = defineService<PresentationUI>("pi.local.presentation-ui", {
+	local: true,
+});

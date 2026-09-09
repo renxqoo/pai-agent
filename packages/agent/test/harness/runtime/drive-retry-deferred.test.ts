@@ -238,7 +238,11 @@ describe("runtime assistant retry wait", () => {
 		const fixture = await createFixture({ deferredSubmission: false });
 		const ready = await advanceToReady(fixture);
 		fixture.faux.setResponses([
-			fauxAssistantMessage([], { stopReason: "error", errorMessage: "503 service unavailable", timestamp: 10 }),
+			fauxAssistantMessage([], {
+				stopReason: "error",
+				errorMessage: "503 service unavailable",
+				timestamp: 10,
+			}),
 		]);
 
 		expect(await runGeneration(fixture.lane, fixture.drive, ready)).toEqual({

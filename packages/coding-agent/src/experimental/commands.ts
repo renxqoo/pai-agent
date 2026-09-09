@@ -93,7 +93,10 @@ async function runClientCommand(command: ClientCommand): Promise<void> {
 export async function runExperimentalCommand(args: string[]): Promise<boolean> {
 	if (!areExperimentalFeaturesEnabled() || (args[0] !== "server" && args[0] !== "client")) return false;
 	try {
-		const result = await cli.execute(args, { runServer: runServerCommand, runClient: runClientCommand });
+		const result = await cli.execute(args, {
+			runServer: runServerCommand,
+			runClient: runClientCommand,
+		});
 		if (!result.ok) {
 			for (const error of result.errors) console.error(chalk.red(`Error: ${error}`));
 			process.exitCode = 1;

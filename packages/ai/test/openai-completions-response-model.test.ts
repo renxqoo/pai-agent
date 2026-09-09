@@ -60,7 +60,11 @@ describe("openai-completions responseModel", () => {
 
 	it("surfaces routed chunk.model on responseModel without changing model", async () => {
 		mockState.chunks = [
-			{ id: "chatcmpl-1", model: "anthropic/claude-opus-4.8", choices: [{ index: 0, delta: { content: "hi" } }] },
+			{
+				id: "chatcmpl-1",
+				model: "anthropic/claude-opus-4.8",
+				choices: [{ index: 0, delta: { content: "hi" } }],
+			},
 			{
 				id: "chatcmpl-1",
 				model: "anthropic/claude-opus-4.8",
@@ -88,7 +92,11 @@ describe("openai-completions responseModel", () => {
 
 	it("leaves responseModel undefined when chunks echo the requested id", async () => {
 		mockState.chunks = [
-			{ id: "chatcmpl-2", model: "openrouter/auto", choices: [{ index: 0, delta: { content: "hi" } }] },
+			{
+				id: "chatcmpl-2",
+				model: "openrouter/auto",
+				choices: [{ index: 0, delta: { content: "hi" } }],
+			},
 			{
 				id: "chatcmpl-2",
 				model: "openrouter/auto",

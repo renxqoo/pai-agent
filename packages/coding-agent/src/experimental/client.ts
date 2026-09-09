@@ -12,7 +12,12 @@ export type ClientResult =
 			readonly sessions: readonly SessionAddress[];
 	  }
 	| { readonly kind: "attached"; readonly serverId: string; readonly sessionId: string }
-	| { readonly kind: "prompted"; readonly serverId: string; readonly sessionId: string; readonly text: string };
+	| {
+			readonly kind: "prompted";
+			readonly serverId: string;
+			readonly sessionId: string;
+			readonly text: string;
+	  };
 
 export interface RunClientOptions {
 	/** Directory searched when --connect is omitted. Defaults to PI_SERVER_DIR or ~/.pi/server. */
@@ -32,7 +37,10 @@ export async function runClient(command: ClientCommand, options: RunClientOption
 				kind: "list",
 				sessions: discovered
 					.flatMap(({ route, directory }) =>
-						directory.state.value!.sessions.map(({ sessionId }) => ({ serverId: route.serverId, sessionId })),
+						directory.state.value!.sessions.map(({ sessionId }) => ({
+							serverId: route.serverId,
+							sessionId,
+						})),
 					)
 					.sort(
 						(left, right) =>

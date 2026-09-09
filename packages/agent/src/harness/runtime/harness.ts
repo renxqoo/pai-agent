@@ -271,7 +271,12 @@ export class Harness<TContext extends object | undefined> implements AgentHarnes
 		return this.setConfig(
 			"compaction",
 			compaction,
-			(previous, value) => ({ type: "config_update", property: "compactionSettings", previous, value }),
+			(previous, value) => ({
+				type: "config_update",
+				property: "compactionSettings",
+				previous,
+				value,
+			}),
 			context,
 		);
 	}

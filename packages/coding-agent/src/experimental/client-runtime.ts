@@ -76,7 +76,10 @@ export async function openClientRuntime(
 				: { transport: "unix", ...routeFromExplicitPath(command.connect.path) },
 		];
 	} else {
-		routes = (await discoverUnixServers({ directory })).map((route) => ({ transport: "unix", ...route }));
+		routes = (await discoverUnixServers({ directory })).map((route) => ({
+			transport: "unix",
+			...route,
+		}));
 		if (routes.length > 0 && command.model !== undefined) {
 			throw new Error("Model selection is only valid when automatically activating a new server");
 		}

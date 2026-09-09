@@ -177,7 +177,10 @@ async function pollForToken(
 				try {
 					return { status: "complete", value: parseTokenResponse(json, "poll") };
 				} catch (error) {
-					return { status: "failed", message: error instanceof Error ? error.message : String(error) };
+					return {
+						status: "failed",
+						message: error instanceof Error ? error.message : String(error),
+					};
 				}
 			}
 
@@ -194,7 +197,10 @@ async function pollForToken(
 				};
 			}
 			if (error === "expired_token") {
-				return { status: "failed", message: "Kimi Code device authorization expired. Please restart login." };
+				return {
+					status: "failed",
+					message: "Kimi Code device authorization expired. Please restart login.",
+				};
 			}
 			if (error === "access_denied") {
 				return { status: "failed", message: "Kimi Code login was denied." };

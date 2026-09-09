@@ -86,7 +86,10 @@ describe("facet bundles", () => {
 		});
 		expect(secondBuild.manifest.entries.worker).toEqual(firstEntry);
 
-		const loader = createFacetBundleLoader({ manifestPath: secondBuild.manifestPath, entry: "worker" });
+		const loader = createFacetBundleLoader({
+			manifestPath: secondBuild.manifestPath,
+			entry: "worker",
+		});
 		const loadedA = await loader.load();
 		const loadedACopy = await loader.load();
 		expect(loadedACopy.facets[0]).not.toBe(loadedA.facets[0]);
@@ -182,7 +185,10 @@ describe("facet bundles", () => {
 			defaultFacets: { session: "src/session.ts", tui: "src/tui.ts", browser: "src/browser.ts" },
 		});
 		expect(conventional.packageDirectory).toBe(directory);
-		expect(conventional.manifest.plugin).toEqual({ id: "@example/conventional-plugin", version: "1.2.3" });
+		expect(conventional.manifest.plugin).toEqual({
+			id: "@example/conventional-plugin",
+			version: "1.2.3",
+		});
 		expect(Object.keys(conventional.manifest.entries)).toEqual(["session", "tui"]);
 		expect(conventional.manifest.entries.session?.externalImports).toEqual(["@example/host/plugin"]);
 		expect(conventional.manifest.entries.tui?.sourceMap).toMatch(/\.cjs\.map$/u);

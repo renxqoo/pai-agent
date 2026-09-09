@@ -64,13 +64,21 @@ const PROVIDER_MODEL_PAIRS: ProviderModelPair[] = [
 		apiOverride: "openai-completions",
 	},
 	{ provider: "openai", model: "gpt-5-mini", label: "openai-responses-gpt-5-mini" },
-	{ provider: "azure-openai-responses", model: "gpt-4o-mini", label: "azure-openai-responses-gpt-4o-mini" },
+	{
+		provider: "azure-openai-responses",
+		model: "gpt-4o-mini",
+		label: "azure-openai-responses-gpt-4o-mini",
+	},
 	// OpenAI Codex
 	{ provider: "openai-codex", model: "gpt-5.5", label: "openai-codex-gpt-5.5" },
 	// GitHub Copilot
 	{ provider: "github-copilot", model: "claude-sonnet-4.5", label: "copilot-claude-sonnet-4.5" },
 	{ provider: "github-copilot", model: "gpt-5.1-codex", label: "copilot-gpt-5.1-codex" },
-	{ provider: "github-copilot", model: "gemini-3-flash-preview", label: "copilot-gemini-3-flash-preview" },
+	{
+		provider: "github-copilot",
+		model: "gemini-3-flash-preview",
+		label: "copilot-gemini-3-flash-preview",
+	},
 	{ provider: "github-copilot", model: "grok-code-fast-1", label: "copilot-grok-code-fast-1" },
 	// Amazon Bedrock
 	{
@@ -83,7 +91,11 @@ const PROVIDER_MODEL_PAIRS: ProviderModelPair[] = [
 	// Cerebras
 	{ provider: "cerebras", model: "zai-glm-4.7", label: "cerebras-zai-glm-4.7" },
 	// Cloudflare Workers AI
-	{ provider: "cloudflare-workers-ai", model: "@cf/moonshotai/kimi-k2.6", label: "cloudflare-kimi-k2.6" },
+	{
+		provider: "cloudflare-workers-ai",
+		model: "@cf/moonshotai/kimi-k2.6",
+		label: "cloudflare-kimi-k2.6",
+	},
 	// Cloudflare AI Gateway
 	{
 		provider: "cloudflare-ai-gateway",
@@ -129,9 +141,21 @@ const PROVIDER_MODEL_PAIRS: ProviderModelPair[] = [
 	{ provider: "opencode-go", model: "minimax-m2.5", label: "go-minimax-m2.5" },
 	// Xiaomi MiMo
 	{ provider: "xiaomi", model: "mimo-v2.5-pro", label: "xiaomi-mimo-v2.5-pro" },
-	{ provider: "xiaomi-token-plan-cn", model: "mimo-v2.5-pro", label: "xiaomi-token-plan-cn-mimo-v2.5-pro" },
-	{ provider: "xiaomi-token-plan-ams", model: "mimo-v2.5-pro", label: "xiaomi-token-plan-ams-mimo-v2.5-pro" },
-	{ provider: "xiaomi-token-plan-sgp", model: "mimo-v2.5-pro", label: "xiaomi-token-plan-sgp-mimo-v2.5-pro" },
+	{
+		provider: "xiaomi-token-plan-cn",
+		model: "mimo-v2.5-pro",
+		label: "xiaomi-token-plan-cn-mimo-v2.5-pro",
+	},
+	{
+		provider: "xiaomi-token-plan-ams",
+		model: "mimo-v2.5-pro",
+		label: "xiaomi-token-plan-ams-mimo-v2.5-pro",
+	},
+	{
+		provider: "xiaomi-token-plan-sgp",
+		model: "mimo-v2.5-pro",
+		label: "xiaomi-token-plan-sgp-mimo-v2.5-pro",
+	},
 	// Qwen Token Plan
 	{ provider: "qwen-token-plan", model: "qwen3.7-max", label: "qwen-token-plan-qwen3.7-max" },
 	{ provider: "qwen-token-plan-cn", model: "qwen3.7-max", label: "qwen-token-plan-cn-qwen3.7-max" },
@@ -480,7 +504,11 @@ describe.skipIf(!hasAnyApiKey())("Cross-Provider Handoff", () => {
 							payload: lastPayload,
 							messages: allMessages,
 						});
-						results.push({ target: targetPair.label, success: false, error: response.errorMessage });
+						results.push({
+							target: targetPair.label,
+							success: false,
+							error: response.errorMessage,
+						});
 					} else {
 						const text = response.content
 							.filter((c) => c.type === "text")

@@ -5,103 +5,158 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { openBrowser } from "../packages/coding-agent/src/utils/open-browser.ts";
 
-interface TextContent { type: "text"; text: string }
-interface ImageContent { type: "image"; data: string; mimeType?: string }
-interface ToolCallContent { type: "toolCall"; id: string; name: string; arguments?: Record<string, unknown> }
-type Content = TextContent | ImageContent | ToolCallContent | { type: string; [key: string]: unknown };
-interface Message { role?: string; content?: string | Content[]; toolCallId?: string; toolName?: string; details?: unknown }
-interface Entry { type?: string; message?: Message }
-interface ToolStats { calls: number; results: number; estimatedTokens: number; samples: number[]; errors: number }
-interface BashCommandStats { calls: number; estimatedTokens: number; samples: number[] }
-interface ToolCallInfo { toolName: string; bashCommand?: string }
+interface TextContent {
+  type: "text";
+  text: string;
+}
+interface ImageContent {
+  type: "image";
+  data: string;
+  mimeType?: string;
+}
+interface ToolCallContent {
+  type: "toolCall";
+  id: string;
+  name: string;
+  arguments?: Record<string, unknown>;
+}
+type Content =
+  | TextContent
+  | ImageContent
+  | ToolCallContent
+  | { type: string; [key: string]: unknown };
+interface Message {
+  role?: string;
+  content?: string | Content[];
+  toolCallId?: string;
+  toolName?: string;
+  details?: unknown;
+}
+interface Entry {
+  type?: string;
+  message?: Message;
+}
+interface ToolStats {
+  calls: number;
+  results: number;
+  estimatedTokens: number;
+  samples: number[];
+  errors: number;
+}
+interface BashCommandStats {
+  calls: number;
+  estimatedTokens: number;
+  samples: number[];
+}
+interface ToolCallInfo {
+  toolName: string;
+  bashCommand?: string;
+}
 
-const BUCKETS = [0, 50, 100, 250, 500, 1000, 2000, 4000, 8000, 16000, 32000, Number.POSITIVE_INFINITY];
+const BUCKETS = [
+  0,
+  50,
+  100,
+  250,
+  500,
+  1000,
+  2000,
+  4000,
+  8000,
+  16000,
+  32000,
+  Number.POSITIVE_INFINITY,
+];
 
 function parseArgs(): { sessionsDir: string; output: string } {
-	let sessionsDir = join(homedir(), ".pi", "agent", "sessions");
-	let output = join(tmpdir(), "pi-tool-stats.html");
-	const args = process.argv.slice(2);
-	for (let i = 0; i < args.length; i++) {
-		const arg = args[i];
-		if (arg === "--sessions-dir" && args[i + 1]) sessionsDir = resolve(args[++i]);
-		else if ((arg === "--output" || arg === "-o") && args[i + 1]) output = resolve(args[++i]);
-		else if (arg === "--help" || arg === "-h") {
-			console.log(`Usage: scripts/tool-stats.ts [--sessions-dir <dir>] [--output <file.html>]`);
-			process.exit(0);
-		}
-	}
-	return { sessionsDir, output };
+  let sessionsDir = join(homedir(), ".pi", "agent", "sessions");
+  let output = join(tmpdir(), "pi-tool-stats.html");
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--sessions-dir" && args[i + 1]) sessionsDir = resolve(args[++i]);
+    else if ((arg === "--output" || arg === "-o") && args[i + 1]) output = resolve(args[++i]);
+    else if (arg === "--help" || arg === "-h") {
+      console.log(`Usage: scripts/tool-stats.ts [--sessions-dir <dir>] [--output <file.html>]`);
+      process.exit(0);
+    }
+  }
+  return { sessionsDir, output };
 }
 
 function jsonlFiles(dir: string): string[] {
-	const out: string[] = [];
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		const path = join(dir, entry.name);
-		if (entry.isDirectory()) out.push(...jsonlFiles(path));
-		else if (entry.isFile() && entry.name.endsWith(".jsonl")) out.push(path);
-	}
-	return out;
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...jsonlFiles(path));
+    else if (entry.isFile() && entry.name.endsWith(".jsonl")) out.push(path);
+  }
+  return out;
 }
 
 function getStats<T>(map: Map<string, T>, key: string, create: () => T): T {
-	let stats = map.get(key);
-	if (!stats) {
-		stats = create();
-		map.set(key, stats);
-	}
-	return stats;
+  let stats = map.get(key);
+  if (!stats) {
+    stats = create();
+    map.set(key, stats);
+  }
+  return stats;
 }
 
 function createToolStats(): ToolStats {
-	return { calls: 0, results: 0, estimatedTokens: 0, samples: [], errors: 0 };
+  return { calls: 0, results: 0, estimatedTokens: 0, samples: [], errors: 0 };
 }
 
 function createBashStats(): BashCommandStats {
-	return { calls: 0, estimatedTokens: 0, samples: [] };
+  return { calls: 0, estimatedTokens: 0, samples: [] };
 }
 
 function estimateTokenCount(text: string): number {
-	return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / 4);
 }
 
 function contentText(content: Message["content"]): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content.map((block) => {
-		if (block.type === "text" && "text" in block && typeof block.text === "string") return block.text;
-		if (block.type === "image" && "data" in block && typeof block.data === "string") return block.data;
-		return JSON.stringify(block);
-	}).join("\n");
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (block.type === "text" && "text" in block && typeof block.text === "string")
+        return block.text;
+      if (block.type === "image" && "data" in block && typeof block.data === "string")
+        return block.data;
+      return JSON.stringify(block);
+    })
+    .join("\n");
 }
 
 function getBashCommand(args: Record<string, unknown> | undefined): string | undefined {
-	const command = args?.command;
-	return typeof command === "string" ? command : undefined;
+  const command = args?.command;
+  return typeof command === "string" ? command : undefined;
 }
 
 function commandKey(command: string): string {
-	const first = command.split(/\n|&&|\|\||;|\|/)[0]?.trim() ?? command.trim();
-	const match = first.match(/^(?:\w+=\S+\s+)*(?:sudo\s+)?([^\s]+)(?:\s+([^\s]+))?/);
-	if (!match) return "unknown";
-	const bin = match[1] ?? "unknown";
-	const sub = match[2] && !match[2].startsWith("-") ? ` ${match[2]}` : "";
-	return `${bin}${sub}`;
+  const first = command.split(/\n|&&|\|\||;|\|/)[0]?.trim() ?? command.trim();
+  const match = first.match(/^(?:\w+=\S+\s+)*(?:sudo\s+)?([^\s]+)(?:\s+([^\s]+))?/);
+  if (!match) return "unknown";
+  const bin = match[1] ?? "unknown";
+  const sub = match[2] && !match[2].startsWith("-") ? ` ${match[2]}` : "";
+  return `${bin}${sub}`;
 }
 
 function bucketCounts(samples: number[]): number[] {
-	const counts = new Array(BUCKETS.length - 1).fill(0) as number[];
-	for (const sample of samples) {
-		const index = BUCKETS.findIndex((max, i) => i > 0 && sample <= max) - 1;
-		counts[Math.max(0, index)]++;
-	}
-	return counts;
+  const counts = new Array(BUCKETS.length - 1).fill(0) as number[];
+  for (const sample of samples) {
+    const index = BUCKETS.findIndex((max, i) => i > 0 && sample <= max) - 1;
+    counts[Math.max(0, index)]++;
+  }
+  return counts;
 }
 
 function bucketLabels(): string[] {
-	return BUCKETS.slice(0, -1).map((min, i) => {
-		const max = BUCKETS[i + 1];
-		return Number.isFinite(max) ? `${min}-${max}` : `${min}+`;
-	});
+  return BUCKETS.slice(0, -1).map((min, i) => {
+    const max = BUCKETS[i + 1];
+    return Number.isFinite(max) ? `${min}-${max}` : `${min}+`;
+  });
 }
 
 const { sessionsDir, output } = parseArgs();
@@ -114,43 +169,72 @@ let parseErrors = 0;
 const files = jsonlFiles(sessionsDir);
 
 for (const file of files) {
-	for (const line of readFileSync(file, "utf8").split("\n")) {
-		if (!line.trim()) continue;
-		let entry: Entry;
-		try { entry = JSON.parse(line) as Entry; } catch { parseErrors++; continue; }
-		if (entry.type !== "message") continue;
-		const message = entry.message;
-		if (!message) continue;
-		if (message.role === "assistant" && Array.isArray(message.content)) {
-			for (const block of message.content) {
-				if (block.type !== "toolCall" || !("name" in block) || typeof block.name !== "string") continue;
-				const stats = getStats(tools, block.name, createToolStats);
-				stats.calls++;
-				const bashCommand = block.name === "bash" ? getBashCommand(block.arguments) : undefined;
-				callsById.set(block.id, { toolName: block.name, bashCommand });
-				if (bashCommand) getStats(bashCommands, commandKey(bashCommand), createBashStats).calls++;
-			}
-		} else if (message.role === "toolResult" && message.toolName) {
-			const text = contentText(message.content);
-			const tokens = estimateTokenCount(text);
-			const stats = getStats(tools, message.toolName, createToolStats);
-			stats.results++;
-			stats.estimatedTokens += tokens;
-			stats.samples.push(tokens);
-			if ("isError" in message && message.isError === true) stats.errors++;
-			const call = message.toolCallId ? callsById.get(message.toolCallId) : undefined;
-			if (call?.bashCommand) {
-				const bash = getStats(bashCommands, commandKey(call.bashCommand), createBashStats);
-				bash.estimatedTokens += tokens;
-				bash.samples.push(tokens);
-			}
-		}
-	}
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let entry: Entry;
+    try {
+      entry = JSON.parse(line) as Entry;
+    } catch {
+      parseErrors++;
+      continue;
+    }
+    if (entry.type !== "message") continue;
+    const message = entry.message;
+    if (!message) continue;
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type !== "toolCall" || !("name" in block) || typeof block.name !== "string")
+          continue;
+        const stats = getStats(tools, block.name, createToolStats);
+        stats.calls++;
+        const bashCommand = block.name === "bash" ? getBashCommand(block.arguments) : undefined;
+        callsById.set(block.id, { toolName: block.name, bashCommand });
+        if (bashCommand) getStats(bashCommands, commandKey(bashCommand), createBashStats).calls++;
+      }
+    } else if (message.role === "toolResult" && message.toolName) {
+      const text = contentText(message.content);
+      const tokens = estimateTokenCount(text);
+      const stats = getStats(tools, message.toolName, createToolStats);
+      stats.results++;
+      stats.estimatedTokens += tokens;
+      stats.samples.push(tokens);
+      if ("isError" in message && message.isError === true) stats.errors++;
+      const call = message.toolCallId ? callsById.get(message.toolCallId) : undefined;
+      if (call?.bashCommand) {
+        const bash = getStats(bashCommands, commandKey(call.bashCommand), createBashStats);
+        bash.estimatedTokens += tokens;
+        bash.samples.push(tokens);
+      }
+    }
+  }
 }
 
-const toolRows = [...tools.entries()].map(([name, s]) => ({ name, ...s, avg: s.results ? s.estimatedTokens / s.results : 0, histogram: bucketCounts(s.samples) })).sort((a, b) => b.estimatedTokens - a.estimatedTokens);
-const bashRows = [...bashCommands.entries()].map(([name, s]) => ({ name, ...s, avg: s.samples.length ? s.estimatedTokens / s.samples.length : 0, histogram: bucketCounts(s.samples) })).sort((a, b) => b.estimatedTokens - a.estimatedTokens).slice(0, 50);
-const data = { generatedAt: new Date().toISOString(), sessionsDir, files: files.length, parseErrors, bucketLabels: bucketLabels(), tools: toolRows, bashCommands: bashRows };
+const toolRows = [...tools.entries()]
+  .map(([name, s]) => ({
+    name,
+    ...s,
+    avg: s.results ? s.estimatedTokens / s.results : 0,
+    histogram: bucketCounts(s.samples),
+  }))
+  .sort((a, b) => b.estimatedTokens - a.estimatedTokens);
+const bashRows = [...bashCommands.entries()]
+  .map(([name, s]) => ({
+    name,
+    ...s,
+    avg: s.samples.length ? s.estimatedTokens / s.samples.length : 0,
+    histogram: bucketCounts(s.samples),
+  }))
+  .sort((a, b) => b.estimatedTokens - a.estimatedTokens)
+  .slice(0, 50);
+const data = {
+  generatedAt: new Date().toISOString(),
+  sessionsDir,
+  files: files.length,
+  parseErrors,
+  bucketLabels: bucketLabels(),
+  tools: toolRows,
+  bashCommands: bashRows,
+};
 
 const html = `<!doctype html>
 <html>

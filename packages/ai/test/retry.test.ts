@@ -22,12 +22,18 @@ describe("provider retry classification", () => {
 		).toBe(true);
 		expect(
 			isRetryableAssistantError(
-				fauxAssistantMessage("", { stopReason: "error", errorMessage: bedrockExplicitRetryMessage }),
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: bedrockExplicitRetryMessage,
+				}),
 			),
 		).toBe(true);
 		expect(
 			isRetryableAssistantError(
-				fauxAssistantMessage("", { stopReason: "error", errorMessage: nvidiaNIMResourceExhaustedMessage }),
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: nvidiaNIMResourceExhaustedMessage,
+				}),
 			),
 		).toBe(true);
 	});
@@ -35,7 +41,10 @@ describe("provider retry classification", () => {
 	it("matches Bun fetch socket drop wording", () => {
 		expect(
 			isRetryableAssistantError(
-				fauxAssistantMessage("", { stopReason: "error", errorMessage: bunFetchSocketClosedMessage }),
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: bunFetchSocketClosedMessage,
+				}),
 			),
 		).toBe(true);
 	});
@@ -63,7 +72,10 @@ describe("provider retry classification", () => {
 	it("matches OpenAI Responses streams that end before terminal events", () => {
 		expect(
 			isRetryableAssistantError(
-				fauxAssistantMessage("", { stopReason: "error", errorMessage: openAIResponsesEarlyEofMessage }),
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: openAIResponsesEarlyEofMessage,
+				}),
 			),
 		).toBe(true);
 	});
@@ -82,7 +94,10 @@ describe("provider retry classification", () => {
 		).toBe(true);
 		expect(
 			isRetryableAssistantError(
-				fauxAssistantMessage("", { stopReason: "error", errorMessage: "524 status code (no body)" }),
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "524 status code (no body)",
+				}),
 			),
 		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
@@ -115,7 +130,10 @@ describe("retryAssistantCall", () => {
 		);
 		const onRetryScheduled = vi.fn();
 		const onRetryFinished = vi.fn();
-		const res = await retryAssistantCall(produce, enabled, undefined, { onRetryScheduled, onRetryFinished });
+		const res = await retryAssistantCall(produce, enabled, undefined, {
+			onRetryScheduled,
+			onRetryFinished,
+		});
 		expect(res.stopReason).toBe("error");
 		expect(produce).toHaveBeenCalledTimes(1);
 		expect(onRetryScheduled).not.toHaveBeenCalled();
@@ -126,7 +144,10 @@ describe("retryAssistantCall", () => {
 		const produce = vi.fn(async () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }));
 		const onRetryScheduled = vi.fn();
 		const onRetryFinished = vi.fn();
-		const res = await retryAssistantCall(produce, enabled, undefined, { onRetryScheduled, onRetryFinished });
+		const res = await retryAssistantCall(produce, enabled, undefined, {
+			onRetryScheduled,
+			onRetryFinished,
+		});
 		expect(res.stopReason).toBe("error");
 		expect(produce).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
 		expect(onRetryScheduled).toHaveBeenCalledTimes(3);
@@ -167,7 +188,10 @@ describe("retryAssistantCall", () => {
 		const produce = vi.fn(async () => fauxAssistantMessage("", { stopReason: "error", errorMessage: "terminated" }));
 		const onRetryScheduled = vi.fn();
 		const onRetryFinished = vi.fn();
-		const res = await retryAssistantCall(produce, disabled, undefined, { onRetryScheduled, onRetryFinished });
+		const res = await retryAssistantCall(produce, disabled, undefined, {
+			onRetryScheduled,
+			onRetryFinished,
+		});
 		expect(res.stopReason).toBe("error");
 		expect(produce).toHaveBeenCalledTimes(1);
 		expect(onRetryScheduled).not.toHaveBeenCalled();
@@ -190,7 +214,10 @@ describe("retryAssistantCall", () => {
 		const onRetryAttemptStart = vi.fn(() => {
 			events.push("attempt-start");
 		});
-		const res = await retryAssistantCall(produce, enabled, undefined, { onRetryScheduled, onRetryAttemptStart });
+		const res = await retryAssistantCall(produce, enabled, undefined, {
+			onRetryScheduled,
+			onRetryAttemptStart,
+		});
 		expect(res.content).toEqual([{ type: "text", text: "recovered" }]);
 		expect(onRetryScheduled).toHaveBeenCalledTimes(2);
 		expect(onRetryAttemptStart).toHaveBeenCalledTimes(2);

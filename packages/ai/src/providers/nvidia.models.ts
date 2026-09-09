@@ -4,5 +4,7 @@
 import values from "./data/nvidia.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const NVIDIA_MODELS: ModelCatalog<typeof values, "nvidia"> =
-	flattenModelCatalog("nvidia", values);
+export const NVIDIA_MODELS: ModelCatalog<typeof values, "nvidia"> = flattenModelCatalog(
+  "nvidia",
+  values,
+);

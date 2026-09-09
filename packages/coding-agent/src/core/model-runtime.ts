@@ -522,7 +522,11 @@ export class ModelRuntime implements Models {
 			this.recomposeProvider(providerId);
 			const compositionError = this.compositionErrors.get(providerId);
 			if (compositionError) throw new Error(compositionError);
-			const result = await this.models.refresh({ allowNetwork: false, providers: [providerId], signal });
+			const result = await this.models.refresh({
+				allowNetwork: false,
+				providers: [providerId],
+				signal,
+			});
 			if (result.aborted) signal.throwIfAborted();
 			const refreshError = result.errors.get(providerId);
 			if (refreshError) throw refreshError;

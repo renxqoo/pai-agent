@@ -35,14 +35,24 @@ describe("telemetry schemas", () => {
 					description: "Test operation",
 					parents: { kind: "any" },
 					startAttributes: {
-						kind: { type: "string", required: true, values: ["read", "write"], description: "Kind" },
+						kind: {
+							type: "string",
+							required: true,
+							values: ["read", "write"],
+							description: "Kind",
+						},
 					},
 					endAttributes: {},
 					events: {
 						result: {
 							description: "Result",
 							attributes: {
-								outcome: { type: "string", required: true, values: ["ok", "error"], description: "Outcome" },
+								outcome: {
+									type: "string",
+									required: true,
+									values: ["ok", "error"],
+									description: "Outcome",
+								},
 							},
 						},
 					},
@@ -79,7 +89,12 @@ describe("telemetry schemas", () => {
 					description: "Operation",
 					parents: { kind: "root_or_external" },
 					startAttributes: {
-						kind: { type: "string", required: true, values: ["read", "write"], description: "Kind" },
+						kind: {
+							type: "string",
+							required: true,
+							values: ["read", "write"],
+							description: "Kind",
+						},
 					},
 					endAttributes: {},
 					status: { default: "ok", errorWhen: "The operation fails" },
@@ -185,7 +200,10 @@ describe("NOOP_TELEMETRY_CONTEXT", () => {
 	});
 
 	it("does not inspect or retain telemetry payloads", async () => {
-		const options = unreadable<SpanOptions>({ name: "operation", attributes: { secret: "prompt content" } });
+		const options = unreadable<SpanOptions>({
+			name: "operation",
+			attributes: { secret: "prompt content" },
+		});
 		await NOOP_TELEMETRY_CONTEXT.startSpan(options, (span) => {
 			const attributes = unreadable<SpanAttributes>({ secret: "content" });
 			const status = unreadable<SpanStatus>({ status: "ok" });

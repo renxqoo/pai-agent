@@ -91,7 +91,11 @@ function extractQuotedPrefix(text: string): string | null {
 	return text.slice(quoteStart);
 }
 
-function parsePathPrefix(prefix: string): { rawPrefix: string; isAtPrefix: boolean; isQuotedPrefix: boolean } {
+function parsePathPrefix(prefix: string): {
+	rawPrefix: string;
+	isAtPrefix: boolean;
+	isQuotedPrefix: boolean;
+} {
 	if (prefix.startsWith('@"')) {
 		return { rawPrefix: prefix.slice(2), isAtPrefix: true, isQuotedPrefix: true };
 	}

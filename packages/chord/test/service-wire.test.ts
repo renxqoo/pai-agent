@@ -66,7 +66,12 @@ describe("service wire protocol", () => {
 			"Invalid service state update",
 		);
 		expect(() =>
-			parseWireServiceProviderUpdate({ type: "state", member: "state", sequence: 1, ops: [["?", 0]] }),
+			parseWireServiceProviderUpdate({
+				type: "state",
+				member: "state",
+				sequence: 1,
+				ops: [["?", 0]],
+			}),
 		).toThrow();
 	});
 

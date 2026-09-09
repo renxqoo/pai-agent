@@ -34,11 +34,15 @@ import ivm from "isolated-vm";
 export async function createCompartment({ memoryLimit = 256 } = {}) {
   const isolate = new ivm.Isolate({ memoryLimit });
   const ctx = await isolate.createContext();
-  await ctx.global.set("global", ctx.global.derefInto());   // guest's own global only
+  await ctx.global.set("global", ctx.global.derefInto()); // guest's own global only
 
   const hostTable = new Map();
   let nextHostId = 1;
-  const exposeHost = (o) => { const id = nextHostId++; hostTable.set(id, o); return id; };
+  const exposeHost = (o) => {
+    const id = nextHostId++;
+    hostTable.set(id, o);
+    return id;
+  };
 
   const guestProxies = new Map();
   const finalizer = new FinalizationRegistry((id) => {
@@ -85,10 +89,22 @@ export async function createCompartment({ memoryLimit = 256 } = {}) {
   }
   function reviveGuest(v) {
     if (!v || typeof v !== "object") return v;
-    if (typeof v.__guestRef === "number") { const r = v.__guestRef; return intern(r, () => (...a) => callGuestRef(r, a)); }
+    if (typeof v.__guestRef === "number") {
+      const r = v.__guestRef;
+      return intern(
+        r,
+        () =>
+          (...a) =>
+            callGuestRef(r, a),
+      );
+    }
     if (typeof v.__guestObj === "number") {
       const r = v.__guestObj;
-      return intern(r, () => { const o = {}; for (const k of v.keys) o[k] = (...a) => callGuestRef(r, [k, a]); return o; });
+      return intern(r, () => {
+        const o = {};
+        for (const k of v.keys) o[k] = (...a) => callGuestRef(r, [k, a]);
+        return o;
+      });
     }
     return v;
   }
@@ -107,7 +123,9 @@ export async function createCompartment({ memoryLimit = 256 } = {}) {
     const path = JSON.parse(pathJson);
     let target = hostTable.get(JSON.parse(idJson));
     for (let i = 0; i < path.length - 1; i++) target = target[path[i]];
-    const result = path.length ? target[path[path.length - 1]](...decode(argsJson)) : target(...decode(argsJson));
+    const result = path.length
+      ? target[path[path.length - 1]](...decode(argsJson))
+      : target(...decode(argsJson));
     return result === undefined ? "" : encode(result);
   });
   await ctx.global.set("__invokeRef", invoke);
@@ -181,17 +199,32 @@ export async function createCompartment({ memoryLimit = 256 } = {}) {
   `);
 
   return {
-    async endow(name, obj) { await ctx.eval(`globalThis[${JSON.stringify(name)}] = __wrap(${exposeHost(obj)}, []);`); },
+    async endow(name, obj) {
+      await ctx.eval(`globalThis[${JSON.stringify(name)}] = __wrap(${exposeHost(obj)}, []);`);
+    },
     load: (src, timeout = 30000) => ctx.evalSync(src, { timeout }),
-    debugRefCount: () => ({ hostTable: hostTable.size, guestRefs: ctx.evalSync(`Object.keys(__refs).length`) }),
+    debugRefCount: () => ({
+      hostTable: hostTable.size,
+      guestRefs: ctx.evalSync(`Object.keys(__refs).length`),
+    }),
     dispose() {
       released = true;
       // An isolate that hit its memory limit is already disposed, and calling
       // dispose() again throws "Isolate is already disposed".
-      try { isolate.dispose(); } catch { /* already gone */ }
+      try {
+        isolate.dispose();
+      } catch {
+        /* already gone */
+      }
     },
   };
 }
 const RESERVED = new Set(["constructor"]);
-const methodNames = (o) => { const out = []; for (let p = o; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) for (const k of Object.getOwnPropertyNames(p)) if (!RESERVED.has(k) && typeof o[k] === "function" && !out.includes(k)) out.push(k); return out; };
+const methodNames = (o) => {
+  const out = [];
+  for (let p = o; p && p !== Object.prototype; p = Object.getPrototypeOf(p))
+    for (const k of Object.getOwnPropertyNames(p))
+      if (!RESERVED.has(k) && typeof o[k] === "function" && !out.includes(k)) out.push(k);
+  return out;
+};
 const hasMethods = (o) => methodNames(o).length > 0;

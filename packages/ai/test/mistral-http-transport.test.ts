@@ -248,7 +248,9 @@ describe("Mistral HTTP transport", () => {
 					{
 						index: 0,
 						finish_reason: null,
-						delta: { content: [{ type: "thinking", thinking: [{ type: "text", text: "reason" }] }] },
+						delta: {
+							content: [{ type: "thinking", thinking: [{ type: "text", text: "reason" }] }],
+						},
 					},
 				],
 			},
@@ -319,7 +321,13 @@ describe("Mistral HTTP transport", () => {
 			{ type: "text", text: "answer" },
 			{ type: "toolCall", id: "abc123456", name: "lookup", arguments: { query: "pi" } },
 		]);
-		expect(message.usage).toMatchObject({ input: 7, output: 4, cacheRead: 3, cacheWrite: 0, totalTokens: 14 });
+		expect(message.usage).toMatchObject({
+			input: 7,
+			output: 4,
+			cacheRead: 3,
+			cacheWrite: 0,
+			totalTokens: 14,
+		});
 	});
 
 	it("parses SSE and UTF-8 sequences split across transport chunks", async () => {

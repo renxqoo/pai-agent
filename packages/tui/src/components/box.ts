@@ -19,7 +19,10 @@ export class Box implements Component {
 
 	// Cache for rendered output
 	private cache?: RenderCache;
-	private mouseLayout?: { width: number; children: Array<{ component: Component; height: number }> };
+	private mouseLayout?: {
+		width: number;
+		children: Array<{ component: Component; height: number }>;
+	};
 
 	constructor(paddingX = 1, paddingY = 1, bgFn?: (text: string) => string) {
 		this.paddingX = paddingX;
@@ -81,7 +84,10 @@ export class Box implements Component {
 		const mouseChildren =
 			this.mouseLayout?.width === contentWidth
 				? this.mouseLayout.children
-				: this.children.map((component) => ({ component, height: component.render(contentWidth).length }));
+				: this.children.map((component) => ({
+						component,
+						height: component.render(contentWidth).length,
+					}));
 		let childY = 0;
 		for (const { component: child, height: childHeight } of mouseChildren) {
 			if (contentY >= childY && contentY < childY + childHeight) {

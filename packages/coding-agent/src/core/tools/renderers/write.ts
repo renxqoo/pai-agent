@@ -126,7 +126,10 @@ function formatWriteCall(
 	return text;
 }
 function formatWriteResult(
-	result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean },
+	result: {
+		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		isError?: boolean;
+	},
 	theme: Theme,
 ): string | undefined {
 	if (!result.isError) {

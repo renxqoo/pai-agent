@@ -206,7 +206,10 @@ export function parseArgs(args: string[]): Args {
 				result.tuiMode = mode;
 				i++;
 			} else if (mode === undefined || mode.startsWith("-")) {
-				result.diagnostics.push({ type: "error", message: "--tui-mode requires regular or fullscreen" });
+				result.diagnostics.push({
+					type: "error",
+					message: "--tui-mode requires regular or fullscreen",
+				});
 			} else {
 				i++;
 				result.diagnostics.push({

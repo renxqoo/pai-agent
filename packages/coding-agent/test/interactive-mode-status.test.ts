@@ -419,7 +419,9 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 
 		const createBaseAutocompleteProvider = (
 			InteractiveMode as unknown as {
-				prototype: { createBaseAutocompleteProvider(this: FakeInteractiveMode): AutocompleteProvider };
+				prototype: {
+					createBaseAutocompleteProvider(this: FakeInteractiveMode): AutocompleteProvider;
+				};
 			}
 		).prototype.createBaseAutocompleteProvider;
 		const models = [
@@ -470,7 +472,9 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 
 		const createBaseAutocompleteProvider = (
 			InteractiveMode as unknown as {
-				prototype: { createBaseAutocompleteProvider(this: FakeInteractiveMode): AutocompleteProvider };
+				prototype: {
+					createBaseAutocompleteProvider(this: FakeInteractiveMode): AutocompleteProvider;
+				};
 			}
 		).prototype.createBaseAutocompleteProvider;
 		const fakeThis: FakeInteractiveMode = {

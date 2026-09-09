@@ -66,7 +66,9 @@ describe("version checks", () => {
 			.mockResolvedValueOnce(Response.json({ version: "1.2.4" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiRelease("1.2.3", { retry: true })).resolves.toEqual({ version: "1.2.4" });
+		await expect(getLatestPiRelease("1.2.3", { retry: true })).resolves.toEqual({
+			version: "1.2.4",
+		});
 		expect(fetchMock).toHaveBeenCalledTimes(3);
 	});
 
@@ -108,7 +110,10 @@ describe("version checks", () => {
 		const fetchMock = vi.fn(async () => Response.json({ note: " **Read this** ", version: "1.2.4" }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(getLatestPiRelease("1.2.3")).resolves.toEqual({ note: "**Read this**", version: "1.2.4" });
+		await expect(getLatestPiRelease("1.2.3")).resolves.toEqual({
+			note: "**Read this**",
+			version: "1.2.4",
+		});
 	});
 
 	it("skips automatic api calls when version checks are disabled", async () => {

@@ -7,7 +7,9 @@ const wrappedDnsLookupError =
 
 describe("issue #6904 DNS transport failure retry", () => {
 	it("retries a transient DNS lookup failure", async () => {
-		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
+		const harness = await createHarness({
+			settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
+		});
 		try {
 			harness.setResponses([
 				fauxAssistantMessage("", { stopReason: "error", errorMessage: wrappedDnsLookupError }),

@@ -120,7 +120,10 @@ describe("built-in edit and write tools", () => {
 		});
 
 		await Promise.all([
-			editTool.execute("call-1", { path: filePath, edits: [{ oldText: "alpha", newText: "ALPHA" }] }),
+			editTool.execute("call-1", {
+				path: filePath,
+				edits: [{ oldText: "alpha", newText: "ALPHA" }],
+			}),
 			editTool.execute("call-2", { path: filePath, edits: [{ oldText: "beta", newText: "BETA" }] }),
 		]);
 

@@ -58,7 +58,11 @@ export async function readExperimentalSessionState(
 			main.findEntries({ order: "oldestFirst" }, BACKGROUND_CONTEXT),
 			session.getValue(laneConfig("main"), BACKGROUND_CONTEXT),
 		]);
-		return { branch, model: configuration?.value.model, activeTools: configuration?.value.activeToolNames ?? [] };
+		return {
+			branch,
+			model: configuration?.value.model,
+			activeTools: configuration?.value.activeToolNames ?? [],
+		};
 	} finally {
 		await session?.close(BACKGROUND_CONTEXT);
 		await repo.close(BACKGROUND_CONTEXT);

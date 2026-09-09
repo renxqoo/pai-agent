@@ -203,7 +203,11 @@ async function getDirectAccessToken(gitlabAccessToken: string): Promise<DirectAc
 	}
 
 	const data = (await response.json()) as { token: string; headers: Record<string, string> };
-	cachedDirectAccess = { token: data.token, headers: data.headers, expiresAt: now + DIRECT_ACCESS_TTL };
+	cachedDirectAccess = {
+		token: data.token,
+		headers: data.headers,
+		expiresAt: now + DIRECT_ACCESS_TTL,
+	};
 	return cachedDirectAccess;
 }
 

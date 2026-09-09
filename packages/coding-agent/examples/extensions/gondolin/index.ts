@@ -272,7 +272,15 @@ async function executeGondolinGrep(
 				if (signal?.aborted) throw new Error("Operation aborted");
 				if (!matcher(lines[index] ?? "")) continue;
 				matchCount++;
-				if (appendGrepBlock({ outputLines, lines, relativePath: displayPath, lineIndex: index, contextLines })) {
+				if (
+					appendGrepBlock({
+						outputLines,
+						lines,
+						relativePath: displayPath,
+						lineIndex: index,
+						contextLines,
+					})
+				) {
 					linesTruncated = true;
 				}
 				if (matchCount >= effectiveLimit) {

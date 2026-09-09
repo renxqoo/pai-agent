@@ -136,7 +136,12 @@ function executeTool(call: Extract<AssistantMessage["content"][number], { type: 
 		role: "toolResult",
 		toolCallId: call.id,
 		toolName: call.name,
-		content: [{ type: "text", text: `deterministic_probe_result ${JSON.stringify(call.arguments)} fixed=OK` }],
+		content: [
+			{
+				type: "text",
+				text: `deterministic_probe_result ${JSON.stringify(call.arguments)} fixed=OK`,
+			},
+		],
 		details: { fixed: "OK" },
 		isError: false,
 		timestamp: Date.now(),

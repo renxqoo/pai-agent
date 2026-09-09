@@ -158,7 +158,13 @@ export function createStorageConformance(factory: () => Promise<StorageFixture>)
 				seq: result.seqs[1],
 			});
 			deepStrictEqual(await storage.scanUsage({ order: "asc" }, BACKGROUND_CONTEXT), [
-				{ id: "usage", seq: result.seqs[2], usage: usage(2, 3), adjustment: false, entryId: "entry" },
+				{
+					id: "usage",
+					seq: result.seqs[2],
+					usage: usage(2, 3),
+					adjustment: false,
+					entryId: "entry",
+				},
 			]);
 		}),
 
@@ -566,7 +572,12 @@ export function createStorageConformance(factory: () => Promise<StorageFixture>)
 		createCase(factory, "entry queries", "stores custom entries with and without data", async ({ storage }) => {
 			const result = await storage.commit(
 				[
-					insertEntry({ id: "without-data", parentId: null, type: "custom", customType: "marker" }),
+					insertEntry({
+						id: "without-data",
+						parentId: null,
+						type: "custom",
+						customType: "marker",
+					}),
 					insertEntry(customEntry("with-data", "without-data", "note", { nested: [1, 2] })),
 				],
 				BACKGROUND_CONTEXT,
@@ -826,7 +837,10 @@ export function createStorageConformance(factory: () => Promise<StorageFixture>)
 			"usage and stats",
 			"keeps stats equal to message count and ledger totals",
 			async ({ storage }) => {
-				deepStrictEqual(await storage.getStats(BACKGROUND_CONTEXT), { messageCount: 0, usage: zeroUsage() });
+				deepStrictEqual(await storage.getStats(BACKGROUND_CONTEXT), {
+					messageCount: 0,
+					usage: zeroUsage(),
+				});
 
 				const firstUsage = usage(2, 3, { cacheWrite1h: 4, reasoning: 1 });
 				const first = await storage.commit(

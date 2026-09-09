@@ -2,7 +2,7 @@ name: npm audit
 
 on:
   schedule:
-    - cron: '37 7 * * *'
+    - cron: "37 7 * * *"
   workflow_dispatch:
 
 permissions:

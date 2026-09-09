@@ -1020,7 +1020,11 @@ describe("ModelRegistry", () => {
 				api: "openai-completions",
 				oauth: {
 					name: "OAuth Provider",
-					login: async () => ({ access: "access", refresh: "refresh", expires: Date.now() + 60_000 }),
+					login: async () => ({
+						access: "access",
+						refresh: "refresh",
+						expires: Date.now() + 60_000,
+					}),
 					refreshToken: async (credentials) => credentials,
 					getApiKey: (credentials) => credentials.access,
 				},
@@ -1964,7 +1968,10 @@ describe("ModelRegistry", () => {
 				writeRawModelsJson({
 					"custom-provider": providerWithApiKey(`!sh -c 'echo 1 > "${counterPath}"; echo fallback-key'`),
 				});
-				await authStorage.modify("custom-provider", async () => ({ type: "api_key", key: "stored-key" }));
+				await authStorage.modify("custom-provider", async () => ({
+					type: "api_key",
+					key: "stored-key",
+				}));
 
 				const registry = await createModelRegistry(authStorage, modelsJsonPath);
 				const auth = await registry.getApiKeyAndHeaders(registry.find("custom-provider", "test-model")!);

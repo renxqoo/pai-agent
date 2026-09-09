@@ -84,7 +84,10 @@ class FakeWebSocket {
 }
 
 function socketFactory() {
-	const sockets: Array<{ socket: FakeWebSocket; options: Parameters<RadiusRelayWebSocketFactory>[0] }> = [];
+	const sockets: Array<{
+		socket: FakeWebSocket;
+		options: Parameters<RadiusRelayWebSocketFactory>[0];
+	}> = [];
 	const factory: RadiusRelayWebSocketFactory = (options) => {
 		const socket = new FakeWebSocket();
 		sockets.push({ socket, options });

@@ -744,7 +744,9 @@ describe("flush", () => {
 		const t = track({ value: JSON.parse('{"__proto__":{"z":1}}') as JsonValue });
 		const out = apply<{ value: JsonValue }>(undefined, t.flush());
 		expect(Object.hasOwn(out.value as object, "__proto__")).toBe(true);
-		expect(JSON.parse(JSON.stringify(t.state))).toEqual({ value: JSON.parse('{"__proto__":{"z":1}}') });
+		expect(JSON.parse(JSON.stringify(t.state))).toEqual({
+			value: JSON.parse('{"__proto__":{"z":1}}'),
+		});
 		expect(() => {
 			((t.state.value as Record<string, JsonValue>).__proto__ as Record<string, JsonValue>).z = 2;
 		}).toThrow(/unsafe path/);
@@ -798,7 +800,9 @@ describe("safety: array indices", () => {
 		expect(t.state.xs).toEqual([1, 2, 3]);
 	});
 	it("allows explicit growth with nulls", () => {
-		expect(apply({ xs: [1] }, [["p", ["xs"], 1, 0, [null, null, 9]]])).toEqual({ xs: [1, null, null, 9] });
+		expect(apply({ xs: [1] }, [["p", ["xs"], 1, 0, [null, null, 9]]])).toEqual({
+			xs: [1, null, null, 9],
+		});
 	});
 	it("rejects deleting one past an array's end", () => {
 		expect(() => apply({ xs: [1] }, [["d", ["xs", 1]]])).toThrow();

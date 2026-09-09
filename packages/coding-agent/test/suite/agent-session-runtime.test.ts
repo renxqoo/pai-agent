@@ -54,7 +54,10 @@ describe("AgentSessionRuntime characterization", () => {
 		faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two"), fauxAssistantMessage("three")]);
 
 		const authStorage = AuthStorage.inMemory();
-		await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		await authStorage.modify(faux.getModel().provider, async () => ({
+			type: "api_key",
+			key: "faux-key",
+		}));
 
 		const runtimeOptions = {
 			agentDir: tempDir,
@@ -317,7 +320,11 @@ describe("AgentSessionRuntime characterization", () => {
 		const otherDir = join(tmpdir(), `pi-runtime-other-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(otherDir, { recursive: true });
 		const otherSession = SessionManager.create(otherDir);
-		otherSession.appendMessage({ role: "user", content: [{ type: "text", text: "other" }], timestamp: Date.now() });
+		otherSession.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "other" }],
+			timestamp: Date.now(),
+		});
 		const otherSessionFile = otherSession.getSessionFile();
 		cancelReason = "resume";
 		const resumeResult = await runtime.switchSession(otherSessionFile!);
@@ -440,7 +447,10 @@ describe("AgentSessionRuntime characterization", () => {
 		faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two"), fauxAssistantMessage("three")]);
 
 		const authStorage = AuthStorage.inMemory();
-		await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		await authStorage.modify(faux.getModel().provider, async () => ({
+			type: "api_key",
+			key: "faux-key",
+		}));
 
 		const runtimeOptions = {
 			agentDir: tempDir,
@@ -551,7 +561,10 @@ describe("AgentSessionRuntime characterization", () => {
 		mkdirSync(secondDir, { recursive: true });
 		const { runtime, faux, tempDir } = await createRuntimeForTest(() => {}, { cwd: firstDir });
 		const otherAuthStorage = AuthStorage.inMemory();
-		await otherAuthStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		await otherAuthStorage.modify(faux.getModel().provider, async () => ({
+			type: "api_key",
+			key: "faux-key",
+		}));
 		const otherRuntimeOptions = {
 			agentDir: tempDir,
 			authStorage: otherAuthStorage,
@@ -624,7 +637,10 @@ describe("AgentSessionRuntime characterization", () => {
 		const otherDir = join(tempDir, "other");
 		mkdirSync(otherDir, { recursive: true });
 		const otherAuthStorage = AuthStorage.inMemory();
-		await otherAuthStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		await otherAuthStorage.modify(faux.getModel().provider, async () => ({
+			type: "api_key",
+			key: "faux-key",
+		}));
 		const otherRuntimeOptions = {
 			agentDir: tempDir,
 			authStorage: otherAuthStorage,

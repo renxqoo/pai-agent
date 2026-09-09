@@ -46,11 +46,20 @@ const vertexAuth: ApiKeyAuth = {
 				},
 			],
 		});
-		const project = await interaction.prompt({ type: "text", message: "Enter Google Cloud project ID" });
-		const location = await interaction.prompt({ type: "text", message: "Enter Google Cloud location" });
+		const project = await interaction.prompt({
+			type: "text",
+			message: "Enter Google Cloud project ID",
+		});
+		const location = await interaction.prompt({
+			type: "text",
+			message: "Enter Google Cloud location",
+		});
 		const credentialsPath =
 			method === "service-account"
-				? await interaction.prompt({ type: "text", message: "Enter service account credentials file path" })
+				? await interaction.prompt({
+						type: "text",
+						message: "Enter service account credentials file path",
+					})
 				: undefined;
 		return {
 			type: "api_key",
@@ -69,7 +78,11 @@ const vertexAuth: ApiKeyAuth = {
 			return value;
 		};
 		const key = credential?.key ?? (await env("GOOGLE_CLOUD_API_KEY"));
-		if (key) return { auth: { apiKey: key }, source: credential?.key ? "stored credential" : "GOOGLE_CLOUD_API_KEY" };
+		if (key)
+			return {
+				auth: { apiKey: key },
+				source: credential?.key ? "stored credential" : "GOOGLE_CLOUD_API_KEY",
+			};
 
 		const adcPath = credential?.env?.GOOGLE_APPLICATION_CREDENTIALS ?? (await env("GOOGLE_APPLICATION_CREDENTIALS"));
 		signal.throwIfAborted();

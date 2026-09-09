@@ -39,19 +39,19 @@ automatically resumes the operation from the last recorded recovery state.
 
 ## Layout
 
-| path | role |
-| --- | --- |
-| `main.ts` | the `mini` command |
-| `shared/transport.ts` | `Connection`: newline-delimited JSON over any duplex pair |
-| `shared/rpc.ts` | frames, named services, routing, liveness, cancellation |
-| `shared/protocol.ts` | service tokens, contracts, wire types |
-| `server/run.ts` | routes, worker supervision, event fan-out |
-| `worker/run.ts` | opens the session, builds the harness, provides services |
-| `worker/lane-service.ts` | `Lane`: watch subscriptions and lane commands |
-| `worker/models-service.ts` | `Models`: catalog, accounts, interactive login |
-| `tui/run.ts` | presentation host: ensure server, attach, run the view |
-| `tui/session.ts` | attach, subscribe, hold the replicated snapshot |
-| `tui/view.ts` | alt-screen rendering, reusing interactive-mode components |
+| path                       | role                                                      |
+| -------------------------- | --------------------------------------------------------- |
+| `main.ts`                  | the `mini` command                                        |
+| `shared/transport.ts`      | `Connection`: newline-delimited JSON over any duplex pair |
+| `shared/rpc.ts`            | frames, named services, routing, liveness, cancellation   |
+| `shared/protocol.ts`       | service tokens, contracts, wire types                     |
+| `server/run.ts`            | routes, worker supervision, event fan-out                 |
+| `worker/run.ts`            | opens the session, builds the harness, provides services  |
+| `worker/lane-service.ts`   | `Lane`: watch subscriptions and lane commands             |
+| `worker/models-service.ts` | `Models`: catalog, accounts, interactive login            |
+| `tui/run.ts`               | presentation host: ensure server, attach, run the view    |
+| `tui/session.ts`           | attach, subscribe, hold the replicated snapshot           |
+| `tui/view.ts`              | alt-screen rendering, reusing interactive-mode components |
 
 ## RPC
 
@@ -59,11 +59,11 @@ Two verbs. **Call** asks a question and gets one answer; **emit** publishes to w
 directions on every connection.
 
 ```ts
-const peer = createPeer(connection, { forward });   // forward handles names this peer lacks
-peer.provide(Lane, laneService);                    // register and announce
-const lane = peer.use(Lane);                        // Remote<LaneServiceApi>
-await lane.prompt("hi");                            // -> { kind: "call", id, method: "lane.prompt" }
-peer.on(Lane, (event) => fold(event));              // typed by the token
+const peer = createPeer(connection, { forward }); // forward handles names this peer lacks
+peer.provide(Lane, laneService); // register and announce
+const lane = peer.use(Lane); // Remote<LaneServiceApi>
+await lane.prompt("hi"); // -> { kind: "call", id, method: "lane.prompt" }
+peer.on(Lane, (event) => fold(event)); // typed by the token
 ```
 
 The wire is six frame kinds: `call`, `result`, `error`, `cancel`, `event`, `announce`, `ping`.

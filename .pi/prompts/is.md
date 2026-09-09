@@ -2,6 +2,7 @@
 description: Analyze GitHub issues (bugs or feature requests)
 argument-hint: "<issue>"
 ---
+
 Analyze GitHub issue(s): $ARGUMENTS
 
 For each issue:

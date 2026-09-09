@@ -94,7 +94,12 @@ function estimateMessages(messages: readonly Message[]): ContextUsageEstimate {
 		for (let i = usageInfo.index + 1; i < messages.length; i++) {
 			trailingTokens += estimateMessageTokens(messages[i]);
 		}
-		return { tokens: usageTokens + trailingTokens, usageTokens, trailingTokens, lastUsageIndex: usageInfo.index };
+		return {
+			tokens: usageTokens + trailingTokens,
+			usageTokens,
+			trailingTokens,
+			lastUsageIndex: usageInfo.index,
+		};
 	}
 
 	let tokens = 0;

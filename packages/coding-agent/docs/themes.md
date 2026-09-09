@@ -171,95 +171,95 @@ Every theme must define all 53 required color tokens. The optional tokens preser
 
 ### Core UI (13 colors)
 
-| Token | Purpose |
-|-------|---------|
-| `accent` | Primary accent (logo, selected items, cursor) |
-| `border` | Normal borders |
-| `borderAccent` | Highlighted borders |
-| `borderMuted` | Subtle borders (editor) |
-| `success` | Success states |
-| `error` | Error states |
-| `warning` | Warning states |
-| `muted` | Secondary text |
-| `dim` | Tertiary text |
-| `text` | Default text (usually `""`) |
-| `thinkingText` | Thinking block text |
-| `scrollbarTrack` | Fullscreen scrollbar track foreground |
+| Token            | Purpose                                                                     |
+| ---------------- | --------------------------------------------------------------------------- |
+| `accent`         | Primary accent (logo, selected items, cursor)                               |
+| `border`         | Normal borders                                                              |
+| `borderAccent`   | Highlighted borders                                                         |
+| `borderMuted`    | Subtle borders (editor)                                                     |
+| `success`        | Success states                                                              |
+| `error`          | Error states                                                                |
+| `warning`        | Warning states                                                              |
+| `muted`          | Secondary text                                                              |
+| `dim`            | Tertiary text                                                               |
+| `text`           | Default text (usually `""`)                                                 |
+| `thinkingText`   | Thinking block text                                                         |
+| `scrollbarTrack` | Fullscreen scrollbar track foreground                                       |
 | `scrollbarThumb` | Fullscreen scrollbar thumb foreground, shared by normal and expanded states |
 
 ### Backgrounds & Content (11 required, 2 optional)
 
-| Token | Purpose |
-|-------|---------|
-| `selectedBg` | Selected line background |
-| `searchMatchBg` | Transcript search match background and current-match text; optional, falls back to `selectedBg` |
-| `searchMatchText` | Transcript search match text and current-match background; optional, falls back to `text` |
-| `userMessageBg` | User message background |
-| `userMessageText` | User message text |
-| `customMessageBg` | Extension message background |
-| `customMessageText` | Extension message text |
-| `customMessageLabel` | Extension message label |
-| `toolPendingBg` | Tool box (pending) |
-| `toolSuccessBg` | Tool box (success) |
-| `toolErrorBg` | Tool box (error) |
-| `toolTitle` | Tool title |
-| `toolOutput` | Tool output text |
+| Token                | Purpose                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `selectedBg`         | Selected line background                                                                        |
+| `searchMatchBg`      | Transcript search match background and current-match text; optional, falls back to `selectedBg` |
+| `searchMatchText`    | Transcript search match text and current-match background; optional, falls back to `text`       |
+| `userMessageBg`      | User message background                                                                         |
+| `userMessageText`    | User message text                                                                               |
+| `customMessageBg`    | Extension message background                                                                    |
+| `customMessageText`  | Extension message text                                                                          |
+| `customMessageLabel` | Extension message label                                                                         |
+| `toolPendingBg`      | Tool box (pending)                                                                              |
+| `toolSuccessBg`      | Tool box (success)                                                                              |
+| `toolErrorBg`        | Tool box (error)                                                                                |
+| `toolTitle`          | Tool title                                                                                      |
+| `toolOutput`         | Tool output text                                                                                |
 
 ### Markdown (10 colors)
 
-| Token | Purpose |
-|-------|---------|
-| `mdHeading` | Headings |
-| `mdLink` | Link text |
-| `mdLinkUrl` | Link URL |
-| `mdCode` | Inline code |
-| `mdCodeBlock` | Code block content |
-| `mdCodeBlockBorder` | Code block fences |
-| `mdQuote` | Blockquote text |
-| `mdQuoteBorder` | Blockquote border |
-| `mdHr` | Horizontal rule |
-| `mdListBullet` | List bullets |
+| Token               | Purpose            |
+| ------------------- | ------------------ |
+| `mdHeading`         | Headings           |
+| `mdLink`            | Link text          |
+| `mdLinkUrl`         | Link URL           |
+| `mdCode`            | Inline code        |
+| `mdCodeBlock`       | Code block content |
+| `mdCodeBlockBorder` | Code block fences  |
+| `mdQuote`           | Blockquote text    |
+| `mdQuoteBorder`     | Blockquote border  |
+| `mdHr`              | Horizontal rule    |
+| `mdListBullet`      | List bullets       |
 
 ### Tool Diffs (3 colors)
 
-| Token | Purpose |
-|-------|---------|
-| `toolDiffAdded` | Added lines |
+| Token             | Purpose       |
+| ----------------- | ------------- |
+| `toolDiffAdded`   | Added lines   |
 | `toolDiffRemoved` | Removed lines |
 | `toolDiffContext` | Context lines |
 
 ### Syntax Highlighting (9 colors)
 
-| Token | Purpose |
-|-------|---------|
-| `syntaxComment` | Comments |
-| `syntaxKeyword` | Keywords |
-| `syntaxFunction` | Function names |
-| `syntaxVariable` | Variables |
-| `syntaxString` | Strings |
-| `syntaxNumber` | Numbers |
-| `syntaxType` | Types |
-| `syntaxOperator` | Operators |
-| `syntaxPunctuation` | Punctuation |
+| Token               | Purpose        |
+| ------------------- | -------------- |
+| `syntaxComment`     | Comments       |
+| `syntaxKeyword`     | Keywords       |
+| `syntaxFunction`    | Function names |
+| `syntaxVariable`    | Variables      |
+| `syntaxString`      | Strings        |
+| `syntaxNumber`      | Numbers        |
+| `syntaxType`        | Types          |
+| `syntaxOperator`    | Operators      |
+| `syntaxPunctuation` | Punctuation    |
 
 ### Thinking Level Borders (6 required, 1 optional)
 
 Editor border colors indicating thinking level (visual hierarchy from subtle to prominent):
 
-| Token | Purpose |
-|-------|---------|
-| `thinkingOff` | Thinking off |
-| `thinkingMinimal` | Minimal thinking |
-| `thinkingLow` | Low thinking |
-| `thinkingMedium` | Medium thinking |
-| `thinkingHigh` | High thinking |
-| `thinkingXhigh` | Extra high thinking |
-| `thinkingMax` | Maximum thinking; optional, falls back to `thinkingXhigh` |
+| Token             | Purpose                                                   |
+| ----------------- | --------------------------------------------------------- |
+| `thinkingOff`     | Thinking off                                              |
+| `thinkingMinimal` | Minimal thinking                                          |
+| `thinkingLow`     | Low thinking                                              |
+| `thinkingMedium`  | Medium thinking                                           |
+| `thinkingHigh`    | High thinking                                             |
+| `thinkingXhigh`   | Extra high thinking                                       |
+| `thinkingMax`     | Maximum thinking; optional, falls back to `thinkingXhigh` |
 
 ### Bash Mode (1 color)
 
-| Token | Purpose |
-|-------|---------|
+| Token      | Purpose                                 |
+| ---------- | --------------------------------------- |
 | `bashMode` | Editor border in bash mode (`!` prefix) |
 
 ### HTML Export (optional)
@@ -280,12 +280,12 @@ The `export` section controls colors for `/export` HTML output. If omitted, colo
 
 Four formats are supported:
 
-| Format | Example | Description |
-|--------|---------|-------------|
-| Hex | `"#ff0000"` | 6-digit hex RGB |
-| 256-color | `39` | xterm 256-color palette index (0-255) |
-| Variable | `"primary"` | Reference to a `vars` entry |
-| Default | `""` | Terminal's default color |
+| Format    | Example     | Description                           |
+| --------- | ----------- | ------------------------------------- |
+| Hex       | `"#ff0000"` | 6-digit hex RGB                       |
+| 256-color | `39`        | xterm 256-color palette index (0-255) |
+| Variable  | `"primary"` | Reference to a `vars` entry           |
+| Default   | `""`        | Terminal's default color              |
 
 ### 256-Color Palette
 
@@ -318,5 +318,6 @@ echo $COLORTERM  # Should output "truecolor" or "24bit"
 ## Examples
 
 See the built-in themes:
+
 - [dark.json](../src/modes/interactive/theme/dark.json)
 - [light.json](../src/modes/interactive/theme/light.json)

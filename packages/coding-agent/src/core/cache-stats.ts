@@ -104,7 +104,11 @@ function asPreviousRequest(message: AssistantMessage, reportedCache: boolean): P
 function scan(
 	entries: SessionEntry[],
 	models: ModelPriceSource,
-): { prev: PreviousRequest | undefined; totals: CacheWasteTotals; misses: Map<AssistantMessage, CacheMiss> } {
+): {
+	prev: PreviousRequest | undefined;
+	totals: CacheWasteTotals;
+	misses: Map<AssistantMessage, CacheMiss>;
+} {
 	let prev: PreviousRequest | undefined;
 	const totals: CacheWasteTotals = { missedTokens: 0, missedCost: 0, missCount: 0 };
 	const misses = new Map<AssistantMessage, CacheMiss>();

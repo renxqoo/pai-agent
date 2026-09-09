@@ -283,7 +283,10 @@ describe("streamHarnessAssistant", () => {
 				request: () => {
 					const stream = createAssistantMessageEventStream();
 					queueMicrotask(() => {
-						stream.push({ type: "start", partial: { ...final, content: [], stopReason: "pending" } });
+						stream.push({
+							type: "start",
+							partial: { ...final, content: [], stopReason: "pending" },
+						});
 						stream.push({ type: "done", reason: "stop", message: final });
 					});
 					return stream;

@@ -353,7 +353,11 @@ describe("AgentSession model and extension characterization", () => {
 					pi.on("context", async (event) => ({
 						messages: event.messages.map((message) =>
 							message.role === "user"
-								? { ...message, content: [{ type: "text", text: "rewritten" }], timestamp: message.timestamp }
+								? {
+										...message,
+										content: [{ type: "text", text: "rewritten" }],
+										timestamp: message.timestamp,
+									}
 								: message,
 						),
 					}));

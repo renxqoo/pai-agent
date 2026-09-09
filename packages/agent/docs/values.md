@@ -123,28 +123,16 @@ The two components remain separate rather than concatenated. Dynamic application
 An address names one value or one list. Internal code uses small constructors when it has dynamic keys:
 
 ```ts
-export const branchTip = (lane: string) =>
-  value<string | null>("pi.branch.tip", lane);
+export const branchTip = (lane: string) => value<string | null>("pi.branch.tip", lane);
 
 export const operationState = (operationId: string) =>
   value<OperationState>("pi.op.state", operationId);
 
-export const operationToolArgs = (
-  operationId: string,
-  stepId: string,
-  sourceIndex: number,
-) => value<Record<string, JsonValue>>(
-  "pi.op.tool_args",
-  `${operationId}:${stepId}:${sourceIndex}`,
-);
+export const operationToolArgs = (operationId: string, stepId: string, sourceIndex: number) =>
+  value<Record<string, JsonValue>>("pi.op.tool_args", `${operationId}:${stepId}:${sourceIndex}`);
 
-export const pendingAssistantFrames = (
-  operationId: string,
-  responseEntryId: string,
-) => list<AssistantMessageFrame>(
-  "pi.pending.assistant_frame",
-  `${operationId}:${responseEntryId}`,
-);
+export const pendingAssistantFrames = (operationId: string, responseEntryId: string) =>
+  list<AssistantMessageFrame>("pi.pending.assistant_frame", `${operationId}:${responseEntryId}`);
 ```
 
 This encapsulates each key grammar at its owner. Call sites receive an already-bound typed address:
@@ -159,8 +147,12 @@ await reader.readList(pendingAssistantFrames(operationId, responseEntryId), opti
 Delete the existing global namespace-to-type maps:
 
 ```ts
-interface RegisterValues { /* delete */ }
-interface ListRegisterValues { /* delete */ }
+interface RegisterValues {
+  /* delete */
+}
+interface ListRegisterValues {
+  /* delete */
+}
 type RegisterNamespace = keyof RegisterValues; // delete
 ```
 
@@ -178,35 +170,25 @@ Applications should use a stable, collision-resistant namespace prefix. Namespac
 Built-in constructors live together in `packages/agent/src/harness/session/values.ts` and are imported directly by consumers. Representative definitions:
 
 ```ts
-export const branchTip = (lane: string) =>
-  value<string | null>("pi.branch.tip", lane);
-export const laneConfig = (lane: string) =>
-  value<LaneConfiguration>("pi.lane.config", lane);
-export const laneState = (lane: string) =>
-  value<LaneState>("pi.lane.state", lane);
+export const branchTip = (lane: string) => value<string | null>("pi.branch.tip", lane);
+export const laneConfig = (lane: string) => value<LaneConfiguration>("pi.lane.config", lane);
+export const laneState = (lane: string) => value<LaneState>("pi.lane.state", lane);
 export const operationResult = (operationId: string) =>
   value<OperationResultRecord>("pi.result", operationId);
 
 /** Used only by scanValues() to enumerate Branch names. */
-export const branchTipInventoryPrefix = () =>
-  value<string | null>("pi.branch.tip");
+export const branchTipInventoryPrefix = () => value<string | null>("pi.branch.tip");
 
 export const operationMeta = (operationId: string) =>
   value<OperationMeta>("pi.op.meta", operationId);
 export const operationState = (operationId: string) =>
   value<OperationState>("pi.op.state", operationId);
 export const operationToolArgs = (operationId: string, stepId: string, sourceIndex: number) =>
-  value<Record<string, JsonValue>>(
-    "pi.op.tool_args",
-    `${operationId}:${stepId}:${sourceIndex}`,
-  );
+  value<Record<string, JsonValue>>("pi.op.tool_args", `${operationId}:${stepId}:${sourceIndex}`);
 export const operationToolMemo = (operationId: string, invocationId: string, name: string) =>
   value<JsonValue>("pi.op.tool_memo", `${operationId}:${invocationId}:${name}`);
 export const operationPreparation = (operationId: string, taskId: string) =>
-  value<DurableStructuralPreparation>(
-    "pi.op.preparation",
-    `${operationId}:${taskId}`,
-  );
+  value<DurableStructuralPreparation>("pi.op.preparation", `${operationId}:${taskId}`);
 
 /** Prefix addresses are exported only for namespace-scoped scanValues(). */
 export const operationToolArgsPrefix = (operationId: string, stepId?: string) =>
@@ -222,18 +204,11 @@ export const operationToolMemoPrefix = (operationId: string, invocationId?: stri
 export const operationPreparationPrefix = (operationId: string) =>
   value<DurableStructuralPreparation>("pi.op.preparation", `${operationId}:`);
 
-export const pendingEntry = (entryId: string) =>
-  value<PendingEntry>("pi.pending.entry", entryId);
+export const pendingEntry = (entryId: string) => value<PendingEntry>("pi.pending.entry", entryId);
 export const pendingToolOutput = (operationId: string, invocationId: string) =>
-  value<AgentToolResult<unknown>>(
-    "pi.pending.tool_output",
-    `${operationId}:${invocationId}`,
-  );
+  value<AgentToolResult<unknown>>("pi.pending.tool_output", `${operationId}:${invocationId}`);
 export const pendingAssistantFrames = (operationId: string, responseEntryId: string) =>
-  list<AssistantMessageFrame>(
-    "pi.pending.assistant_frame",
-    `${operationId}:${responseEntryId}`,
-  );
+  list<AssistantMessageFrame>("pi.pending.assistant_frame", `${operationId}:${responseEntryId}`);
 export const pendingToolOutputPrefix = (operationId: string) =>
   value<AgentToolResult<unknown>>("pi.pending.tool_output", `${operationId}:`);
 
@@ -285,10 +260,7 @@ interface ValueReader {
   /** Internal bounded-prefix operation. The address key is interpreted as a prefix. */
   scanValues<T>(prefix: Value<T>): Promise<StoredValue<T>[]>;
 
-  readList<T>(
-    address: ValueList<T>,
-    options?: ListReadOptions,
-  ): Promise<ListElement<T>[]>;
+  readList<T>(address: ValueList<T>, options?: ListReadOptions): Promise<ListElement<T>[]>;
 }
 ```
 
@@ -298,17 +270,9 @@ interface ValueReader {
 
 ```ts
 interface Session extends ValueReader {
-  setValue<T>(
-    address: Value<T>,
-    next: NoInfer<T>,
-    context: Context,
-  ): Promise<void>;
+  setValue<T>(address: Value<T>, next: NoInfer<T>, context: Context): Promise<void>;
   deleteValue<T>(address: Value<T>, context: Context): Promise<void>;
-  appendList<T>(
-    address: ValueList<T>,
-    element: NoInfer<T>,
-    context: Context,
-  ): Promise<void>;
+  appendList<T>(address: ValueList<T>, element: NoInfer<T>, context: Context): Promise<void>;
   deleteList<T>(address: ValueList<T>, context: Context): Promise<void>;
 }
 ```

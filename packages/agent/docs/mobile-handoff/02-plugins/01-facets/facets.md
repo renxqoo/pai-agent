@@ -48,35 +48,26 @@ interface Service<T, M extends ServiceMode = ServiceMode> {
   readonly __type?: T; // phantom
 }
 
-function defineService<T>(
-  id: string,
-  options?: { rpc?: boolean },
-): Service<T, "singleton">;
+function defineService<T>(id: string, options?: { rpc?: boolean }): Service<T, "singleton">;
 
-function defineKeyedService<T>(
-  id: string,
-  options?: { rpc?: boolean },
-): Service<T, "keyed">;
+function defineKeyedService<T>(id: string, options?: { rpc?: boolean }): Service<T, "keyed">;
 
 /** One instance per connected peer; each peer sees exactly its own. */
-function definePeerService<T>(
-  id: string,
-  options?: { rpc?: boolean },
-): Service<T, "peer">;
+function definePeerService<T>(id: string, options?: { rpc?: boolean }): Service<T, "peer">;
 ```
 
 The three modes differ only in how many instances exist and who sees them:
 
-| mode | instances | consumer declares | consumer gets |
-| --- | --- | --- | --- |
-| `singleton` | one, shared | `uses` | the service |
-| `keyed` | many, all visible to everyone | `observes` | one task per instance |
-| `peer` | one per connected peer, visible only to that peer | `uses` | the service |
+| mode        | instances                                         | consumer declares | consumer gets         |
+| ----------- | ------------------------------------------------- | ----------------- | --------------------- |
+| `singleton` | one, shared                                       | `uses`            | the service           |
+| `keyed`     | many, all visible to everyone                     | `observes`        | one task per instance |
+| `peer`      | one per connected peer, visible only to that peer | `uses`            | the service           |
 
 `peer` is the answer to per-client state (§10.2). It is not a fourth mechanism —
 the host instantiates lazily per peer and announces to that peer alone — but the
 consumer ergonomics matter: from a client's side there is exactly one, so it says
-`uses` and calls it, exactly like a singleton. Watching a *set* of instances is
+`uses` and calls it, exactly like a singleton. Watching a _set_ of instances is
 what `observes` is for, and per-client state is not that.
 
 Mode lives on the token because it is a property of the contract, not a choice the
@@ -92,7 +83,7 @@ providing process; such tokens are never announced and never resolvable remotely
 const modelSelectionTui = defineFacet({
   id: "@pi/model-selection:tui",
 
-  uses:     [Models, Tui],
+  uses: [Models, Tui],
   provides: [],
   observes: [],
 
@@ -100,7 +91,9 @@ const modelSelectionTui = defineFacet({
     const models = ctx.use(Models);
     const tui = ctx.use(Tui);
 
-    tui.commands.register("models.select", async (context) => { /* ... */ });
+    tui.commands.register("models.select", async (context) => {
+      /* ... */
+    });
 
     return [];
   },
@@ -124,11 +117,11 @@ I/O. Anything asynchronous registers through `ctx.onActivate`, which runs after 
 entire graph is constructed, in dependency order. `ctx.onDeactivate` runs before
 disposal in reverse order. Three phases, each with a single job:
 
-| phase | sync? | may call dependencies? | purpose |
-| --- | --- | --- | --- |
-| `construct` | yes | no | wire objects, return provisions |
-| activate | no | yes | I/O, subscriptions, initial fetches |
-| deactivate | no | yes | orderly shutdown before disposal |
+| phase       | sync? | may call dependencies? | purpose                             |
+| ----------- | ----- | ---------------------- | ----------------------------------- |
+| `construct` | yes   | no                     | wire objects, return provisions     |
+| activate    | no    | yes                    | I/O, subscriptions, initial fetches |
+| deactivate  | no    | yes                    | orderly shutdown before disposal    |
 
 Keeping `construct` synchronous is what makes the ordering guarantee simple: a facet
 cannot observe a half-built graph, because nothing runs until all of it exists.
@@ -190,8 +183,14 @@ dependencies and its own handles; it returns implementations.
 
 ```ts
 function provide<T>(token: Service<T, "singleton">, impl: T): ProvideEntry<typeof token>;
-function provide<T>(token: Service<T, "keyed">, factory: (key: string, scope: InstanceScope) => T): ProvideEntry<typeof token>;
-function provide<T>(token: Service<T, "peer">, factory: (principal: Principal, scope: InstanceScope) => T): ProvideEntry<typeof token>;
+function provide<T>(
+  token: Service<T, "keyed">,
+  factory: (key: string, scope: InstanceScope) => T,
+): ProvideEntry<typeof token>;
+function provide<T>(
+  token: Service<T, "peer">,
+  factory: (principal: Principal, scope: InstanceScope) => T,
+): ProvideEntry<typeof token>;
 
 /** Instance-lifetime equivalent of the construct context's state(). */
 interface InstanceScope {
@@ -216,12 +215,11 @@ The union of tokens in the returned array must equal the union of `provides` plu
 ```ts
 type TokensIn<R extends readonly Entry[]> = R[number]["token"];
 
-type CheckComplete<R extends readonly Entry[], Declared> =
-  [TokensIn<R>] extends [Declared]
-    ? [Declared] extends [TokensIn<R>]
-      ? unknown
-      : { __error: "missing implementation for declared token" }
-    : { __error: "returned an undeclared token" };
+type CheckComplete<R extends readonly Entry[], Declared> = [TokensIn<R>] extends [Declared]
+  ? [Declared] extends [TokensIn<R>]
+    ? unknown
+    : { __error: "missing implementation for declared token" }
+  : { __error: "returned an undeclared token" };
 
 function defineFacet<
   const U extends readonly AnySingleton[],
@@ -253,8 +251,8 @@ its own token and keeps completeness checkable.
 export const questionSession = defineFacet({
   id: "@pi/question:session",
 
-  uses:     [Tools],
-  provides: [QuestionDialogs],   // keyed token
+  uses: [Tools],
+  provides: [QuestionDialogs], // keyed token
   observes: [],
 
   construct(ctx) {
@@ -284,7 +282,9 @@ export const questionSession = defineFacet({
         const entry = pending.get(key)!;
         return {
           request: entry.state,
-          async submitAnswer(candidate, _context) { /* memoOnce, resolve */ },
+          async submitAnswer(candidate, _context) {
+            /* memoOnce, resolve */
+          },
         };
       }),
     ];
@@ -307,11 +307,11 @@ of coding-agent features found no genuine construction-time cycle: tools and
 providers are fan-in through contribution registries; hooks are the host calling
 you; telemetry is a leaf; wrappers are ordered composition.
 
-The cases that look circular are late *call-time* references, not construction
+The cases that look circular are late _call-time_ references, not construction
 dependencies. Those get an explicit, visible escape hatch:
 
 ```ts
-uses: [Tools, deferred(QuestionDialogs)]
+uses: [Tools, deferred(QuestionDialogs)];
 // ctx.use(deferred(X)) returns () => X, resolved on first call, after assembly
 ```
 
@@ -360,14 +360,14 @@ that workers push into.
 export interface SessionStatusReporting {
   report(status: SessionStatus, context: Context): Promise<void>;
 }
-export const SessionStatusReporting =
-  defineService<SessionStatusReporting>("pi.session-status-reporting");
+export const SessionStatusReporting = defineService<SessionStatusReporting>(
+  "pi.session-status-reporting",
+);
 
 export interface SessionStatusView {
   readonly state: State<Record<string, SessionStatus>>;
 }
-export const SessionStatusView =
-  defineService<SessionStatusView>("pi.session-status");
+export const SessionStatusView = defineService<SessionStatusView>("pi.session-status");
 ```
 
 The worker `uses` the reporting token and pushes; the server aggregates into
@@ -389,10 +389,10 @@ facets.
 
 Two generations, with different lifetimes:
 
-| generation | source | lifetime | example |
-| --- | --- | --- | --- |
-| **connection** | server | the server connection | session picker |
-| **attachment** | session worker | one attachment | question dialog, chat |
+| generation     | source         | lifetime              | example               |
+| -------------- | -------------- | --------------------- | --------------------- |
+| **connection** | server         | the server connection | session picker        |
+| **attachment** | session worker | one attachment        | question dialog, chat |
 
 Switching sessions tears down and rebuilds only the attachment generation. The
 picker keeps running throughout — which it must, since it is what triggers the
@@ -431,11 +431,11 @@ TUI: assemble, validate, construct connection generation
 
 Three routes, converging on one attach:
 
-| invocation | route |
-| --- | --- |
+| invocation                  | route                                  |
+| --------------------------- | -------------------------------------- |
 | `pi` (bare, in a directory) | ask server to create a session for cwd |
-| `pi --resume` | invoke the picker command at startup |
-| `pi --session <id>` | attach directly |
+| `pi --resume`               | invoke the picker command at startup   |
+| `pi --session <id>`         | attach directly                        |
 
 `--resume` needs no special machinery: the picker is an ordinary command registered
 by the server-sourced picker facet, and resume invokes it at startup instead of
@@ -501,9 +501,9 @@ export const TranscriptState = defineState<TranscriptTail>("pi.transcript.tail")
 const tail = scope.state(TranscriptState, initial);
 
 tail.mutate((s) => {
-  s.entries.push(entry);            // -> splice
-  s.entries[0].text += chunk;       // -> append
-  delete s.pending;                 // -> delete
+  s.entries.push(entry); // -> splice
+  s.entries[0].text += chunk; // -> append
+  delete s.pending; // -> delete
 });
 ```
 
@@ -562,7 +562,7 @@ That is the same two-phase shape as `AgentHarness.watch` — `snapshot` then
 `start` — and it is a purely local detail of the provider binding, invisible on
 the wire. A consumer sees a base batch followed by contiguous batches, exactly as on cold start.
 
-Real resume would need a retained op log so a client could ask for "everything after seq N". We deliberately do not keep one: the durable form is a list of batches per *value* ([delta.md §9](../../01-harness/01-delta/delta.md#9-durable-form)), retired with its scope, not a per-subscription history. Buffering costs a bounded amount of memory for the duration of a handshake; an op log would cost unbounded disk forever.
+Real resume would need a retained op log so a client could ask for "everything after seq N". We deliberately do not keep one: the durable form is a list of batches per _value_ ([delta.md §9](../../01-harness/01-delta/delta.md#9-durable-form)), retired with its scope, not a per-subscription history. Buffering costs a bounded amount of memory for the duration of a handshake; an op log would cost unbounded disk forever.
 
 The landed tracker emits structural ops without a serialized-size heuristic. Provider replacement, reconnect, and policy-driven recovery bounds call `replace()`/`rebase()` explicitly; those are the only sources of a root `r` batch.
 
@@ -599,7 +599,7 @@ Two rules, both consequences of the tracker recording intent:
   (`message-update.md` §5.2).
 
 An array of content blocks is fine: it takes one `splice` when a block appears and
-then nothing. What changes afterwards is a string *inside* a block.
+then nothing. What changes afterwards is a string _inside_ a block.
 
 #### Requesting a state value
 
@@ -662,7 +662,7 @@ export const transcriptTui = defineFacet({
     const transcript = ctx.use(Transcript);
     const tui = ctx.use(Tui);
 
-    transcript.tail.subscribe((tail) => render(tail.entries));   // base batch zero arrives here too
+    transcript.tail.subscribe((tail) => render(tail.entries)); // base batch zero arrives here too
     tui.commands.register("transcript.older", async (context) =>
       render(await transcript.page({ before: oldestId(), limit: 100 }, context)),
     );
@@ -710,11 +710,11 @@ Because `watch()` is async, **instance factories may be async**. The instance is
 announced once the factory resolves; `add(key)` returns its closer immediately.
 
 ```ts
-export const Lane = defineKeyedService<LaneView>("pi.lane");   // key = lane name
+export const Lane = defineKeyedService<LaneView>("pi.lane"); // key = lane name
 
 export const laneSession = defineFacet({
   id: "@pi/lane:session",
-  uses:     [Harness],
+  uses: [Harness],
   provides: [Lane],
   observes: [],
 
@@ -729,16 +729,17 @@ export const laneSession = defineFacet({
     return [
       provide(Lane, async (laneName, scope, context) => {
         const lane = await harness.lane(laneName, context);
-        const handle = await lane.watch(context);          // phase 1: snapshot + subscribe
+        const handle = await lane.watch(context); // phase 1: snapshot + subscribe
         // The facet's own shape, not LaneSnapshot. reduceLaneView is its code.
         const state = scope.state(LaneState, toLaneView(handle.snapshot));
 
-        handle.start((event) => {                          // phase 2: buffered, then live
+        handle.start((event) => {
+          // phase 2: buffered, then live
           if (event.type === "navigation_end") {
             void handle.resnapshot(context).then((fresh) => state.replace(toLaneView(fresh)));
             return;
           }
-          state.mutate((v) => reduceLaneView(v, event));   // plain mutation; ops fall out
+          state.mutate((v) => reduceLaneView(v, event)); // plain mutation; ops fall out
         });
 
         return { snapshot: state, setModel: (ref, ctx2) => lane.setModel(ref, ctx2) };
@@ -765,7 +766,7 @@ Four things to notice.
   same base batch a reconnecting client receives. `markBoundary()` supplies the
   ordering. No reducer signals anything by returning a value.
 - **`HarnessEvent` is not a wire format.** `message_update` today carries the full
-  message *and* an `AssistantMessageEvent` holding a second copy *and* the delta,
+  message _and_ an `AssistantMessageEvent` holding a second copy _and_ the delta,
   so shipping it would be worse than shipping a snapshot. See `message-update.md`.
   It never ships here, because ops travel.
 - **Most of the union is already lane state.** `usage` folds into `stats.usage`; config
@@ -776,11 +777,11 @@ Four things to notice.
 
 The three that do **not** belong in it are a useful test of §9.4:
 
-| event | why not a mutation | where it goes |
-| --- | --- | --- |
-| `lane_created` | creates a lane, does not change one | `lanes.add(name)` — a new instance |
-| `handler_error` | diagnostic; no late joiner needs it | events primitive |
-| global `value_update` | not lane-scoped | state on whichever service owns that value |
+| event                 | why not a mutation                  | where it goes                              |
+| --------------------- | ----------------------------------- | ------------------------------------------ |
+| `lane_created`        | creates a lane, does not change one | `lanes.add(name)` — a new instance         |
+| `handler_error`       | diagnostic; no late joiner needs it | events primitive                           |
+| global `value_update` | not lane-scoped                     | state on whichever service owns that value |
 
 Note `lane_created` is delivered on the lane event stream, so discovering new lanes
 after startup requires a session-level watch rather than the per-lane ones above —
@@ -811,7 +812,7 @@ Two rules follow from the provider and every replica running the same fold:
 
 Mutation-name version skew does not exist: mutations never cross a boundary, so
 adding, renaming or removing one is not a breaking change. The version-skew surface
-is the *value shape* alone, which the root `r` batch's schema describes.
+is the _value shape_ alone, which the root `r` batch's schema describes.
 
 Prefer several coarse state values to one large value. A cold replica has
 `value === undefined`; that is local readiness and never crosses the wire.
@@ -838,7 +839,7 @@ A chat room is not one state. It splits along the same line:
 - **archive** — a plain service call returning a page of older messages. Immutable
   history, no liveness requirement, not replicated onto anything.
 
-There is no `subscribe` method. Attaching to the state value *is* the subscription, and it
+There is no `subscribe` method. Attaching to the state value _is_ the subscription, and it
 produces the snapshot, so the server registers the reader before it reads. That
 closes the window between a query and a later subscribe, and means the server never
 has to answer "what happened after an arbitrary client-supplied cursor" — the
@@ -876,7 +877,7 @@ argument, never forgeable.
 
 ```ts
 type Principal =
-  | { kind: "local" }                                   // same process, full authority
+  | { kind: "local" } // same process, full authority
   | { kind: "user"; peer: PeerId; userId: string; role: Role }
   | { kind: "process"; peer: PeerId; host: "worker" | "server"; sessionId?: string };
 
@@ -893,8 +894,8 @@ same interface locally and across a connection, so a method body reads
 not have an unchecked path that only appears in-process.
 
 Peers are not only humans — a worker calling the server through a reporting
-registry is a peer too, and server facets often want to distinguish *my own worker*
-from *some TUI*. In-process calls carry an explicit `local` principal rather than an
+registry is a peer too, and server facets often want to distinguish _my own worker_
+from _some TUI_. In-process calls carry an explicit `local` principal rather than an
 absent one, so a missing check cannot masquerade as a missing peer.
 
 ### 10.2 Per-peer services
@@ -916,13 +917,13 @@ one was ever announced to it.
 ```ts
 // contract.ts
 export interface BrowseRoot {
-  readonly handle: string;   // opaque, per-principal, revocable
+  readonly handle: string; // opaque, per-principal, revocable
   readonly label: string;
 }
 
 export interface BrowseView {
   readonly roots: BrowseRoot[];
-  readonly note?: string;    // e.g. "Ask the owner for wider access"
+  readonly note?: string; // e.g. "Ask the owner for wider access"
 }
 
 export const BrowseState = defineState<BrowseView>("pi.browse.view");
@@ -941,7 +942,7 @@ Server facet:
 export const fileBrowsingServer = defineFacet({
   id: "@pi/file-browsing:server",
 
-  uses:     [Fleet],
+  uses: [Fleet],
   provides: [FileBrowsing],
   observes: [],
 
@@ -995,7 +996,7 @@ TUI facet — note that it contains no permission logic at all:
 export const fileBrowsingTui = defineFacet({
   id: "@pi/file-browsing:tui",
 
-  uses:     [FileBrowsing, Tui],
+  uses: [FileBrowsing, Tui],
   provides: [],
   observes: [],
 
@@ -1062,8 +1063,9 @@ matter what the client was previously shown.
 Presence is replicated state the host provides:
 
 ```ts
-export const ConnectedPeers =
-  defineService<{ readonly state: State<Record<PeerId, Principal>> }>("pi.peers");
+export const ConnectedPeers = defineService<{ readonly state: State<Record<PeerId, Principal>> }>(
+  "pi.peers",
+);
 ```
 
 Server and worker facets read it to enumerate who is attached. A facet needs it
@@ -1087,7 +1089,6 @@ The distinction to keep straight:
 - **Do I want all of them?** → `keyed` + `observes`.
 - **Do I want mine?** → `peer` + `uses`.
 
-
 ## 11. The presentation surface
 
 `Tui` is an ordinary singleton token, declared in `uses` and resolved through
@@ -1098,12 +1099,16 @@ difference.
 ```ts
 interface TuiHost {
   readonly slots: SlotContributions;
-  readonly commands: CommandContributions;   // handlers take an AbortSignal; see §11.3
+  readonly commands: CommandContributions; // handlers take an AbortSignal; see §11.3
   readonly keybindings: KeybindingContributions;
   readonly toolRenderers: ToolRendererContributions;
   notify(message: string): Promise<void>;
   acquireModal(signal: AbortSignal): Promise<TuiModal>;
-  select<T>(title: string, items: SelectItem<T>[], options: { signal: AbortSignal }): Promise<T | undefined>;
+  select<T>(
+    title: string,
+    items: SelectItem<T>[],
+    options: { signal: AbortSignal },
+  ): Promise<T | undefined>;
 }
 
 const Tui = defineService<TuiHost>("pi.local.tui", { rpc: false });
@@ -1154,7 +1159,7 @@ Two consequences fall out of the generation model in §7:
 
 ### 11.3 Contributions with in-flight work
 
-§11.2 covers *removal*: the host tracks each mount against its contributing facet
+§11.2 covers _removal_: the host tracks each mount against its contributing facet
 and unmounts on disposal, so there is no teardown to forget. That is complete for
 anything whose disposal is synchronous.
 
@@ -1251,7 +1256,7 @@ same shape on the presentation host.
 **Registries split by whether a contribution can be in flight.** A registry whose
 contributions are values — slots, keybindings, theme tokens, tool renderers — is a
 list, and disposal is a removal (§11.2). A registry whose contributions are
-*invoked and take an `AbortSignal`* — tools, commands — owns invocation tracking, a
+_invoked and take an `AbortSignal`_ — tools, commands — owns invocation tracking, a
 signal chained from the caller's, and settlement against the kernel's disposal
 deadline (§13.2). The signal in the contribution's signature is the marker for
 which kind it is.
@@ -1300,8 +1305,8 @@ guidance makes `STATIC` the default, because dynamic requires every consumer to 
 defensive about the service vanishing mid-call.
 
 **Cordis is the proxy model, and the ergonomics show.** `ctx.get(name)` returns
-`undefined` when absent and the guidance is to *"handle their absence"* — the
-defensive check is the recommended path. `inject` opts *into* teardown: the plugin
+`undefined` when absent and the guidance is to _"handle their absence"_ — the
+defensive check is the recommended path. `inject` opts _into_ teardown: the plugin
 enters waiting and is reactivated when the service returns.
 
 **JS HMR is this design with one addition.** Updates propagate up the import graph
@@ -1321,7 +1326,7 @@ Three specific objections, in increasing order of severity:
 **Contract changes.** JVM HotSwap permits method bodies only; DCEVM and JRebel go
 further and still break on shape change. We are better placed than any of them,
 because a token's `protocol` block carries a TypeBox schema and `CheckComplete`
-already does mutual assignability — so a swap *could* be gated on the new
+already does mutual assignability — so a swap _could_ be gated on the new
 provider's schema being assignable both ways. This is the one objection we can
 actually answer.
 
@@ -1334,7 +1339,7 @@ nothing.
 
 **State.** This is the one with no answer. A facet holds a replica derived from the
 old provider's stream. After a swap it is either stale — silently wrong — or the
-new provider sends a base batch, which *is* a resubscribe. The state was torn down;
+new provider sends a base batch, which _is_ a resubscribe. The state was torn down;
 only the facet was not. Erlang solves this with an explicit migration hook, which
 is Erlang's design without Erlang's isolation.
 
@@ -1348,9 +1353,9 @@ wrong instead of impossible.
 
 > **Deferred, not adopted.** If teardown ever proves too coarse, the addition is
 > HMR's `accept()` rather than OSGi's dynamic policy: a per-dependency opt-in,
-> `uses: [Harness, accepts(Models)]`, meaning *my acquisition can be re-pointed, I
+> `uses: [Harness, accepts(Models)]`, meaning _my acquisition can be re-pointed, I
 > derive no state from this provider, and I hold no in-flight registrations against
-> it*. The kernel would permit the swap only if the schema check passes and
+> it_. The kernel would permit the swap only if the schema check passes and
 > silently fall back to teardown otherwise. **Teardown must remain the path that
 > always works**; the moment `accepts` is load-bearing for correctness, every
 > consumer is writing defensive code again.
@@ -1370,8 +1375,8 @@ result, and an operation waiting on one hangs.
 Neither reference system solves this. Cordis's `_unload` is
 `await Promise.all(disposers)` with a try/catch and no deadline — a disposer that
 hangs hangs the reload. DSH goes further and places the obligation on the tool
-author: async work must *"observe or forward `exec.signal` and settle only after"*
-reaching *"quiescence"*, with the registry rechecking cancellation afterwards. That
+author: async work must _"observe or forward `exec.signal` and settle only after"_
+reaching _"quiescence"_, with the registry rechecking cancellation afterwards. That
 is the settlement concept Cordis lacks, but it is stated in prose and enforced by
 nothing, so a tool that ignores its signal still wedges the unload.
 
@@ -1381,7 +1386,7 @@ nothing, so a tool that ignores its signal still wedges the unload.
    cheap, and it stops the problem growing.
 2. **Signal.** Abort each in-flight invocation.
 3. **Race a deadline.** Kernel-imposed, on every disposer.
-4. **Settle by outcome.** At expiry the registry resolves *its own* promise with an
+4. **Settle by outcome.** At expiry the registry resolves _its own_ promise with an
    aborted outcome and abandons the contributor's, attaching a catch and dropping
    the reference. The harness sees an ordinary aborted invocation and its existing
    `abortedMessage` path produces the result. No new settlement machinery.
@@ -1396,8 +1401,8 @@ meaningful, because only it knows a call is outstanding.
 
 The signal is **registry-owned and chained** from the harness signal, never the
 harness signal itself — so deregistering one tool aborts that tool's invocations
-without cancelling the operation. DSH's warning that *"replacement cannot detach
-caller cancellation"* is about exactly this; the chain must be one-way.
+without cancelling the operation. DSH's warning that _"replacement cannot detach
+caller cancellation"_ is about exactly this; the chain must be one-way.
 
 **Invocation tracking belongs to the registry, not the contributor.** A facet could
 track its own outstanding calls and signal them, but then a buggy or hostile facet
@@ -1425,7 +1430,7 @@ constrains the API surface above.
 §7 states that a presentation ships with no plugin facets and that all of them
 arrive over the wire as built bundles. So third-party code executes in the user's
 process by design, and connecting to a server is not consent to run its code. The
-victim is the *user*, with their filesystem, their credentials, their SSH keys —
+victim is the _user_, with their filesystem, their credentials, their SSH keys —
 not the operator.
 
 An earlier draft scoped this to "a careless plugin author, not a hostile one",
@@ -1454,30 +1459,30 @@ spinning guest                interrupted at its timeout, isolate reusable after
 
 **What was rejected, and why.**
 
-*SES / `lockdown()`* — an earlier draft chose this. It hardens intrinsics but
+_SES / `lockdown()`_ — an earlier draft chose this. It hardens intrinsics but
 leaves guest and host **in the same VM**, which is precisely the class Figma's
 Realms shim failed on: "confusing an object from outside the sandbox with an
 object from inside... possible because the shim uses the same JavaScript VM for
 all code both inside and outside". Figma shipped Realms, was breached within two
 months, and moved to a different VM. Choosing SES repeats their first attempt.
 
-*Node `worker_threads`* — `terminate()` is a genuine kill (3 ms on a tight loop),
+_Node `worker_threads`_ — `terminate()` is a genuine kill (3 ms on a tight loop),
 but a worker has full `fs`, `env` and `child_process`. Node's `--permission` model
 does apply inside workers, but Node documents it as a **"seat belt"** that
 "malicious code can bypass", and it does not inherit per-worker. Availability
 without authority is the wrong half for this threat model.
 
-*Deno workers* — `permissions: "none"` gives real per-worker authority reduction,
+_Deno workers_ — `permissions: "none"` gives real per-worker authority reduction,
 verified. But `terminate()` does **not** stop a spinning worker: 2990 ms of CPU
 over 3 s wall, measured after terminate. And it is a runtime switch.
 
-*QuickJS-WASM* — a genuinely different VM, so object confusion is impossible, and
+_QuickJS-WASM_ — a genuinely different VM, so object confusion is impossible, and
 it is what Figma shipped. Rejected on two measurements: **8–17× slower** (300
 markdown components repaint in 1118 ms versus 108 ms), and **no `Intl`**, which
 `packages/tui` needs for grapheme segmentation in every width calculation. It
 remains the fallback if a native addon is unacceptable.
 
-*ShadowRealm* — same thread, same VM, and its own explainer disclaims being "a
+_ShadowRealm_ — same thread, same VM, and its own explainer disclaims being "a
 full spectrum mechanism against security issues". Not a successor for this
 purpose.
 
@@ -1518,7 +1523,7 @@ its own isolate. That is a per-facet decision, not a global one.
 **Limits worth knowing.**
 
 - **Budgets do not nest.** A timeout bounds one evaluation. A guest function
-  re-entered *by the host* — a contributed callback, a component method — gets its
+  re-entered _by the host_ — a contributed callback, a component method — gets its
   own budget, not the outer one. Bounding total facet time needs separate
   accounting.
 - **References release, but lazily.** The membrane interns by id with `WeakRef`
@@ -1539,15 +1544,15 @@ its own isolate. That is a per-facet decision, not a global one.
 
 §13 states that every handle a facet receives is a host-built binding that
 registers its own disposer, so there is nothing to remember. That holds for
-handles the host *hands over*. It says nothing about authority a facet can reach
+handles the host _hands over_. It says nothing about authority a facet can reach
 **without** being handed anything: `setInterval`, `process.on`,
 `document.addEventListener`, a WebSocket.
 
 Registration-is-ownership is a property of the API surface, and it is only as
 complete as the surface is exclusive. Where a facet has another way to reach the
 outside world, disposal is back to author discipline — exactly the position §13.1
-criticises Cordis for (*"do not assume unload automatically removes arbitrary
-third-party callbacks"*).
+criticises Cordis for (_"do not assume unload automatically removes arbitrary
+third-party callbacks"_).
 
 How complete we can make it is **not uniform**, and pretending otherwise would be
 the wrong kind of tidy.
@@ -1555,7 +1560,7 @@ the wrong kind of tidy.
 **Session and server facets: closable, and this argues for compartments.** They run
 in Node with full ambient authority today — a facet can `import` timers, `fs`,
 `net`. Inside a compartment with no module access, the only globals are the ones we
-endow, so an endowed `setTimeout` that registers its own disposer is the *only*
+endow, so an endowed `setTimeout` that registers its own disposer is the _only_
 `setTimeout`. That is a real argument for resolving the open question above toward
 compartmenting session facets, on ergonomics rather than on trust.
 
@@ -1565,7 +1570,7 @@ There is no ambient terminal to grab. Endow timers the same way and the surface 
 exclusive.
 
 **Web: not closable, and it is worth being explicit about why.** The DOM is an
-ambient mutable graph reachable from *any node in it*. Hand a component one
+ambient mutable graph reachable from _any node in it_. Hand a component one
 element and it has `ownerDocument`, `parentNode`, `window` — and from there
 `addEventListener`, `MutationObserver`, a detached subtree that outlives its
 mount. `lockdown()` does not help: the escape is not a prototype, it is a live
@@ -1579,7 +1584,7 @@ currently worth:
   styling, layout, and focus all become protocol.
 
   Figma goes further and is worth studying, because it is the strongest form of
-  "make the surface exclusive". They split by *capability*: plugin logic runs in
+  "make the surface exclusive". They split by _capability_: plugin logic runs in
   QuickJS-on-WASM with the scene graph and **no browser APIs at all**, while UI
   runs in an iframe with browser APIs and **no scene access**, connected by
   `postMessage`. Plugin code never touches the DOM — not "sandboxed DOM access",
@@ -1588,14 +1593,15 @@ currently worth:
   Two things to take from their history. They shipped **Realms** first and it was
   found insecure within two months, which is the same escape class §14.2 cites for
   rejecting `isolated-vm` — production evidence rather than inference. And the
-  QuickJS cost is real: practitioners report *"truly impenetrable errors"* and a
+  QuickJS cost is real: practitioners report _"truly impenetrable errors"_ and a
   badly degraded debugging story, which §14.2 should weigh when it names QuickJS as
-  the upgrade path. As one put it, sandboxing is a thing *"everyone wants, but
-  there are so few examples of it actually ever working."*
+  the upgrade path. As one put it, sandboxing is a thing _"everyone wants, but
+  there are so few examples of it actually ever working."_
+
 - **Declarative-only components.** The facet never receives a node — it returns a
-  description and the host reconciles. §11.1 already points this way (*"props are
-  DTOs; a factory never receives the `TUI` or `Theme` instance"*), and extending it
-  to *never receives a DOM node* would hold. But it rules out refs, and therefore
+  description and the host reconciles. §11.1 already points this way (_"props are
+  DTOs; a factory never receives the `TUI` or `Theme` instance"_), and extending it
+  to _never receives a DOM node_ would hold. But it rules out refs, and therefore
   most component frameworks worth using.
 
 **So the rule is: make the safe path the easy path, and do not pretend the escape
@@ -1603,7 +1609,7 @@ is closed.**
 
 Provide `ctx.dom.on(el, event, fn)` and `ctx.timer.every(ms, fn)` that register
 their own disposers, and make them the obvious way to do the thing. §14.1's threat
-model is a *careless* author, not a hostile one, and a careless author uses the
+model is a _careless_ author, not a hostile one, and a careless author uses the
 ergonomic path. The escape remains reachable; it just is not the one you fall into.
 
 Where the surface can be made exclusive — session, server, TUI — enforce it with
@@ -1684,9 +1690,10 @@ export interface Transcript {
 
 export const Transcript = defineService<Transcript>("pi.transcript", {
   protocol: {
-    methods: { page: { params: object({ before: string(), limit: int() }),
-                       result: array(TranscriptEntry) } },
-    state:   { tail: TranscriptState },
+    methods: {
+      page: { params: object({ before: string(), limit: int() }), result: array(TranscriptEntry) },
+    },
+    state: { tail: TranscriptState },
   },
 });
 ```
@@ -1735,17 +1742,22 @@ session, so a client cannot address another peer's (§10.2).
 **Catalogue**
 
 ```json
-{ "version": "1",
+{
+  "version": "1",
   "services": {
     "pi.transcript": {
       "mode": "singleton",
-      "methods": { "page": { "params": { "$ref": "#/definitions/PageParams" },
-                             "result": { "type": "array",
-                                         "items": { "$ref": "#/definitions/TranscriptEntry" } } } },
+      "methods": {
+        "page": {
+          "params": { "$ref": "#/definitions/PageParams" },
+          "result": { "type": "array", "items": { "$ref": "#/definitions/TranscriptEntry" } }
+        }
+      },
       "state": { "tail": { "value": { "$ref": "#/definitions/TranscriptTail" } } }
     }
   },
-  "definitions": { "TranscriptEntry": { "type": "object", "properties": { "...": {} } } } }
+  "definitions": { "TranscriptEntry": { "type": "object", "properties": { "...": {} } } }
+}
 ```
 
 **Call**
@@ -1789,7 +1801,7 @@ A foreign client needs only the six ops of [delta.md §2](../../01-harness/01-de
 a page of code in any language.
 
 **This is where non-conformance becomes visible**, and it is the one place worth
-being deliberate about it. The format is JSON-Patch-*shaped*, not RFC 6902: paths are
+being deliberate about it. The format is JSON-Patch-_shaped_, not RFC 6902: paths are
 arrays rather than string pointers, and `append`, `truncate` and `splice` have no
 RFC equivalent. A client reaching for an off-the-shelf `jsonpatch` library will not
 work.
@@ -1817,29 +1829,29 @@ silently mean freezing, and §16 lists version negotiation as unresolved.
 
 ## 16. Deltas against `plugins.md`
 
-| topic | `plugins.md` | here |
-| --- | --- | --- |
-| dependency declaration | derived from `setup()` side effects | static `uses`/`provides`/`observes` |
-| handles during setup | disconnected lazy proxies | real objects, after validation |
-| validation | requires running facet code | pure manifest analysis |
-| mode | declared per call site, validated | property of the token |
-| cycles | tolerated via laziness | rejected; explicit `deferred()` escape |
-| replication | `ReplicatedState` full-value; `DeltaState` deferred | one primitive; explicit root `r` + six-verb ops |
-| hydration | separate atomic snapshot + buffering | base batch zero of the stream |
-| presentation facets | loaded locally | delivered by server and worker |
-| server↔worker | unspecified inversion | reporting registries; deps point upstream |
-| authority | `requireClientIdentity` in method bodies | principal on context; filtered views + handle checks |
-| per-client state | not addressed | `peer` mode: one instance per peer, consumed as a singleton |
-| resource ownership | explicit `own()` | implicit; every handle is a self-disposing binding |
-| state updates | hand-written patch unions | plain mutation on the provider; six-verb ops on the wire |
-| UI mounting | facet-owned panels, unspecified host API | slots with `claim`/`add`; host unmounts on disposal |
-| isolation | trusted code, unspecified | SES compartment per presentation facet |
-| foreign clients | not addressed | opt-in `protocol` block; JSON Schema catalogue + HTTP/SSE |
-| lifecycle | `setup` only | sync `construct`, async activate / deactivate |
+| topic                  | `plugins.md`                                        | here                                                        |
+| ---------------------- | --------------------------------------------------- | ----------------------------------------------------------- |
+| dependency declaration | derived from `setup()` side effects                 | static `uses`/`provides`/`observes`                         |
+| handles during setup   | disconnected lazy proxies                           | real objects, after validation                              |
+| validation             | requires running facet code                         | pure manifest analysis                                      |
+| mode                   | declared per call site, validated                   | property of the token                                       |
+| cycles                 | tolerated via laziness                              | rejected; explicit `deferred()` escape                      |
+| replication            | `ReplicatedState` full-value; `DeltaState` deferred | one primitive; explicit root `r` + six-verb ops             |
+| hydration              | separate atomic snapshot + buffering                | base batch zero of the stream                               |
+| presentation facets    | loaded locally                                      | delivered by server and worker                              |
+| server↔worker          | unspecified inversion                               | reporting registries; deps point upstream                   |
+| authority              | `requireClientIdentity` in method bodies            | principal on context; filtered views + handle checks        |
+| per-client state       | not addressed                                       | `peer` mode: one instance per peer, consumed as a singleton |
+| resource ownership     | explicit `own()`                                    | implicit; every handle is a self-disposing binding          |
+| state updates          | hand-written patch unions                           | plain mutation on the provider; six-verb ops on the wire    |
+| UI mounting            | facet-owned panels, unspecified host API            | slots with `claim`/`add`; host unmounts on disposal         |
+| isolation              | trusted code, unspecified                           | SES compartment per presentation facet                      |
+| foreign clients        | not addressed                                       | opt-in `protocol` block; JSON Schema catalogue + HTTP/SSE   |
+| lifecycle              | `setup` only                                        | sync `construct`, async activate / deactivate               |
 
 ## 17. Open decisions
 
-- Whether cwd-sourced *session* facets need compartments too (§14.2).
+- Whether cwd-sourced _session_ facets need compartments too (§14.2).
 - `CheckComplete` error message ergonomics.
 - Where roles come from, and whether they are per-server or per-session.
 - Whether handle tables are facet-owned or a kernel-provided utility.

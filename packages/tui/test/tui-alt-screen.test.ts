@@ -173,7 +173,9 @@ describe("TuiAltScreen", () => {
 		const tui = new TuiAltScreen(terminal, undefined, undefined, {
 			scrollToEndIndicator: () => " ↓ Jump to end ",
 		});
-		const transcript = new ScrollView(new Text("one\ntwo\nthree\nfour\nfive", 0, 0), { primary: true });
+		const transcript = new ScrollView(new Text("one\ntwo\nthree\nfour\nfive", 0, 0), {
+			primary: true,
+		});
 		tui.setLayoutRoot(transcript);
 		tui.start();
 		await terminal.waitForRender();

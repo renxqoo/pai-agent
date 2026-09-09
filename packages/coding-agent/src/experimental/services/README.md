@@ -2,17 +2,17 @@
 
 Facet setup generates each host's RPC service catalogue from its provided non-local tokens. Remote service sources obtain those catalogues and bind only services required by consuming facets; there is no handwritten built-in service inventory. With no selected Session, its deferred source admits unresolved requirements as unavailable and keeps their handles disconnected. Attachment validates them against the worker's generated catalogue, which is cached for later detached generations. Keyed services hydrate as an empty directory until their owning feature spawns an instance.
 
-| Scope | Service | Current slice | Continuation point |
-|---|---|---|---|
-| server | `SessionDirectory` | replicated state implemented | add authenticated per-client projection when identity lands |
-| server | `SessionManagement` | create, remove, attach, detach implemented | add authenticated workspace authorization |
-| server | `PresentationPlugins` | prepares the selected Session branch's matching TUI artifacts and reloads that branch | add authenticated plugin policy |
-| session | `SessionPlugins` | reloads the configured Session facet generation | add coordinated multi-worker reload reporting |
-| session | `Models` | state, default-persisting selection, thinking, refresh implemented | move provider/auth composition behind plugin facets |
-| session | `AgentController` | presentation-safe `AgentLane` facade for prompting, queueing, abort, resume, compaction, and navigation | add new lane operations only when a presentation requires them |
-| session | `Transcript` | replicated lane state with source-event metadata | add projections only when another presentation needs them |
-| presentation | `SlashCommands` | process-local contribution registry with model, thinking, compact, reload, and example hello commands | add more presentation hookpoints only as concrete plugin slices require them |
-| presentation | `PresentationUI` | process-local selection and status capabilities | add narrowly scoped UI capabilities only when commands require them |
+| Scope        | Service               | Current slice                                                                                           | Continuation point                                                           |
+| ------------ | --------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| server       | `SessionDirectory`    | replicated state implemented                                                                            | add authenticated per-client projection when identity lands                  |
+| server       | `SessionManagement`   | create, remove, attach, detach implemented                                                              | add authenticated workspace authorization                                    |
+| server       | `PresentationPlugins` | prepares the selected Session branch's matching TUI artifacts and reloads that branch                   | add authenticated plugin policy                                              |
+| session      | `SessionPlugins`      | reloads the configured Session facet generation                                                         | add coordinated multi-worker reload reporting                                |
+| session      | `Models`              | state, default-persisting selection, thinking, refresh implemented                                      | move provider/auth composition behind plugin facets                          |
+| session      | `AgentController`     | presentation-safe `AgentLane` facade for prompting, queueing, abort, resume, compaction, and navigation | add new lane operations only when a presentation requires them               |
+| session      | `Transcript`          | replicated lane state with source-event metadata                                                        | add projections only when another presentation needs them                    |
+| presentation | `SlashCommands`       | process-local contribution registry with model, thinking, compact, reload, and example hello commands   | add more presentation hookpoints only as concrete plugin slices require them |
+| presentation | `PresentationUI`      | process-local selection and status capabilities                                                         | add narrowly scoped UI capabilities only when commands require them          |
 
 `ServerServiceSource.connection` and `SessionServiceSource.attachment` are implemented local control states. Session directory, creation, and address DTOs are owned by these coding-agent service contracts rather than `pi-protocol`; the transport treats their payloads as opaque service data.
 

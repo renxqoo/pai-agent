@@ -130,7 +130,11 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 								if (isThinking) {
 									currentBlock = { type: "thinking", thinking: "", thinkingSignature: undefined };
 									output.content.push(currentBlock);
-									stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
+									stream.push({
+										type: "thinking_start",
+										contentIndex: blockIndex(),
+										partial: output,
+									});
 								} else {
 									currentBlock = { type: "text", text: "" };
 									output.content.push(currentBlock);
@@ -208,7 +212,12 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 								delta: JSON.stringify(toolCall.arguments),
 								partial: output,
 							});
-							stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall, partial: output });
+							stream.push({
+								type: "toolcall_end",
+								contentIndex: blockIndex(),
+								toolCall,
+								partial: output,
+							});
 						}
 					}
 				}
@@ -309,7 +318,10 @@ export const streamSimple: StreamFunction<"google-generative-ai", SimpleStreamOp
 		toolChoice: options?.toolChoice,
 	} satisfies GoogleOptions;
 	if (!options?.reasoning) {
-		return stream(model, context, { ...base, thinking: { enabled: false } } satisfies GoogleOptions);
+		return stream(model, context, {
+			...base,
+			thinking: { enabled: false },
+		} satisfies GoogleOptions);
 	}
 
 	const clampedReasoning = clampThinkingLevel(model, options.reasoning);
@@ -345,7 +357,11 @@ function createClient(
 		httpOptions.baseUrl = model.baseUrl;
 		httpOptions.apiVersion = ""; // baseUrl already includes version path, don't append
 	}
-	const headers = providerHeadersToRecord({ "User-Agent": getPiUserAgent(), ...model.headers, ...optionsHeaders });
+	const headers = providerHeadersToRecord({
+		"User-Agent": getPiUserAgent(),
+		...model.headers,
+		...optionsHeaders,
+	});
 	if (headers) {
 		httpOptions.headers = headers;
 	}

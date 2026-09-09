@@ -5,4 +5,4 @@ import values from "./data/google-vertex.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
 export const GOOGLE_VERTEX_MODELS: ModelCatalog<typeof values, "google-vertex"> =
-	flattenModelCatalog("google-vertex", values);
+  flattenModelCatalog("google-vertex", values);

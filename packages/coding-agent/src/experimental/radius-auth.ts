@@ -40,7 +40,10 @@ export class RadiusRelayAuthResolver {
 		const explicit = await this.#explicitToken(options.signal);
 		if (explicit !== undefined) return { gateway: this.#gateway, token: explicit };
 
-		this.#modelRuntime ??= ModelRuntime.create({ refreshOnCreate: false, allowModelNetwork: false });
+		this.#modelRuntime ??= ModelRuntime.create({
+			refreshOnCreate: false,
+			allowModelNetwork: false,
+		});
 		const runtime = await this.#modelRuntime;
 		options.signal?.throwIfAborted();
 		const token = getAuthCredential(

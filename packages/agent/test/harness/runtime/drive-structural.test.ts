@@ -107,7 +107,12 @@ function summaryReady(
 		...scope,
 		at: "summary.ready",
 		task,
-		summaryContext: { resultEntryId: "summary-entry", configuration, streamOptions: {}, retryPolicy },
+		summaryContext: {
+			resultEntryId: "summary-entry",
+			configuration,
+			streamOptions: {},
+			retryPolicy,
+		},
 		nextAttempt: 1,
 	};
 }
@@ -307,12 +312,19 @@ describe("runtime structural drive", () => {
 			{
 				entries: [
 					{ id: "user", parentId: null, type: "message", message: user("question") },
-					{ id: "assistant", parentId: "user", type: "message", message: fauxAssistantMessage("answer") },
+					{
+						id: "assistant",
+						parentId: "user",
+						type: "message",
+						message: fauxAssistantMessage("answer"),
+					},
 				],
 			},
 		);
 
-		expect(await runCheckpoint(fixture.lane, fixture.drive, checkpoint)).toEqual({ kind: "continue" });
+		expect(await runCheckpoint(fixture.lane, fixture.drive, checkpoint)).toEqual({
+			kind: "continue",
+		});
 		const deciding = currentState(fixture);
 		if (deciding.at !== "summary.deciding") throw new Error("threshold did not enter compaction");
 		if (deciding.task.boundary.kind !== "resume_checkpoint") throw new Error("threshold has wrong boundary");
@@ -324,7 +336,9 @@ describe("runtime structural drive", () => {
 		).toBeDefined();
 
 		fixture.hooks.on("before_compaction", () => ({ decline: true }));
-		expect(await runStructuralDecision(fixture.lane, fixture.drive, deciding)).toEqual({ kind: "continue" });
+		expect(await runStructuralDecision(fixture.lane, fixture.drive, deciding)).toEqual({
+			kind: "continue",
+		});
 		const routed = currentState(fixture);
 		if (routed.at !== "assistant.ready") throw new Error("threshold decline did not route to generation");
 		expect(routed.generationContext).toMatchObject({
@@ -364,7 +378,9 @@ describe("runtime structural drive", () => {
 			},
 		);
 
-		expect(await runCheckpoint(fixture.lane, fixture.drive, checkpoint)).toEqual({ kind: "continue" });
+		expect(await runCheckpoint(fixture.lane, fixture.drive, checkpoint)).toEqual({
+			kind: "continue",
+		});
 		const ready = currentState(fixture);
 		if (ready.at !== "assistant.ready") throw new Error("newer compaction did not guard threshold re-entry");
 		expect(ready.generationContext.triggerEntryId).toBe("trigger");
@@ -479,7 +495,9 @@ describe("runtime structural drive", () => {
 			return undefined;
 		});
 
-		expect(await runStructuralDecision(fixture.lane, fixture.drive, deciding)).toEqual({ kind: "continue" });
+		expect(await runStructuralDecision(fixture.lane, fixture.drive, deciding)).toEqual({
+			kind: "continue",
+		});
 		expect(fixture.storage.getCommitAttempts()).toHaveLength(1);
 		expect(finishHooks).toBe(0);
 		const ready = currentState(fixture);
@@ -565,7 +583,9 @@ describe("runtime structural drive", () => {
 			} else {
 				if (routed.at !== "checkpoint") throw new Error("follow-up did not reach the finish checkpoint");
 				expect(fixture.lane.state.inbox).toEqual([{ entryId: "queued", kind: "followUp" }]);
-				expect(await runCheckpoint(fixture.lane, fixture.drive, routed)).toEqual({ kind: "continue" });
+				expect(await runCheckpoint(fixture.lane, fixture.drive, routed)).toEqual({
+					kind: "continue",
+				});
 				const ready = currentState(fixture);
 				if (ready.at !== "assistant.ready") throw new Error("follow-up did not route directly to generation");
 				expect(ready.generationContext).toMatchObject({
@@ -641,7 +661,9 @@ describe("runtime structural drive", () => {
 			compaction: { summary: "summary", tokensBefore: 1_000, retainedTail: [user("tail")] },
 		}));
 
-		expect(await runStructuralDecision(fixture.lane, fixture.drive, deciding)).toEqual({ kind: "continue" });
+		expect(await runStructuralDecision(fixture.lane, fixture.drive, deciding)).toEqual({
+			kind: "continue",
+		});
 		expect(fixture.storage.getCommitAttempts()).toHaveLength(1);
 		expect(fixture.lane.state.inbox).toEqual([{ entryId: "steer-2", kind: "steer" }]);
 		expect(await fixture.session.getValue(storedValues.pendingEntry("steer-2"), BACKGROUND_CONTEXT)).toBeDefined();
@@ -651,8 +673,12 @@ describe("runtime structural drive", () => {
 		expect(await fixture.session.getEntry("write-1", BACKGROUND_CONTEXT)).toMatchObject({
 			parentId: expect.any(String),
 		});
-		expect(await fixture.session.getEntry("steer", BACKGROUND_CONTEXT)).toMatchObject({ parentId: "write-1" });
-		expect(await fixture.session.getEntry("write-2", BACKGROUND_CONTEXT)).toMatchObject({ parentId: "steer" });
+		expect(await fixture.session.getEntry("steer", BACKGROUND_CONTEXT)).toMatchObject({
+			parentId: "write-1",
+		});
+		expect(await fixture.session.getEntry("write-2", BACKGROUND_CONTEXT)).toMatchObject({
+			parentId: "steer",
+		});
 		expect(fixture.lane.state.tipId).toBe("write-2");
 	});
 
@@ -792,12 +818,20 @@ describe("runtime structural drive", () => {
 			false,
 		);
 		expect(fixture.events.map((event) => event.type)).toContain("entry_added");
-		expect(fixture.events.at(-1)).toMatchObject({ type: "compaction_end", reason: "manual", status: "completed" });
+		expect(fixture.events.at(-1)).toMatchObject({
+			type: "compaction_end",
+			reason: "manual",
+			status: "completed",
+		});
 	});
 
 	it("terminal-declines standalone compaction without publishing an entry", async () => {
 		const fixture = await createFixture();
-		const deciding = { ...runScope(), at: "summary.deciding", task: standaloneCompactionTask() } as const;
+		const deciding = {
+			...runScope(),
+			at: "summary.deciding",
+			task: standaloneCompactionTask(),
+		} as const;
 		await installOperation(
 			fixture,
 			deciding,
@@ -842,7 +876,12 @@ describe("runtime structural drive", () => {
 
 		expect(await runStructuralDecision(fixture.lane, fixture.drive, deciding)).toMatchObject({
 			kind: "settled",
-			outcome: { operationId, kind: "run", status: "failed", error: { code: "compaction_declined" } },
+			outcome: {
+				operationId,
+				kind: "run",
+				status: "failed",
+				error: { code: "compaction_declined" },
+			},
 		});
 		expect(fixture.lane.state.inbox).toEqual([{ entryId: queuedId, kind: "write" }]);
 		expect(await fixture.session.getValue(storedValues.pendingEntry(queuedId), BACKGROUND_CONTEXT)).toBeDefined();
@@ -933,7 +972,9 @@ describe("runtime structural drive", () => {
 		);
 		fixture.faux.setResponses([fauxAssistantMessage("generated summary")]);
 
-		expect(await runStructuralGeneration(fixture.lane, fixture.drive, ready)).toEqual({ kind: "continue" });
+		expect(await runStructuralGeneration(fixture.lane, fixture.drive, ready)).toEqual({
+			kind: "continue",
+		});
 		const routed = currentState(fixture);
 		if (routed.at !== "assistant.ready") throw new Error("generated compaction did not route to generation");
 		expect(routed.generationContext).toMatchObject({
@@ -942,7 +983,11 @@ describe("runtime structural drive", () => {
 		});
 		expect(fixture.lane.state.tipId).toBe("summary-entry");
 		const entry = await fixture.session.getEntry("summary-entry", BACKGROUND_CONTEXT);
-		expect(entry).toMatchObject({ type: "compaction", summary: "generated summary", fromHook: false });
+		expect(entry).toMatchObject({
+			type: "compaction",
+			summary: "generated summary",
+			fromHook: false,
+		});
 	});
 
 	it("settles structural usage without faulting when durable cancellation aborts the request", async () => {
@@ -1043,7 +1088,12 @@ describe("runtime structural drive", () => {
 		);
 		expect(await runStructuralGeneration(standalone.lane, standalone.drive, standaloneReady)).toMatchObject({
 			kind: "settled",
-			outcome: { operationId, kind: "compaction", status: "failed", error: { code: "model_unavailable" } },
+			outcome: {
+				operationId,
+				kind: "compaction",
+				status: "failed",
+				error: { code: "model_unavailable" },
+			},
 		});
 		expect(standalone.lane.state.operation).toBeNull();
 	});
@@ -1069,7 +1119,9 @@ describe("runtime structural drive", () => {
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "rate limit exceeded" }),
 		]);
 
-		expect(await runStructuralGeneration(fixture.lane, fixture.drive, ready)).toEqual({ kind: "continue" });
+		expect(await runStructuralGeneration(fixture.lane, fixture.drive, ready)).toEqual({
+			kind: "continue",
+		});
 		const retry = currentState(fixture);
 		if (retry.at !== "summary.retry_wait") throw new Error("retryable failure did not wait");
 		expect(retry.nextAttempt).toBe(2);
@@ -1083,7 +1135,9 @@ describe("runtime structural drive", () => {
 			},
 		});
 		vi.setSystemTime(retry.notBefore);
-		expect(await runStructuralRetryWait(fixture.lane, fixture.drive, retry)).toEqual({ kind: "continue" });
+		expect(await runStructuralRetryWait(fixture.lane, fixture.drive, retry)).toEqual({
+			kind: "continue",
+		});
 		const second = currentState(fixture);
 		if (second.at !== "summary.ready") throw new Error("elapsed retry did not become ready");
 		fixture.faux.setResponses([fauxAssistantMessage("summary")]);
@@ -1094,7 +1148,10 @@ describe("runtime structural drive", () => {
 		expect(
 			fixture.events
 				.filter((event) => event.type.startsWith("retry_"))
-				.map((event) => ({ type: event.type, ...("success" in event ? { success: event.success } : {}) })),
+				.map((event) => ({
+					type: event.type,
+					...("success" in event ? { success: event.success } : {}),
+				})),
 		).toEqual([{ type: "retry_scheduled" }, { type: "retry_start" }, { type: "retry_end", success: true }]);
 	});
 
@@ -1160,7 +1217,12 @@ describe("runtime structural drive", () => {
 		const result = await runStructuralGeneration(fixture.lane, fixture.drive, ready);
 		expect(result).toMatchObject({
 			kind: "settled",
-			outcome: { operationId, kind: "compaction", status: "failed", error: { code: "summarization_failed" } },
+			outcome: {
+				operationId,
+				kind: "compaction",
+				status: "failed",
+				error: { code: "summarization_failed" },
+			},
 		});
 		expect(fixture.lane.state.operation).toBeNull();
 		expect(fixture.events.map((event) => event.type)).not.toContain("retry_scheduled");
@@ -1281,7 +1343,11 @@ describe("runtime structural drive", () => {
 
 	it("terminal-declines summarized navigation without moving the tip", async () => {
 		const fixture = await createFixture();
-		const deciding = { ...runScope(), at: "summary.deciding", task: navigationSummaryTask("target") } as const;
+		const deciding = {
+			...runScope(),
+			at: "summary.deciding",
+			task: navigationSummaryTask("target"),
+		} as const;
 		await installOperation(
 			fixture,
 			deciding,
@@ -1372,7 +1438,9 @@ describe("runtime structural drive", () => {
 			},
 		);
 
-		expect(await recoverStructuralGeneration(fixture.lane, fixture.drive, effect)).toEqual({ kind: "continue" });
+		expect(await recoverStructuralGeneration(fixture.lane, fixture.drive, effect)).toEqual({
+			kind: "continue",
+		});
 		const retry = currentState(fixture);
 		if (retry.at !== "summary.retry_wait") throw new Error("orphan did not enter retry wait");
 		expect(retry.nextAttempt).toBe(2);

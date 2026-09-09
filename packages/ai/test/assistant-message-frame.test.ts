@@ -245,7 +245,10 @@ describe("assistant message frames", () => {
 		});
 
 		expect(frames.map((item) => item.type)).toEqual(["start", "text_start"]);
-		expect(frames[0]).toMatchObject({ type: "start", partial: { content: [], stopReason: "pending" } });
+		expect(frames[0]).toMatchObject({
+			type: "start",
+			partial: { content: [], stopReason: "pending" },
+		});
 		expect(reduceAssistantMessageFrames(frames)?.content).toEqual([{ type: "text", text: "Hello world" }]);
 	});
 
@@ -257,7 +260,12 @@ describe("assistant message frames", () => {
 		partial.content.push(text);
 		frames.push(frame(encoder, { type: "text_start", contentIndex: 0, partial }));
 		expect(encoder.encode({ type: "text_delta", contentIndex: 0, delta: "He", partial })).toBeUndefined();
-		const remainder = encoder.encode({ type: "text_delta", contentIndex: 0, delta: "llo", partial });
+		const remainder = encoder.encode({
+			type: "text_delta",
+			contentIndex: 0,
+			delta: "llo",
+			partial,
+		});
 		if (remainder === undefined) throw new Error("Expected uncovered text delta");
 		frames.push(remainder);
 
@@ -297,7 +305,12 @@ describe("assistant message frames", () => {
 		const partial = seed();
 		const encoder = new AssistantMessageFrameEncoder();
 		const frames: AssistantMessageFrame[] = [frame(encoder, { type: "start", partial })];
-		const toolCall = { type: "toolCall" as const, id: "call", name: "bash", arguments: { input: "a" } };
+		const toolCall = {
+			type: "toolCall" as const,
+			id: "call",
+			name: "bash",
+			arguments: { input: "a" },
+		};
 		partial.content.push(toolCall);
 		frames.push(frame(encoder, { type: "toolcall_start", contentIndex: 0, partial }));
 		toolCall.arguments = { input: "ab" };
@@ -367,7 +380,11 @@ describe("assistant message frames", () => {
 		const completed = seed();
 		completed.stopReason = "stop";
 		expect(() =>
-			new AssistantMessageFrameEncoder().encode({ type: "done", reason: "stop", message: completed }),
+			new AssistantMessageFrameEncoder().encode({
+				type: "done",
+				reason: "stop",
+				message: completed,
+			}),
 		).toThrow("done event appears before start");
 		expect(() =>
 			new AssistantMessageFrameEncoder().encode({
@@ -398,7 +415,13 @@ describe("assistant message frames", () => {
 					redacted: true,
 				},
 			},
-			{ type: "thinking_end", contentIndex: 1, content: "", thinkingSignature: "", redacted: false },
+			{
+				type: "thinking_end",
+				contentIndex: 1,
+				content: "",
+				thinkingSignature: "",
+				redacted: false,
+			},
 			{
 				type: "toolcall_start",
 				contentIndex: 2,
@@ -499,7 +522,13 @@ describe("assistant message frames", () => {
 			{ type: "text_delta", contentIndex: 0, delta: "answer" },
 			{ type: "toolcall_delta", contentIndex: 1, delta: '{"query":"pi"}' },
 			{ type: "thinking_delta", contentIndex: 2, delta: "check" },
-			{ type: "toolcall_end", contentIndex: 1, id: "call", name: "lookup", arguments: { query: "pi" } },
+			{
+				type: "toolcall_end",
+				contentIndex: 1,
+				id: "call",
+				name: "lookup",
+				arguments: { query: "pi" },
+			},
 			{ type: "text_end", contentIndex: 0, content: "answer" },
 			{ type: "thinking_end", contentIndex: 2, content: "check" },
 		];

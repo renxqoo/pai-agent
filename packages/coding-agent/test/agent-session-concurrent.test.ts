@@ -97,7 +97,11 @@ describe("AgentSession concurrent prompt guard", () => {
 					stream.push({ type: "start", partial: createAssistantMessage("") });
 					const checkAbort = () => {
 						if (abortSignal?.aborted) {
-							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+							stream.push({
+								type: "error",
+								reason: "aborted",
+								error: createAssistantMessage("Aborted"),
+							});
 						} else {
 							setTimeout(checkAbort, 5);
 						}
@@ -215,14 +219,22 @@ describe("AgentSession concurrent prompt guard", () => {
 					if (userTexts.includes("Steer from extension")) {
 						sawSteeringMessage = true;
 						stream.push({ type: "start", partial: createAssistantMessage("") });
-						stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Steered") });
+						stream.push({
+							type: "done",
+							reason: "stop",
+							message: createAssistantMessage("Steered"),
+						});
 						return;
 					}
 
 					stream.push({ type: "start", partial: createAssistantMessage("") });
 					const checkAbort = () => {
 						if (abortSignal?.aborted) {
-							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+							stream.push({
+								type: "error",
+								reason: "aborted",
+								error: createAssistantMessage("Aborted"),
+							});
 						} else {
 							setTimeout(checkAbort, 5);
 						}

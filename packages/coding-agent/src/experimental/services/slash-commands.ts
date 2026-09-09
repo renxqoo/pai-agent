@@ -27,4 +27,6 @@ export interface SlashCommands {
 	subscribe(listener: (commands: readonly SlashCommandContribution[]) => void): () => void;
 }
 
-export const SlashCommands = defineService<SlashCommands>("pi.local.slash-commands", { local: true });
+export const SlashCommands = defineService<SlashCommands>("pi.local.slash-commands", {
+	local: true,
+});

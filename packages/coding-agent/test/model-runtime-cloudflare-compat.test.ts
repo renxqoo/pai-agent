@@ -42,7 +42,10 @@ vi.mock("openai", () => {
 	return { default: FakeOpenAI };
 });
 
-async function createCloudflareRuntime(): Promise<{ modelRuntime: ModelRuntime; modelRegistry: ModelRegistry }> {
+async function createCloudflareRuntime(): Promise<{
+	modelRuntime: ModelRuntime;
+	modelRegistry: ModelRegistry;
+}> {
 	const authStorage = AuthStorage.inMemory();
 	await authStorage.modify("cloudflare-ai-gateway", async () => ({
 		type: "api_key",

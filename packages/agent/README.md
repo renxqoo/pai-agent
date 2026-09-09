@@ -51,6 +51,7 @@ Transport-neutral facet-service primitives live in `@earendil-works/chord`. The 
 ### AgentMessage vs LLM Message
 
 The agent works with `AgentMessage`, a flexible type that can include:
+
 - Standard LLM messages (`user`, `assistant`, `toolResult`)
 - Custom app-specific message types via declaration merging
 
@@ -162,18 +163,18 @@ The last message in context must be `user` or `toolResult` (not `assistant`).
 
 ### Event Types
 
-| Event | Description |
-|-------|-------------|
-| `agent_start` | Agent begins processing |
-| `agent_end` | Final event for the run. Awaited subscribers for this event still count toward settlement |
-| `turn_start` | New turn begins (one LLM call + tool executions) |
-| `turn_end` | Turn completes with assistant message and tool results |
-| `message_start` | Any message begins (user, assistant, toolResult) |
-| `message_update` | **Assistant only.** Includes `assistantMessageEvent` with delta |
-| `message_end` | Message completes |
-| `tool_execution_start` | Tool begins |
-| `tool_execution_update` | Tool streams progress |
-| `tool_execution_end` | Tool completes |
+| Event                   | Description                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `agent_start`           | Agent begins processing                                                                   |
+| `agent_end`             | Final event for the run. Awaited subscribers for this event still count toward settlement |
+| `turn_start`            | New turn begins (one LLM call + tool executions)                                          |
+| `turn_end`              | Turn completes with assistant message and tool results                                    |
+| `message_start`         | Any message begins (user, assistant, toolResult)                                          |
+| `message_update`        | **Assistant only.** Includes `assistantMessageEvent` with delta                           |
+| `message_end`           | Message completes                                                                         |
+| `tool_execution_start`  | Tool begins                                                                               |
+| `tool_execution_update` | Tool streams progress                                                                     |
+| `tool_execution_end`    | Tool completes                                                                            |
 
 `Agent.subscribe()` listeners are awaited in registration order. `agent_end` means no more loop events will be emitted, but `await agent.waitForIdle()` and `await agent.prompt(...)` only settle after awaited `agent_end` listeners finish.
 
@@ -280,7 +281,7 @@ await agent.prompt("Hello");
 
 // With images
 await agent.prompt("What's in this image?", [
-  { type: "image", data: base64Data, mimeType: "image/jpeg" }
+  { type: "image", data: base64Data, mimeType: "image/jpeg" },
 ]);
 
 // AgentMessage directly
@@ -322,7 +323,7 @@ agent.thinkingBudgets = {
 ### Control
 
 ```typescript
-agent.abort();           // Cancel current operation
+agent.abort(); // Cancel current operation
 await agent.waitForIdle(); // Wait for completion
 ```
 
@@ -371,6 +372,7 @@ agent.clearAllQueues();
 Use clearSteeringQueue, clearFollowUpQueue, or clearAllQueues to drop queued messages.
 
 When steering messages are detected after a turn completes:
+
 1. All tool calls from the current assistant message have already finished
 2. Steering messages are injected
 3. The LLM responds on the next turn
@@ -397,10 +399,11 @@ Handle custom types in `convertToLlm`:
 ```typescript
 const agent = new Agent({
   streamFn: models.streamSimple.bind(models),
-  convertToLlm: (messages) => messages.flatMap(m => {
-    if (m.role === "notification") return []; // Filter out
-    return [m];
-  }),
+  convertToLlm: (messages) =>
+    messages.flatMap((m) => {
+      if (m.role === "notification") return []; // Filter out
+      return [m];
+    }),
 });
 ```
 
@@ -413,7 +416,7 @@ import { Type } from "typebox";
 
 const readFileTool: AgentTool = {
   name: "read_file",
-  label: "Read File",  // For UI display
+  label: "Read File", // For UI display
   description: "Read a file's contents",
   parameters: Type.Object({
     path: Type.String({ description: "File path" }),
@@ -452,7 +455,7 @@ execute: async (toolCallId, params, signal, onUpdate) => {
   }
   // Return content only on success
   return { content: [{ type: "text", text: "..." }] };
-}
+};
 ```
 
 Thrown errors are caught by the agent and reported to the LLM as tool errors with `isError: true`.
@@ -491,8 +494,8 @@ const context: AgentContext = {
 
 const config: AgentLoopConfig = {
   model: getModel("openai", "gpt-4o"),
-  convertToLlm: (msgs) => msgs.filter(m => ["user", "assistant", "toolResult"].includes(m.role)),
-  toolExecution: "parallel",  // overridden by per-tool executionMode if set
+  convertToLlm: (msgs) => msgs.filter((m) => ["user", "assistant", "toolResult"].includes(m.role)),
+  toolExecution: "parallel", // overridden by per-tool executionMode if set
   beforeToolCall: async ({ toolCall, args, context }) => undefined,
   afterToolCall: async ({ toolCall, result, isError, context }) => undefined,
 };

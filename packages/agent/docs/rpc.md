@@ -146,20 +146,20 @@ The directory and management services are normal server services. Their contract
 
 ```ts
 interface SessionSummary {
-	serverId: string;
-	sessionId: string;
-	createdAt: string;
+  serverId: string;
+  sessionId: string;
+  createdAt: string;
 }
 
 interface SessionDirectory {
-	readonly state: ReplicatedState<{ revision: number; sessions: SessionSummary[] }>;
+  readonly state: ReplicatedState<{ revision: number; sessions: SessionSummary[] }>;
 }
 
 interface SessionManagement {
-	create(options: { id?: string }, context: Context): Promise<SessionSummary>;
-	remove(sessionId: string, context: Context): Promise<void>;
-	attach(sessionId: string, context: Context): Promise<void>;
-	detach(context: Context): Promise<void>;
+  create(options: { id?: string }, context: Context): Promise<SessionSummary>;
+  remove(sessionId: string, context: Context): Promise<void>;
+  attach(sessionId: string, context: Context): Promise<void>;
+  detach(context: Context): Promise<void>;
 }
 
 const SessionDirectory = defineService<SessionDirectory>("pi.session-directory");
@@ -171,14 +171,14 @@ A server facet derives the client from an authenticated `Context`, authorizes th
 ```ts
 serverContext.provide(SessionDirectory, { state: directoryState });
 serverContext.provide(SessionManagement, {
-	async attach(sessionId, context) {
-		const client = requireClientIdentity(context);
-		authorizeSession(client, sessionId);
-		await attachments.bind(client.clientId, sessionId, context);
-	},
-	async detach(context) {
-		await attachments.unbind(requireClientIdentity(context).clientId, context);
-	},
+  async attach(sessionId, context) {
+    const client = requireClientIdentity(context);
+    authorizeSession(client, sessionId);
+    await attachments.bind(client.clientId, sessionId, context);
+  },
+  async detach(context) {
+    await attachments.unbind(requireClientIdentity(context).clientId, context);
+  },
 });
 ```
 

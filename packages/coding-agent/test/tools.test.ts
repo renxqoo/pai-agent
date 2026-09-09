@@ -478,7 +478,9 @@ describe("Coding Agent Tools", () => {
 
 			const result = await computeEditsDiff(unreadableFile, [{ oldText: "hello", newText: "world" }], testDir);
 
-			expect(result).toEqual({ error: `Could not edit file: ${unreadableFile}. Error code: EACCES.` });
+			expect(result).toEqual({
+				error: `Could not edit file: ${unreadableFile}. Error code: EACCES.`,
+			});
 		});
 	});
 
@@ -644,14 +646,18 @@ describe("Coding Agent Tools", () => {
 				commandPrefix: "echo prefix-output",
 			});
 
-			const result = await bashWithPrefix.execute("test-prefix-2", { command: "echo command-output" });
+			const result = await bashWithPrefix.execute("test-prefix-2", {
+				command: "echo command-output",
+			});
 			expect(getTextOutput(result).trim()).toBe("prefix-output\ncommand-output");
 		});
 
 		it("should work without command prefix", async () => {
 			const bashWithoutPrefix = createBashTool(testDir, {});
 
-			const result = await bashWithoutPrefix.execute("test-prefix-3", { command: "echo no-prefix" });
+			const result = await bashWithoutPrefix.execute("test-prefix-3", {
+				command: "echo no-prefix",
+			});
 			expect(getTextOutput(result).trim()).toBe("no-prefix");
 		});
 
@@ -686,7 +692,9 @@ describe("Coding Agent Tools", () => {
 			};
 			const bash = createBashTool(testDir, { operations });
 
-			const result = await bash.execute("test-call-trailing-newline-line-count", { command: "many-lines" });
+			const result = await bash.execute("test-call-trailing-newline-line-count", {
+				command: "many-lines",
+			});
 			const output = getTextOutput(result);
 
 			expect(result.details?.truncation?.totalLines).toBe(4000);

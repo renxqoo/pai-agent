@@ -261,7 +261,12 @@ export class RadiusRelayHost {
 		);
 		const handler = this.#options.server.accept(connection);
 		if (connection.closed) {
-			void this.#sendControl({ version: 1, type: "connection_close", connection_id: connectionId, code: 1012 });
+			void this.#sendControl({
+				version: 1,
+				type: "connection_close",
+				connection_id: connectionId,
+				code: 1012,
+			});
 		} else {
 			this.#connections.set(connectionId, { connection, handler });
 		}
@@ -564,7 +569,12 @@ function parseHostControlMessage(value: string): HostInputControlMessage {
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		throw new Error("Invalid Radius relay control message");
 	}
-	const message = parsed as { version?: unknown; type?: unknown; connection_id?: unknown; code?: unknown };
+	const message = parsed as {
+		version?: unknown;
+		type?: unknown;
+		connection_id?: unknown;
+		code?: unknown;
+	};
 	if (message.version !== 1) throw new Error("Unsupported Radius relay control version");
 	if (message.type === "ping" || message.type === "pong") return { version: 1, type: message.type };
 	if (

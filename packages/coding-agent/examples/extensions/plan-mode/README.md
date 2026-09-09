@@ -37,12 +37,14 @@ Plan:
 ## How It Works
 
 ### Plan Mode (Read-Only)
+
 - Built-in edit/write tools disabled
 - Other active tools remain available
 - Bash commands filtered through allowlist
 - Agent creates a plan without making changes
 
 ### Execution Mode
+
 - Full tool access restored
 - Agent executes steps in order
 - `[DONE:n]` markers track completion
@@ -51,6 +53,7 @@ Plan:
 ### Command Allowlist
 
 Safe commands (allowed):
+
 - File inspection: `cat`, `head`, `tail`, `less`, `more`
 - Search: `grep`, `find`, `rg`, `fd`
 - Directory: `ls`, `pwd`, `tree`
@@ -59,6 +62,7 @@ Safe commands (allowed):
 - System info: `uname`, `whoami`, `date`, `uptime`
 
 Blocked commands:
+
 - File modification: `rm`, `mv`, `cp`, `mkdir`, `touch`
 - Git write: `git add`, `git commit`, `git push`
 - Package install: `npm install`, `yarn add`, `pip install`

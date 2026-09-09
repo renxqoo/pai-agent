@@ -139,21 +139,27 @@ describe("Anthropic thinking disable payload", () => {
 	});
 
 	it("uses adaptive thinking for Claude Opus 4.8 when reasoning is enabled", async () => {
-		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-8"), { reasoning: "high" });
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-8"), {
+			reasoning: "high",
+		});
 
 		expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
 		expect(payload.output_config).toEqual({ effort: "high" });
 	});
 
 	it("uses adaptive thinking for Claude Sonnet 5 when reasoning is enabled", async () => {
-		const payload = await capturePayload(getModel("anthropic", "claude-sonnet-5"), { reasoning: "high" });
+		const payload = await capturePayload(getModel("anthropic", "claude-sonnet-5"), {
+			reasoning: "high",
+		});
 
 		expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
 		expect(payload.output_config).toEqual({ effort: "high" });
 	});
 
 	it("maps xhigh reasoning to effort=xhigh for Claude Opus 4.8", async () => {
-		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-8"), { reasoning: "xhigh" });
+		const payload = await capturePayload(getModel("anthropic", "claude-opus-4-8"), {
+			reasoning: "xhigh",
+		});
 
 		expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
 		expect(payload.output_config).toEqual({ effort: "xhigh" });

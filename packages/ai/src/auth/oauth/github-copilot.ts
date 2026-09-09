@@ -298,7 +298,10 @@ async function pollForGitHubAccessToken(
 				}
 
 				if (error === "slow_down") {
-					return { status: "slow_down", intervalSeconds: typeof interval === "number" ? interval : undefined };
+					return {
+						status: "slow_down",
+						intervalSeconds: typeof interval === "number" ? interval : undefined,
+					};
 				}
 
 				const descriptionSuffix = description ? `: ${description}` : "";

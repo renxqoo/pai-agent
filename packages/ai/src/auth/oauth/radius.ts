@@ -237,7 +237,10 @@ async function loginWithBrowser(
 	}).toString();
 
 	const callbackServer = await startOAuthCallbackServer(state, interaction.signal);
-	interaction.notify({ type: "progress", message: `Listening for OAuth callback on ${REDIRECT_URI}` });
+	interaction.notify({
+		type: "progress",
+		message: `Listening for OAuth callback on ${REDIRECT_URI}`,
+	});
 	interaction.notify({
 		type: "auth_url",
 		url: authorizeUrl.toString(),

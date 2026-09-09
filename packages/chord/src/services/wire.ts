@@ -10,7 +10,12 @@ import type {
 
 export type WireServiceMemberSnapshot =
 	| { readonly name: string; readonly kind: "method" }
-	| { readonly name: string; readonly kind: "state"; readonly sequence: number; readonly ops: readonly WireOp[] };
+	| {
+			readonly name: string;
+			readonly kind: "state";
+			readonly sequence: number;
+			readonly ops: readonly WireOp[];
+	  };
 
 export type WireServiceInstanceSnapshot = {
 	readonly instance?: ServiceInstanceAddress;
@@ -56,11 +61,19 @@ export function createServiceCatalogueCall(): ServiceCall {
 }
 
 export function createServiceSubscribeCall(subscriptionId: string, serviceId: string, mode: ServiceMode): ServiceCall {
-	return { serviceId: SERVICE_CONTROL_ID, member: SERVICE_SUBSCRIBE_MEMBER, args: [subscriptionId, serviceId, mode] };
+	return {
+		serviceId: SERVICE_CONTROL_ID,
+		member: SERVICE_SUBSCRIBE_MEMBER,
+		args: [subscriptionId, serviceId, mode],
+	};
 }
 
 export function createServiceUnsubscribeCall(subscriptionId: string): ServiceCall {
-	return { serviceId: SERVICE_CONTROL_ID, member: SERVICE_UNSUBSCRIBE_MEMBER, args: [subscriptionId] };
+	return {
+		serviceId: SERVICE_CONTROL_ID,
+		member: SERVICE_UNSUBSCRIBE_MEMBER,
+		args: [subscriptionId],
+	};
 }
 
 export function decodeServiceControlCall(call: ServiceCall): ServiceControlCall | undefined {

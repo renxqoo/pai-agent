@@ -27,6 +27,8 @@ describe("package distribution entrypoints", () => {
 	// Regression for #9132: internal experimental entrypoints must not be published runtime exports.
 	test("keeps experimental exports source-only", () => {
 		expect(packageJson.exports["./client"]).toEqual({ source: "./src/client/index.ts" });
-		expect(packageJson.exports["./experimental/plugin"]).toEqual({ source: "./src/experimental/plugin.ts" });
+		expect(packageJson.exports["./experimental/plugin"]).toEqual({
+			source: "./src/experimental/plugin.ts",
+		});
 	});
 });

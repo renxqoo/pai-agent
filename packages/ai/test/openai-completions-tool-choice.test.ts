@@ -9,7 +9,11 @@ const mockState = vi.hoisted(() => ({
 	chunks: undefined as
 		| Array<null | {
 				id?: string;
-				choices?: Array<{ delta: Record<string, unknown>; finish_reason: string | null; usage?: unknown }>;
+				choices?: Array<{
+					delta: Record<string, unknown>;
+					finish_reason: string | null;
+					usage?: unknown;
+				}>;
 				usage?: {
 					prompt_tokens: number;
 					completion_tokens: number;
@@ -212,7 +216,9 @@ describe("openai-completions tool_choice", () => {
 			} as unknown as Parameters<typeof streamSimple>[2],
 		).result();
 
-		const params = (payload ?? mockState.lastParams) as { tools?: Array<{ function?: Record<string, unknown> }> };
+		const params = (payload ?? mockState.lastParams) as {
+			tools?: Array<{ function?: Record<string, unknown> }>;
+		};
 		const tool = params.tools?.[0]?.function;
 		expect(tool).toBeTruthy();
 		expect(tool?.strict).toBeUndefined();
@@ -381,7 +387,10 @@ describe("openai-completions tool_choice", () => {
 				},
 			).result();
 
-			const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+			const params = (payload ?? mockState.lastParams) as {
+				thinking?: unknown;
+				reasoning_effort?: string;
+			};
 			expect(params.thinking).toEqual({ type: "enabled", clear_thinking: false });
 			expect(params.reasoning_effort).toBe(testCase.effort);
 		}
@@ -470,7 +479,10 @@ describe("openai-completions tool_choice", () => {
 			},
 		).result();
 
-		const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+		const params = (payload ?? mockState.lastParams) as {
+			thinking?: unknown;
+			reasoning_effort?: string;
+		};
 		expect(params.thinking).toEqual({ type: "disabled" });
 		expect(params.reasoning_effort).toBeUndefined();
 	});
@@ -1366,7 +1378,10 @@ describe("openai-completions tool_choice", () => {
 			},
 		).result();
 
-		const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+		const params = (payload ?? mockState.lastParams) as {
+			thinking?: unknown;
+			reasoning_effort?: string;
+		};
 		expect(params.thinking).toEqual({ type: "disabled" });
 		expect(params.reasoning_effort).toBeUndefined();
 	});
@@ -1389,7 +1404,10 @@ describe("openai-completions tool_choice", () => {
 			},
 		).result();
 
-		const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+		const params = (payload ?? mockState.lastParams) as {
+			thinking?: unknown;
+			reasoning_effort?: string;
+		};
 		expect(params.thinking).toEqual({ type: "enabled" });
 		expect(params.reasoning_effort).toBeUndefined();
 	});
@@ -1414,7 +1432,10 @@ describe("openai-completions tool_choice", () => {
 				},
 			).result();
 
-			const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+			const params = (payload ?? mockState.lastParams) as {
+				thinking?: unknown;
+				reasoning_effort?: string;
+			};
 			expect(params.thinking).toBeUndefined();
 			expect(params.reasoning_effort).toBeUndefined();
 		}
@@ -1437,7 +1458,10 @@ describe("openai-completions tool_choice", () => {
 			},
 		).result();
 
-		const params = (payload ?? mockState.lastParams) as { thinking?: unknown; reasoning_effort?: string };
+		const params = (payload ?? mockState.lastParams) as {
+			thinking?: unknown;
+			reasoning_effort?: string;
+		};
 		expect(params.thinking).toEqual({ type: "disabled" });
 		expect(params.reasoning_effort).toBeUndefined();
 	});
@@ -1463,7 +1487,10 @@ describe("openai-completions tool_choice", () => {
 				},
 			).result();
 
-			const params = (payload ?? mockState.lastParams) as { max_tokens?: number; max_completion_tokens?: number };
+			const params = (payload ?? mockState.lastParams) as {
+				max_tokens?: number;
+				max_completion_tokens?: number;
+			};
 			expect(params.max_tokens).toBe(123);
 			expect(params.max_completion_tokens).toBeUndefined();
 		}
@@ -1510,7 +1537,10 @@ describe("openai-completions tool_choice", () => {
 				},
 			).result();
 
-			const params = (payload ?? mockState.lastParams) as { max_tokens?: number; max_completion_tokens?: number };
+			const params = (payload ?? mockState.lastParams) as {
+				max_tokens?: number;
+				max_completion_tokens?: number;
+			};
 			expect(params.max_tokens).toBe(123);
 			expect(params.max_completion_tokens).toBeUndefined();
 		}
@@ -1537,7 +1567,10 @@ describe("openai-completions tool_choice", () => {
 				},
 			).result();
 
-			const params = (payload ?? mockState.lastParams) as { max_tokens?: number; max_completion_tokens?: number };
+			const params = (payload ?? mockState.lastParams) as {
+				max_tokens?: number;
+				max_completion_tokens?: number;
+			};
 			expect(params.max_tokens).toBe(123);
 			expect(params.max_completion_tokens).toBeUndefined();
 		}
@@ -1786,7 +1819,10 @@ describe("openai-completions tool_choice", () => {
 
 		const params = await captureSimpleParams(model, "xhigh");
 
-		expect(params.chat_template_kwargs).toEqual({ preserve_thinking: true, reasoning_effort: "max" });
+		expect(params.chat_template_kwargs).toEqual({
+			preserve_thinking: true,
+			reasoning_effort: "max",
+		});
 		expect(params.reasoning_effort).toBeUndefined();
 	});
 

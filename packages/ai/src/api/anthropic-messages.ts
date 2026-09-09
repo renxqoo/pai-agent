@@ -587,7 +587,9 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 			await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
 			stream.push({ type: "start", partial: output });
 
-			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & { index: number };
+			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & {
+				index: number;
+			};
 			const blocks = output.content as Block[];
 
 			for await (const event of iterateAnthropicEvents(response, options?.signal)) {
@@ -628,7 +630,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							index: event.index,
 						};
 						output.content.push(block);
-						stream.push({ type: "text_start", contentIndex: output.content.length - 1, partial: output });
+						stream.push({
+							type: "text_start",
+							contentIndex: output.content.length - 1,
+							partial: output,
+						});
 					} else if (event.content_block.type === "thinking") {
 						const block: Block = {
 							type: "thinking",
@@ -637,7 +643,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							index: event.index,
 						};
 						output.content.push(block);
-						stream.push({ type: "thinking_start", contentIndex: output.content.length - 1, partial: output });
+						stream.push({
+							type: "thinking_start",
+							contentIndex: output.content.length - 1,
+							partial: output,
+						});
 					} else if (event.content_block.type === "redacted_thinking") {
 						const block: Block = {
 							type: "thinking",
@@ -647,7 +657,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							index: event.index,
 						};
 						output.content.push(block);
-						stream.push({ type: "thinking_start", contentIndex: output.content.length - 1, partial: output });
+						stream.push({
+							type: "thinking_start",
+							contentIndex: output.content.length - 1,
+							partial: output,
+						});
 					} else if (event.content_block.type === "tool_use") {
 						const block: Block = {
 							type: "toolCall",
@@ -660,7 +674,11 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							index: event.index,
 						};
 						output.content.push(block);
-						stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
+						stream.push({
+							type: "toolcall_start",
+							contentIndex: output.content.length - 1,
+							partial: output,
+						});
 					}
 				} else if (event.type === "content_block_delta") {
 					if (event.delta.type === "text_delta") {

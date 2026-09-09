@@ -25,7 +25,10 @@ const bedrockAuth: ApiKeyAuth = {
 		if (method === "bearer-token") {
 			return {
 				type: "api_key",
-				key: await interaction.prompt({ type: "secret", message: "Enter Amazon Bedrock bearer token" }),
+				key: await interaction.prompt({
+					type: "secret",
+					message: "Enter Amazon Bedrock bearer token",
+				}),
 			};
 		}
 		interaction.notify({
@@ -41,7 +44,12 @@ const bedrockAuth: ApiKeyAuth = {
 		if (method === "aws-profile") {
 			return {
 				type: "api_key",
-				env: { AWS_PROFILE: await interaction.prompt({ type: "text", message: "Enter AWS profile name" }) },
+				env: {
+					AWS_PROFILE: await interaction.prompt({
+						type: "text",
+						message: "Enter AWS profile name",
+					}),
+				},
 			};
 		}
 		if (method !== "credential-chain") throw new Error(`Unknown Amazon Bedrock auth method: ${method}`);

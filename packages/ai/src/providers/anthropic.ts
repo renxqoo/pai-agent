@@ -18,7 +18,11 @@ function anthropicApiKeyAuth(): ApiKeyAuth {
 		resolve: async ({ ctx, credential, signal }) => {
 			signal.throwIfAborted();
 			if (credential?.key) {
-				return { auth: { apiKey: credential.key }, env: credential.env, source: "stored credential" };
+				return {
+					auth: { apiKey: credential.key },
+					env: credential.env,
+					source: "stored credential",
+				};
 			}
 
 			const authToken = await ctx.env(ANTHROPIC_AUTH_TOKEN_ENV);

@@ -2,6 +2,7 @@
 description: Update a GitHub security advisory for publication
 argument-hint: "<advisory-url-or-draft-path>"
 ---
+
 Update a GitHub security advisory for publication: $ARGUMENTS
 
 Use `gh` for all GitHub operations. Do not publish the advisory, change its state, or request a CVE unless the user explicitly agrees or the draft markdown explicitly says `request_cve: true`.

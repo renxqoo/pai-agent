@@ -113,7 +113,11 @@ describe("ToolExecutionComponent parity", () => {
 			createFakeTui(),
 			process.cwd(),
 		);
-		component.updateResult({ content: [], details: { diff: "+1 after", firstChangedLine: 1 }, isError: false });
+		component.updateResult({
+			content: [],
+			details: { diff: "+1 after", firstChangedLine: 1 },
+			isError: false,
+		});
 		const rendered = stripAnsi(component.render(120).join("\n"));
 		expect(rendered).toContain("edit");
 		expect(rendered).toContain("README.md");
@@ -143,7 +147,10 @@ describe("ToolExecutionComponent parity", () => {
 				return { exitCode: 0 };
 			},
 		};
-		const tool = createBashToolDefinition(process.cwd(), { operations, exposeSessionEnvironment: false });
+		const tool = createBashToolDefinition(process.cwd(), {
+			operations,
+			exposeSessionEnvironment: false,
+		});
 		const promise = tool.execute(
 			"tool-bash-1",
 			{ command: "sleep 10" },
@@ -164,7 +171,10 @@ describe("ToolExecutionComponent parity", () => {
 				return { exitCode: 0 };
 			},
 		};
-		const tool = createBashToolDefinition(process.cwd(), { operations, exposeSessionEnvironment: false });
+		const tool = createBashToolDefinition(process.cwd(), {
+			operations,
+			exposeSessionEnvironment: false,
+		});
 		const result = await tool.execute(
 			"tool-bash-1b",
 			{ command: "generate output" },
@@ -562,7 +572,11 @@ describe("ToolExecutionComponent parity", () => {
 	}
 
 	for (const scenario of [
-		{ title: "SKILL.md", path: join(process.cwd(), "attio", "SKILL.md"), compact: "[skill] attio:120-329" },
+		{
+			title: "SKILL.md",
+			path: join(process.cwd(), "attio", "SKILL.md"),
+			compact: "[skill] attio:120-329",
+		},
 		{ title: "Pi documentation", path: getReadmePath(), compact: "read docs README.md:120-329" },
 	] as const) {
 		test(`shows the read line range in compact ${scenario.title} reads before the expand hint`, () => {

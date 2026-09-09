@@ -853,7 +853,9 @@ describe("Editor component", () => {
 		it("shows cursor at end of line before wrap, wraps on next char", () => {
 			const width = 10;
 			for (const paddingX of [0, 1]) {
-				const editor = new Editor(createTestTUI(width + paddingX), defaultEditorTheme, { paddingX });
+				const editor = new Editor(createTestTUI(width + paddingX), defaultEditorTheme, {
+					paddingX,
+				});
 
 				// Type 9 chars → fills layoutWidth exactly, cursor at end on same line
 				for (const ch of "aaaaaaaaa") editor.handleInput(ch);
@@ -2423,7 +2425,10 @@ describe("Editor component", () => {
 
 			editor.setAutocompleteProvider({
 				triggerCharacters: ["$"],
-				getSuggestions: async () => ({ items: [{ value: "$skill-name", label: "skill-name" }], prefix: "$" }),
+				getSuggestions: async () => ({
+					items: [{ value: "$skill-name", label: "skill-name" }],
+					prefix: "$",
+				}),
 				applyCompletion,
 			});
 			editor.setAutocompleteProvider({

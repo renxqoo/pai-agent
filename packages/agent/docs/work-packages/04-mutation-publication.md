@@ -132,9 +132,7 @@ The commit branch of `Lane.command()` returns a plain internal outcome containin
 
 ```ts
 const events = decision.events?.(commit) ?? [];
-const delivery = events.length === 0
-  ? undefined
-  : this.onEvent(events, context);
+const delivery = events.length === 0 ? undefined : this.onEvent(events, context);
 
 return {
   kind: "return",
@@ -200,10 +198,7 @@ await this.session.createLane(
   (context) => {
     if (this.closedError !== undefined) lane.seal(this.closedError);
     this.lanesByName.set(name, lane);
-    return this.events.emitBatch(
-      [{ type: "lane_created", lane: name, at }],
-      context,
-    );
+    return this.events.emitBatch([{ type: "lane_created", lane: name, at }], context);
   },
   context,
 );

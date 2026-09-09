@@ -57,7 +57,11 @@ describe("Kimi Code OAuth", () => {
 		const events: Array<Record<string, unknown>> = [];
 		const pollResponses = [
 			jsonResponse({ error: "authorization_pending" }, 400),
-			jsonResponse({ access_token: "access-token", refresh_token: "refresh-token", expires_in: 3600 }),
+			jsonResponse({
+				access_token: "access-token",
+				refresh_token: "refresh-token",
+				expires_in: 3600,
+			}),
 		];
 		const pollTimes: number[] = [];
 
@@ -201,7 +205,11 @@ describe("Kimi Code OAuth", () => {
 				expect(params.get("grant_type")).toBe("refresh_token");
 				expect(params.get("refresh_token")).toBe("old-refresh");
 				expect(params.get("client_id")).toBe(CLIENT_ID);
-				return jsonResponse({ access_token: "new-access", refresh_token: "new-refresh", expires_in: 3600 });
+				return jsonResponse({
+					access_token: "new-access",
+					refresh_token: "new-refresh",
+					expires_in: 3600,
+				});
 			}),
 		);
 

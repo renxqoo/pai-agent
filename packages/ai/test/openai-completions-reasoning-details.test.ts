@@ -23,7 +23,10 @@ vi.mock("openai", () => {
 						},
 					};
 					const result = Promise.resolve(stream) as Promise<typeof stream> & {
-						withResponse: () => Promise<{ data: typeof stream; response: { status: number; headers: Headers } }>;
+						withResponse: () => Promise<{
+							data: typeof stream;
+							response: { status: number; headers: Headers };
+						}>;
 					};
 					result.withResponse = async () => ({
 						data: stream,
@@ -101,7 +104,9 @@ async function runOpenAICompletionsStream(messages: AssistantMessage[] = []): Pr
 
 function getAssistantPayload(payload: unknown): { reasoning?: unknown; reasoning_details?: unknown } | undefined {
 	const messages = (
-		payload as { messages?: Array<{ role?: string; reasoning?: unknown; reasoning_details?: unknown }> }
+		payload as {
+			messages?: Array<{ role?: string; reasoning?: unknown; reasoning_details?: unknown }>;
+		}
 	).messages;
 	return messages?.find((message) => message.role === "assistant");
 }
@@ -158,7 +163,10 @@ describe("openai-completions reasoning_details streaming", () => {
 	it("preserves signed text and summary reasoning_details in their original sequence", async () => {
 		mockState.chunkSets = [
 			[
-				chunk({ reasoning: signedReasoningTextDetail.text, reasoning_details: [signedReasoningTextDetail] }),
+				chunk({
+					reasoning: signedReasoningTextDetail.text,
+					reasoning_details: [signedReasoningTextDetail],
+				}),
 				chunk({ reasoning_details: [reasoningDetail, reasoningSummaryDetail] }),
 				toolCallChunk(),
 				chunk({}, "tool_calls"),

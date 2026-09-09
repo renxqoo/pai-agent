@@ -19,15 +19,15 @@ The implemented public types are:
 
 ```ts
 interface ContextKey<T> {
-	readonly token: symbol;
-	readonly valueType?: (value: T) => T;
+  readonly token: symbol;
+  readonly valueType?: (value: T) => T;
 }
 
 interface Context {
-	readonly abortSignal: AbortSignal | undefined;
-	readonly telemetryContext: TelemetryContext;
-	value<T>(key: ContextKey<T>): T | undefined;
-	toString(): string;
+  readonly abortSignal: AbortSignal | undefined;
+  readonly telemetryContext: TelemetryContext;
+  value<T>(key: ContextKey<T>): T | undefined;
+  toString(): string;
 }
 ```
 
@@ -85,12 +85,12 @@ The design retains:
 
 ```ts
 return startHarnessSpan(
-	"pi.harness.run",
-	attributes,
-	async (span, runContext) => {
-		return runDrive(runContext);
-	},
-	context,
+  "pi.harness.run",
+  attributes,
+  async (span, runContext) => {
+    return runDrive(runContext);
+  },
+  context,
 );
 ```
 
@@ -104,11 +104,8 @@ Explicit propagation supports concurrent sibling calls:
 
 ```ts
 await parent.telemetryContext.startSpan({ name: "caller" }, async (callerSpan) => {
-	const callerContext = withTelemetryContext(callerSpan, parent);
-	await Promise.all([
-		laneA.drive(optionsA, callerContext),
-		laneB.drive(optionsB, callerContext),
-	]);
+  const callerContext = withTelemetryContext(callerSpan, parent);
+  await Promise.all([laneA.drive(optionsA, callerContext), laneB.drive(optionsB, callerContext)]);
 });
 ```
 
@@ -172,10 +169,7 @@ The runtime must track the stop cause instead of interpreting every aborted prov
 
 ```ts
 type ExecutionStopCause =
-	| "no_drive_waiters"
-	| "invocation_cancelled"
-	| "harness_closed"
-	| "durable_cancel_requested";
+  "no_drive_waiters" | "invocation_cancelled" | "harness_closed" | "durable_cancel_requested";
 ```
 
 Only `durable_cancel_requested` may normalize and commit a durable aborted outcome. An invocation/disconnect abort must not produce an assistant `stopReason: "aborted"` settlement while durable control remains `running`; that path would violate the durable state machine.
@@ -199,8 +193,8 @@ A transport-facing adapter boundary is required:
 
 ```ts
 interface TelemetryPropagation {
-	inject(context: TelemetryContext): JsonValue | undefined;
-	extract(carrier: JsonValue | undefined): TelemetryContext;
+  inject(context: TelemetryContext): JsonValue | undefined;
+  extract(carrier: JsonValue | undefined): TelemetryContext;
 }
 ```
 

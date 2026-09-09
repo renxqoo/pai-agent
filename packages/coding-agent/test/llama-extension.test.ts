@@ -145,7 +145,12 @@ describe("llama.cpp extension", () => {
 			if (request.url === "/models") {
 				json(response, {
 					data: [
-						{ id: "preset", status: { value: "unloaded" }, source: "preset", meta: { n_ctx: 65536 } },
+						{
+							id: "preset",
+							status: { value: "unloaded" },
+							source: "preset",
+							meta: { n_ctx: 65536 },
+						},
 						{ id: "failed-preset", status: { value: "unloaded", failed: true }, source: "preset" },
 						{ id: "cache", status: { value: "unloaded" }, source: "cache" },
 						{ id: "models-dir", status: { value: "unloaded" }, source: "models_dir" },
@@ -185,7 +190,9 @@ describe("llama.cpp extension", () => {
 	it("hides unloaded presets when router autoload is disabled", async () => {
 		const { url } = await listen((request, response) => {
 			if (request.url === "/models") {
-				json(response, { data: [{ id: "preset", status: { value: "unloaded" }, source: "preset" }] });
+				json(response, {
+					data: [{ id: "preset", status: { value: "unloaded" }, source: "preset" }],
+				});
 				return;
 			}
 			if (request.url === "/props") {
@@ -305,7 +312,11 @@ describe("llama.cpp extension", () => {
 						event: "status_change",
 						data: {
 							status: "loading",
-							progress: { stages: ["text_model", "mmproj_model"], current: "text_model", value: 0.5 },
+							progress: {
+								stages: ["text_model", "mmproj_model"],
+								current: "text_model",
+								value: 0.5,
+							},
 						},
 					});
 					status = "loaded";

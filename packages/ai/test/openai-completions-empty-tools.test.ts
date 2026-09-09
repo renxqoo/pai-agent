@@ -128,7 +128,12 @@ describe("openai-completions empty tools handling", () => {
 
 	it("clamps default maxTokens to remaining context", async () => {
 		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
-		const model = { ...baseModel, api: "openai-completions", contextWindow: 10000, maxTokens: 8000 } as const;
+		const model = {
+			...baseModel,
+			api: "openai-completions",
+			contextWindow: 10000,
+			maxTokens: 8000,
+		} as const;
 
 		await streamSimple(
 			model,
@@ -145,7 +150,12 @@ describe("openai-completions empty tools handling", () => {
 
 	it("clamps explicit maxTokens to remaining context", async () => {
 		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
-		const model = { ...baseModel, api: "openai-completions", contextWindow: 10000, maxTokens: 8000 } as const;
+		const model = {
+			...baseModel,
+			api: "openai-completions",
+			contextWindow: 10000,
+			maxTokens: 8000,
+		} as const;
 
 		await streamSimple(
 			model,
@@ -225,7 +235,9 @@ describe("openai-completions empty tools handling", () => {
 			{ headers: { Authorization: "Bearer upstream-token" } },
 		).result();
 
-		const clientOptions = mockState.lastClientOptions as { defaultHeaders?: Record<string, unknown> };
+		const clientOptions = mockState.lastClientOptions as {
+			defaultHeaders?: Record<string, unknown>;
+		};
 		expect(clientOptions.defaultHeaders?.Authorization).toBe("Bearer upstream-token");
 		expect(clientOptions.defaultHeaders?.["cf-aig-authorization"]).toBe("Bearer cf-token");
 	});
@@ -244,7 +256,9 @@ describe("openai-completions empty tools handling", () => {
 			{ sessionId: "session-1" },
 		).result();
 
-		const clientOptions = mockState.lastClientOptions as { defaultHeaders?: Record<string, string> };
+		const clientOptions = mockState.lastClientOptions as {
+			defaultHeaders?: Record<string, string>;
+		};
 		expect(clientOptions.defaultHeaders?.session_id).toBe("session-1");
 		expect(clientOptions.defaultHeaders?.["x-client-request-id"]).toBe("session-1");
 		expect(clientOptions.defaultHeaders?.["x-session-affinity"]).toBe("session-1");

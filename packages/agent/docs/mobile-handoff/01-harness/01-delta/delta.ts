@@ -51,10 +51,14 @@ export type Op =
  */
 export type WireOp =
   | readonly ["r", JsonValue]
-  | readonly ["s", PathRef<NonEmptyPath>, JsonValue] | readonly ["s", JsonValue]
-  | readonly ["d", PathRef<NonEmptyPath>]            | readonly ["d"]
-  | readonly ["a", PathRef<NonEmptyPath>, string]    | readonly ["a", string]
-  | readonly ["t", PathRef<NonEmptyPath>, number]    | readonly ["t", number]
+  | readonly ["s", PathRef<NonEmptyPath>, JsonValue]
+  | readonly ["s", JsonValue]
+  | readonly ["d", PathRef<NonEmptyPath>]
+  | readonly ["d"]
+  | readonly ["a", PathRef<NonEmptyPath>, string]
+  | readonly ["a", string]
+  | readonly ["t", PathRef<NonEmptyPath>, number]
+  | readonly ["t", number]
   | readonly ["p", PathRef, number, number, JsonValue[]]
   | readonly ["p", number, number, JsonValue[]]
   | readonly ["#", number, Path];

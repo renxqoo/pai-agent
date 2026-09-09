@@ -88,7 +88,9 @@ async function convertToPng(bytes: Uint8Array): Promise<Uint8Array | null> {
 // Undefined means the backend failed; null means it has no image. An empty
 // Wayland clipboard must not fall through to stale X11 clipboard contents.
 async function readClipboardImageViaWlPaste(): Promise<ClipboardImage | null | undefined> {
-	const list = await runClipboardCommand("wl-paste", ["--list-types"], { timeoutMs: DEFAULT_LIST_TIMEOUT_MS });
+	const list = await runClipboardCommand("wl-paste", ["--list-types"], {
+		timeoutMs: DEFAULT_LIST_TIMEOUT_MS,
+	});
 	if (list === undefined) return undefined;
 
 	const types = list

@@ -405,6 +405,10 @@ describe("bedrock convertMessages skips unknown content types", () => {
 				{ oldText: "second", newText: "updated second" },
 			],
 		});
-		expect(toolArguments.edits[1]).toEqual({ oldText: "second", newText: "updated second", "": "" });
+		expect(toolArguments.edits[1]).toEqual({
+			oldText: "second",
+			newText: "updated second",
+			"": "",
+		});
 	});
 });

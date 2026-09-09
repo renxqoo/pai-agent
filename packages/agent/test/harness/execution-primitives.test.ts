@@ -61,7 +61,9 @@ describe("HookRegistry", () => {
 			expect(event.prompt).toHaveLength(2);
 			return { messages: [{ role: "user" as const, content: "second", timestamp: 3 }] };
 		});
-		hooks.on("before_run", () => ({ messages: [{ role: "user", content: "first", timestamp: 2 }] }));
+		hooks.on("before_run", () => ({
+			messages: [{ role: "user", content: "first", timestamp: 2 }],
+		}));
 		hooks.on("before_run", second);
 
 		const result = await hooks.runWithGate(
@@ -255,7 +257,9 @@ describe("HookRegistry", () => {
 
 	it("preserves clear-all before_request patches across later handlers", async () => {
 		const hooks = new HookRegistry(() => {});
-		hooks.on("before_request", () => ({ streamOptions: { headers: undefined, metadata: undefined } }));
+		hooks.on("before_request", () => ({
+			streamOptions: { headers: undefined, metadata: undefined },
+		}));
 		hooks.on("before_request", (event) => {
 			expect(event.streamOptions.headers).toBeUndefined();
 			expect(event.streamOptions.metadata).toBeUndefined();

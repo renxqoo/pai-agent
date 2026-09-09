@@ -395,7 +395,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		let preTrustExtensions: LoadExtensionsResult | undefined;
 		if (options?.resolveProjectTrust) {
 			preTrustExtensions = await this.loadProjectTrustExtensions();
-			const projectTrusted = await options.resolveProjectTrust({ extensionsResult: preTrustExtensions });
+			const projectTrusted = await options.resolveProjectTrust({
+				extensionsResult: preTrustExtensions,
+			});
 			this.settingsManager.setProjectTrusted(projectTrusted);
 		}
 
@@ -458,7 +460,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 			if (isLocalPath(p)) {
 				const resolved = this.resolveResourcePath(p);
 				if (!existsSync(resolved)) {
-					extensionsResult.errors.push({ path: resolved, error: `Extension path does not exist: ${resolved}` });
+					extensionsResult.errors.push({
+						path: resolved,
+						error: `Extension path does not exist: ${resolved}`,
+					});
 				}
 			}
 		}
@@ -475,7 +480,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 			if (isLocalPath(p)) {
 				const resolved = this.resolveResourcePath(p);
 				if (!existsSync(resolved) && !this.skillDiagnostics.some((d) => d.path === resolved)) {
-					this.skillDiagnostics.push({ type: "error", message: "Skill path does not exist", path: resolved });
+					this.skillDiagnostics.push({
+						type: "error",
+						message: "Skill path does not exist",
+						path: resolved,
+					});
 				}
 			}
 		}
@@ -508,7 +517,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 		for (const p of this.additionalThemePaths) {
 			const resolved = this.resolveResourcePath(p);
 			if (!existsSync(resolved) && !this.themeDiagnostics.some((d) => d.path === resolved)) {
-				this.themeDiagnostics.push({ type: "error", message: "Theme path does not exist", path: resolved });
+				this.themeDiagnostics.push({
+					type: "error",
+					message: "Theme path does not exist",
+					path: resolved,
+				});
 			}
 		}
 
@@ -723,7 +736,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		} else {
 			const loaded = this.loadThemes(themePaths, false);
 			const deduped = this.dedupeThemes(loaded.themes);
-			themesResult = { themes: deduped.themes, diagnostics: [...loaded.diagnostics, ...deduped.diagnostics] };
+			themesResult = {
+				themes: deduped.themes,
+				diagnostics: [...loaded.diagnostics, ...deduped.diagnostics],
+			};
 		}
 		const resolvedThemes = this.themesOverride ? this.themesOverride(themesResult) : themesResult;
 		this.themes = resolvedThemes.themes.map((theme) => {
@@ -824,13 +840,25 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		for (const root of agentRoots) {
 			if (this.isUnderPath(normalizedPath, root)) {
-				return { path: filePath, source: "local", scope: "user", origin: "top-level", baseDir: root };
+				return {
+					path: filePath,
+					source: "local",
+					scope: "user",
+					origin: "top-level",
+					baseDir: root,
+				};
 			}
 		}
 
 		for (const root of projectRoots) {
 			if (this.isUnderPath(normalizedPath, root)) {
-				return { path: filePath, source: "local", scope: "project", origin: "top-level", baseDir: root };
+				return {
+					path: filePath,
+					source: "local",
+					scope: "project",
+					origin: "top-level",
+					baseDir: root,
+				};
 			}
 		}
 
@@ -893,7 +921,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 				} else if (stats.isFile() && resolved.endsWith(".json")) {
 					this.loadThemeFromFile(resolved, themes, diagnostics);
 				} else {
-					diagnostics.push({ type: "warning", message: "theme path is not a json file", path: resolved });
+					diagnostics.push({
+						type: "warning",
+						message: "theme path is not a json file",
+						path: resolved,
+					});
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "failed to read theme path";
@@ -967,7 +999,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		return { extensions, errors };
 	}
 
-	private dedupePrompts(prompts: PromptTemplate[]): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] } {
+	private dedupePrompts(prompts: PromptTemplate[]): {
+		prompts: PromptTemplate[];
+		diagnostics: ResourceDiagnostic[];
+	} {
 		const seen = new Map<string, PromptTemplate>();
 		const diagnostics: ResourceDiagnostic[] = [];
 

@@ -336,7 +336,11 @@ describe("AgentHarness tools", () => {
 			expect(received).toMatchObject({ mimeType: "image/bmp", autoResizeImages: false });
 			expect(Array.from(received?.bytes ?? [])).toEqual(Array.from(bmp));
 			expect(textOutput(result)).toContain("[Image converted from image/bmp to image/png.]");
-			expect(result.content).toContainEqual({ type: "image", data: "converted", mimeType: "image/png" });
+			expect(result.content).toContainEqual({
+				type: "image",
+				data: "converted",
+				mimeType: "image/png",
+			});
 		});
 	});
 

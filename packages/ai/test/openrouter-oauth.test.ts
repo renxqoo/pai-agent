@@ -11,7 +11,10 @@ const nativeFetch = globalThis.fetch;
 const neverAbortedSignal = new AbortController().signal;
 
 function jsonResponse(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "content-type": "application/json" },
+	});
 }
 
 function base64url(bytes: Uint8Array): string {

@@ -22,7 +22,12 @@ describe("OAuthSelectorComponent", () => {
 					getLoginProviderOptions(
 						this: object,
 						authType?: "oauth" | "api_key",
-					): Array<{ id: string; name: string; authType: string; method?: { name: string; login?: unknown } }>;
+					): Array<{
+						id: string;
+						name: string;
+						authType: string;
+						method?: { name: string; login?: unknown };
+					}>;
 				};
 			}
 		).prototype.getLoginProviderOptions;
@@ -87,7 +92,14 @@ describe("OAuthSelectorComponent", () => {
 	it("shows OAuth auth distinctly in the API key selector", () => {
 		const selector = new OAuthSelectorComponent(
 			"login",
-			[{ id: "anthropic", name: "Anthropic", authType: "api_key", status: { type: "oauth", source: "OAuth" } }],
+			[
+				{
+					id: "anthropic",
+					name: "Anthropic",
+					authType: "api_key",
+					status: { type: "oauth", source: "OAuth" },
+				},
+			],
 			() => {},
 			() => {},
 		);
@@ -99,7 +111,14 @@ describe("OAuthSelectorComponent", () => {
 	it("shows environment API key auth as configured", () => {
 		const selector = new OAuthSelectorComponent(
 			"login",
-			[{ id: "openai", name: "OpenAI", authType: "api_key", status: { type: "api_key", source: "OPENAI_API_KEY" } }],
+			[
+				{
+					id: "openai",
+					name: "OpenAI",
+					authType: "api_key",
+					status: { type: "api_key", source: "OPENAI_API_KEY" },
+				},
+			],
 			() => {},
 			() => {},
 		);

@@ -4,5 +4,7 @@
 import values from "./data/deepseek.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const DEEPSEEK_MODELS: ModelCatalog<typeof values, "deepseek"> =
-	flattenModelCatalog("deepseek", values);
+export const DEEPSEEK_MODELS: ModelCatalog<typeof values, "deepseek"> = flattenModelCatalog(
+  "deepseek",
+  values,
+);

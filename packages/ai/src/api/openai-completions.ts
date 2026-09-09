@@ -471,7 +471,11 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				if (!textBlock) {
 					textBlock = { type: "text", text: "" };
 					blocks.push(textBlock);
-					stream.push({ type: "text_start", contentIndex: getContentIndex(textBlock), partial: output });
+					stream.push({
+						type: "text_start",
+						contentIndex: getContentIndex(textBlock),
+						partial: output,
+					});
 				}
 				return textBlock;
 			};
@@ -483,7 +487,11 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 						thinkingSignature,
 					};
 					blocks.push(thinkingBlock);
-					stream.push({ type: "thinking_start", contentIndex: getContentIndex(thinkingBlock), partial: output });
+					stream.push({
+						type: "thinking_start",
+						contentIndex: getContentIndex(thinkingBlock),
+						partial: output,
+					});
 				}
 				return thinkingBlock;
 			};
@@ -507,7 +515,10 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 						arguments: hasCustomInput ? { [customInputProperty]: "" } : {},
 						partialArgs: hasCustomInput ? undefined : "",
 						customInput: hasCustomInput
-							? { property: customInputProperty, jsonBuffer: { input: "", started: false, closed: false } }
+							? {
+									property: customInputProperty,
+									jsonBuffer: { input: "", started: false, closed: false },
+								}
 							: undefined,
 						streamIndex,
 					};

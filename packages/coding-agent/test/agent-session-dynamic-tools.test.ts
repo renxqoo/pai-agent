@@ -28,7 +28,9 @@ describe("AgentSession dynamic tool registration", () => {
 
 	it("exposes session state before custom bash spawn hooks and supports opting out", async () => {
 		const settingsManager = SettingsManager.create(tempDir, agentDir);
-		const sessionManager = SessionManager.create(tempDir, join(agentDir, "sessions"), { id: "bash-env-test" });
+		const sessionManager = SessionManager.create(tempDir, join(agentDir, "sessions"), {
+			id: "bash-env-test",
+		});
 		let sessionEnv: NodeJS.ProcessEnv | undefined;
 		let optedOutEnv: NodeJS.ProcessEnv | undefined;
 		const resourceLoader = new DefaultResourceLoader({

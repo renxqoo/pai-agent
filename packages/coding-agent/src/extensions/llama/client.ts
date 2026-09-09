@@ -91,7 +91,12 @@ function parseLoadProgress(data: unknown): LlamaProgress | undefined {
 	if (typeof data !== "object" || data === null) return undefined;
 	const progress = (data as { progress?: unknown }).progress;
 	if (typeof progress !== "object" || progress === null) return undefined;
-	const value = progress as { stages?: unknown; current?: unknown; stage?: unknown; value?: unknown };
+	const value = progress as {
+		stages?: unknown;
+		current?: unknown;
+		stage?: unknown;
+		value?: unknown;
+	};
 	const stage =
 		typeof value.current === "string" ? value.current : typeof value.stage === "string" ? value.stage : undefined;
 	const stages = Array.isArray(value.stages)
@@ -184,7 +189,9 @@ export class LlamaClient {
 	}
 
 	async list(options: { reload?: boolean; signal?: AbortSignal } = {}): Promise<LlamaModelInfo[]> {
-		const payload = await this.request(`/models${options.reload ? "?reload=1" : ""}`, { signal: options.signal });
+		const payload = await this.request(`/models${options.reload ? "?reload=1" : ""}`, {
+			signal: options.signal,
+		});
 		if (typeof payload !== "object" || payload === null || !Array.isArray((payload as { data?: unknown }).data)) {
 			throw new Error("llama.cpp returned an invalid model catalog");
 		}
@@ -205,7 +212,11 @@ export class LlamaClient {
 	}
 
 	async unload(model: string, signal?: AbortSignal): Promise<void> {
-		await this.request("/models/unload", { method: "POST", body: JSON.stringify({ model }), signal });
+		await this.request("/models/unload", {
+			method: "POST",
+			body: JSON.stringify({ model }),
+			signal,
+		});
 	}
 
 	async unloadAndWait(model: string, signal?: AbortSignal): Promise<void> {

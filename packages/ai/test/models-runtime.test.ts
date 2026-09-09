@@ -455,8 +455,15 @@ describe("Models runtime", () => {
 		);
 
 		expect((await models.refresh()).errors.size).toBe(0);
-		expect(modelRefreshCredential).toMatchObject({ type: "oauth", access: "fresh", refresh: "rotated" });
-		expect(await credentials.read("oauth-dynamic")).toMatchObject({ access: "fresh", refresh: "rotated" });
+		expect(modelRefreshCredential).toMatchObject({
+			type: "oauth",
+			access: "fresh",
+			refresh: "rotated",
+		});
+		expect(await credentials.read("oauth-dynamic")).toMatchObject({
+			access: "fresh",
+			refresh: "rotated",
+		});
 	});
 
 	it("always gives providers a concrete signal", async () => {
@@ -734,7 +741,12 @@ describe("Models runtime", () => {
 
 	it("passes cancellation to OAuth refresh and preserves the previous credential", async () => {
 		const credentials = new InMemoryCredentialStore();
-		const previous: OAuthCredential = { type: "oauth", access: "old", refresh: "old-refresh", expires: 0 };
+		const previous: OAuthCredential = {
+			type: "oauth",
+			access: "old",
+			refresh: "old-refresh",
+			expires: 0,
+		};
 		await credentials.modify("p1", async () => previous);
 		let startRefresh: (() => void) | undefined;
 		let finishRefresh: ((credential: typeof previous) => void) | undefined;
@@ -860,7 +872,12 @@ describe("Models runtime", () => {
 		const models = createModels({ credentials });
 		// provider has only apiKey auth, but an oauth credential is stored (stale config)
 		models.setProvider(testProvider({ id: "p1", auth: { apiKey: envKeyAuth("env-key") } }));
-		await credentials.modify("p1", async () => ({ type: "oauth", access: "a", refresh: "r", expires: 0 }));
+		await credentials.modify("p1", async () => ({
+			type: "oauth",
+			access: "a",
+			refresh: "r",
+			expires: 0,
+		}));
 
 		expect(await models.getAuth("p1")).toBeUndefined();
 	});
@@ -868,7 +885,11 @@ describe("Models runtime", () => {
 	it("refreshes expired oauth credentials and persists the rotated credential", async () => {
 		const credentials = new InMemoryCredentialStore();
 		const oauth = testOAuth({
-			refresh: async (credential) => ({ ...credential, access: "new-token", expires: Date.now() + 60 * 60_000 }),
+			refresh: async (credential) => ({
+				...credential,
+				access: "new-token",
+				expires: Date.now() + 60 * 60_000,
+			}),
 		});
 		const models = createModels({ credentials });
 		models.setProvider(testProvider({ id: "p1", auth: { oauth } }));
@@ -933,7 +954,12 @@ describe("Models runtime", () => {
 		});
 		const models = createModels({ credentials });
 		models.setProvider(testProvider({ id: "p1", auth: { oauth } }));
-		await credentials.modify("p1", async () => ({ type: "oauth", access: "old", refresh: "r", expires: 0 }));
+		await credentials.modify("p1", async () => ({
+			type: "oauth",
+			access: "old",
+			refresh: "r",
+			expires: 0,
+		}));
 
 		await expect(models.getAuth("p1")).rejects.toMatchObject({ code: "oauth" });
 		// credential preserved for retry / re-login
@@ -942,14 +968,24 @@ describe("Models runtime", () => {
 
 	it("serializes concurrent OAuth refreshes through store.modify (no double refresh)", async () => {
 		const credentials = new InMemoryCredentialStore();
-		await credentials.modify("p1", async () => ({ type: "oauth", access: "old", refresh: "r1", expires: 0 }));
+		await credentials.modify("p1", async () => ({
+			type: "oauth",
+			access: "old",
+			refresh: "r1",
+			expires: 0,
+		}));
 
 		let refreshes = 0;
 		const oauth = testOAuth({
 			refresh: async () => {
 				refreshes++;
 				await new Promise((resolve) => setTimeout(resolve, 10));
-				return { type: "oauth", access: `new-${refreshes}`, refresh: "r2", expires: Date.now() + 60 * 60_000 };
+				return {
+					type: "oauth",
+					access: `new-${refreshes}`,
+					refresh: "r2",
+					expires: Date.now() + 60 * 60_000,
+				};
 			},
 		});
 		const models = createModels({ credentials });
@@ -1017,7 +1053,12 @@ describe("Models runtime", () => {
 
 	it("keeps the underlying reason in wrapped oauth refresh errors", async () => {
 		const credentials = new InMemoryCredentialStore();
-		await credentials.modify("p1", async () => ({ type: "oauth", access: "old", refresh: "r", expires: 0 }));
+		await credentials.modify("p1", async () => ({
+			type: "oauth",
+			access: "old",
+			refresh: "r",
+			expires: 0,
+		}));
 		const models = createModels({ credentials });
 		models.setProvider(
 			testProvider({
@@ -1066,7 +1107,10 @@ describe("Models runtime", () => {
 		models.setProvider(testProvider({ id: "p1", auth: { apiKey }, calls }));
 		const model = testModel("p1", "model-a");
 
-		await models.completeSimple(model, context, { apiKey: "explicit-key", env: { ACCOUNT_ID: "acct" } });
+		await models.completeSimple(model, context, {
+			apiKey: "explicit-key",
+			env: { ACCOUNT_ID: "acct" },
+		});
 
 		expect(calls[0].model.baseUrl).toBe("https://example.test/acct");
 		expect(calls[0].options?.apiKey).toBe("explicit-key");
@@ -1096,7 +1140,11 @@ describe("Models runtime", () => {
 		expect(result.stopReason).toBe("stop");
 		expect(calls).toHaveLength(1);
 		expect(calls[0].options?.apiKey).toBe("explicit-key");
-		expect(calls[0].options?.headers).toEqual({ authorization: "Explicit token", "x-a": "auth", "x-b": "explicit" });
+		expect(calls[0].options?.headers).toEqual({
+			authorization: "Explicit token",
+			"x-a": "auth",
+			"x-b": "explicit",
+		});
 		expect(calls[0].model.baseUrl).toBe("https://auth.test/v1");
 
 		// without explicit options, resolved auth applies
@@ -1113,14 +1161,21 @@ describe("Models runtime", () => {
 		model.headers = { "x-model": "model", "x-shared": "model" };
 
 		expect((await models.getAuth("p1"))?.auth.headers).toBeUndefined();
-		expect((await models.getAuth(model))?.auth.headers).toEqual({ "x-model": "model", "x-shared": "model" });
+		expect((await models.getAuth(model))?.auth.headers).toEqual({
+			"x-model": "model",
+			"x-shared": "model",
+		});
 
 		let transforms = 0;
 		await models.completeSimple(model, context, {
 			headers: { "x-explicit": "explicit", "X-Shared": "explicit" },
 			transformHeaders: async (headers) => {
 				transforms++;
-				expect(headers).toEqual({ "x-model": "model", "x-explicit": "explicit", "X-Shared": "explicit" });
+				expect(headers).toEqual({
+					"x-model": "model",
+					"x-explicit": "explicit",
+					"X-Shared": "explicit",
+				});
 				return { ...headers, "x-transformed": "yes" };
 			},
 		});

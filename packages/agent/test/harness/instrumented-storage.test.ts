@@ -95,7 +95,9 @@ describe("InstrumentedStorage", () => {
 
 		storage.clearCommitAttempts();
 		expect(storage.getCommitAttempts()).toEqual([]);
-		expect(await storage.getValue(storedValues.sessionName, BACKGROUND_CONTEXT)).toMatchObject({ value: "first" });
+		expect(await storage.getValue(storedValues.sessionName, BACKGROUND_CONTEXT)).toMatchObject({
+			value: "first",
+		});
 
 		const secondTransaction: Write[] = [storedValues.setValue(storedValues.sessionName, "second")];
 		await storage.commit(secondTransaction, BACKGROUND_CONTEXT);
@@ -109,7 +111,12 @@ describe("InstrumentedStorage", () => {
 		const events = storedValues.list<string>("test.events");
 		await storage.commit(
 			[
-				sessionWrites.insertEntry({ id: "root", parentId: null, type: "custom", customType: "note" }),
+				sessionWrites.insertEntry({
+					id: "root",
+					parentId: null,
+					type: "custom",
+					customType: "note",
+				}),
 				storedValues.setValue(storedValues.sessionName, "session"),
 				storedValues.appendList(events, "event"),
 				sessionWrites.insertUsage({

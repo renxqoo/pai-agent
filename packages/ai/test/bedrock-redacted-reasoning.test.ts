@@ -189,8 +189,18 @@ describe("Bedrock redacted reasoning", () => {
 		const [head, tail] = [bedrockMock.redactedBytes.slice(0, 7), bedrockMock.redactedBytes.slice(7)];
 		bedrockMock.streamEvents = [
 			{ messageStart: { role: "assistant" } },
-			{ contentBlockDelta: { contentBlockIndex: 0, delta: { reasoningContent: { redactedContent: head } } } },
-			{ contentBlockDelta: { contentBlockIndex: 0, delta: { reasoningContent: { redactedContent: tail } } } },
+			{
+				contentBlockDelta: {
+					contentBlockIndex: 0,
+					delta: { reasoningContent: { redactedContent: head } },
+				},
+			},
+			{
+				contentBlockDelta: {
+					contentBlockIndex: 0,
+					delta: { reasoningContent: { redactedContent: tail } },
+				},
+			},
 			{ contentBlockStop: { contentBlockIndex: 0 } },
 			{ messageStop: { stopReason: "end_turn" } },
 		];
@@ -211,7 +221,12 @@ describe("Bedrock redacted reasoning", () => {
 			{
 				role: "assistant",
 				content: [
-					{ type: "thinking", thinking: "", thinkingSignature: bedrockMock.redactedBase64, redacted: true },
+					{
+						type: "thinking",
+						thinking: "",
+						thinkingSignature: bedrockMock.redactedBase64,
+						redacted: true,
+					},
 					{ type: "text", text: "done" },
 				],
 				api: "bedrock-converse-stream",
@@ -242,7 +257,12 @@ describe("Bedrock redacted reasoning", () => {
 			{
 				role: "assistant",
 				content: [
-					{ type: "thinking", thinking: "", thinkingSignature: bedrockMock.redactedBase64, redacted: true },
+					{
+						type: "thinking",
+						thinking: "",
+						thinkingSignature: bedrockMock.redactedBase64,
+						redacted: true,
+					},
 					{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "/tmp/a.txt" } },
 				],
 				api: "bedrock-converse-stream",

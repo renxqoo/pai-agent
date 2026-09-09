@@ -697,7 +697,9 @@ describe("Context overflow error handling", () => {
 	let lmStudioRunning = false;
 	if (!process.env.PI_NO_LOCAL_LLM) {
 		try {
-			execSync("curl -s --max-time 1 http://localhost:1234/v1/models > /dev/null", { stdio: "ignore" });
+			execSync("curl -s --max-time 1 http://localhost:1234/v1/models > /dev/null", {
+				stdio: "ignore",
+			});
 			lmStudioRunning = true;
 		} catch {
 			lmStudioRunning = false;
@@ -734,7 +736,9 @@ describe("Context overflow error handling", () => {
 	let llamaCppRunning = false;
 	if (!process.env.PI_NO_LOCAL_LLM) {
 		try {
-			execSync("curl -s --max-time 1 http://localhost:8081/health > /dev/null", { stdio: "ignore" });
+			execSync("curl -s --max-time 1 http://localhost:8081/health > /dev/null", {
+				stdio: "ignore",
+			});
 			const probeStatus = execSync(
 				'curl -s --max-time 1 -o /dev/null -w \'%{http_code}\' -X POST http://localhost:8081/v1/completions -H \'content-type: application/json\' -d \'{"model":"local-model","prompt":"ping","max_tokens":1}\'',
 				{ encoding: "utf8" },

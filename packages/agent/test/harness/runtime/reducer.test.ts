@@ -186,7 +186,10 @@ describe("lane snapshot reducer", () => {
 			status: "open",
 			runningTools: [],
 		};
-		const result = (text: string) => ({ content: [{ type: "text" as const, text }], details: { text } });
+		const result = (text: string) => ({
+			content: [{ type: "text" as const, text }],
+			details: { text },
+		});
 		const start = (index: number): HarnessEvent => ({
 			type: "tool_start",
 			lane: "main",

@@ -4,5 +4,4 @@
 import values from "./data/groq.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const GROQ_MODELS: ModelCatalog<typeof values, "groq"> =
-	flattenModelCatalog("groq", values);
+export const GROQ_MODELS: ModelCatalog<typeof values, "groq"> = flattenModelCatalog("groq", values);

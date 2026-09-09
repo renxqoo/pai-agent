@@ -70,7 +70,15 @@ export function openAssistantResponse<TContext extends object | undefined>(
 				const frame = frameEncoder.encode(event);
 				if (frame !== undefined) progress.write(frame);
 				return lane.emitBatch(
-					[{ type: "message_update", ...eventContext, message, event, ...(frame === undefined ? {} : { frame }) }],
+					[
+						{
+							type: "message_update",
+							...eventContext,
+							message,
+							event,
+							...(frame === undefined ? {} : { frame }),
+						},
+					],
 					context,
 				);
 			},
@@ -98,7 +106,9 @@ export function openAssistantResponse<TContext extends object | undefined>(
 type ResponseIntent = AssistantEffectPendingOperation | DeferredEffectPendingOperation;
 type ConfigurationFailureState = Extract<
 	OperationState,
-	{ at: "assistant.ready" | "assistant.retry_wait" | "deferred.suspended" | "deferred.effect_pending" }
+	{
+		at: "assistant.ready" | "assistant.retry_wait" | "deferred.suspended" | "deferred.effect_pending";
+	}
 >;
 
 /** Publish a non-retryable request-configuration failure before reserving response ids. */

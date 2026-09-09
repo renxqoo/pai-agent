@@ -252,7 +252,9 @@ describe("SqliteSessionRepo", () => {
 			expect(metadata.path).toBe(await realpath(join(directory, "session.sqlite")));
 
 			await withDb(metadata.path, (db) => {
-				expect(sql`SELECT COUNT(*) AS count FROM sessions`.get<{ count: number }>(db)).toEqual({ count: 1 });
+				expect(sql`SELECT COUNT(*) AS count FROM sessions`.get<{ count: number }>(db)).toEqual({
+					count: 1,
+				});
 				expect(
 					sql`SELECT message_count, usage_payload, next_seq FROM sessions WHERE id = ${"session"}`.get(db),
 				).toEqual({
@@ -292,8 +294,18 @@ describe("SqliteSessionRepo", () => {
 				(mutator) =>
 					mutator.commit(
 						[
-							sessionWrites.insertEntry({ id: "root", parentId: null, type: "custom", customType: "root" }),
-							sessionWrites.insertEntry({ id: "child", parentId: "root", type: "custom", customType: "child" }),
+							sessionWrites.insertEntry({
+								id: "root",
+								parentId: null,
+								type: "custom",
+								customType: "root",
+							}),
+							sessionWrites.insertEntry({
+								id: "child",
+								parentId: "root",
+								type: "custom",
+								customType: "child",
+							}),
 						],
 						BACKGROUND_CONTEXT,
 					),
@@ -345,7 +357,9 @@ describe("SqliteSessionRepo", () => {
 
 			await expect(repo.create({ id: "session" }, BACKGROUND_CONTEXT)).rejects.toThrow();
 			await withDb(metadata.path, (db) => {
-				expect(sql`SELECT COUNT(*) AS count FROM sessions`.get<{ count: number }>(db)).toEqual({ count: 1 });
+				expect(sql`SELECT COUNT(*) AS count FROM sessions`.get<{ count: number }>(db)).toEqual({
+					count: 1,
+				});
 			});
 			await session.close(BACKGROUND_CONTEXT);
 		});
@@ -508,7 +522,12 @@ describe("SqliteSessionRepo", () => {
 				(mutator) =>
 					mutator.commit(
 						[
-							sessionWrites.insertEntry({ id: "left-root", parentId: null, type: "custom", customType: "left" }),
+							sessionWrites.insertEntry({
+								id: "left-root",
+								parentId: null,
+								type: "custom",
+								customType: "left",
+							}),
 							storedValues.setValue(storedValues.sessionName, "left-name"),
 						],
 						BACKGROUND_CONTEXT,
@@ -561,7 +580,12 @@ describe("SqliteSessionRepo", () => {
 				(mutator) =>
 					mutator.commit(
 						[
-							sessionWrites.insertEntry({ id: "root", parentId: null, type: "custom", customType: "root" }),
+							sessionWrites.insertEntry({
+								id: "root",
+								parentId: null,
+								type: "custom",
+								customType: "root",
+							}),
 							sessionWrites.insertEntry({
 								id: "child",
 								parentId: "root",
@@ -598,7 +622,9 @@ describe("SqliteSessionRepo", () => {
 
 			await withDb(fork.metadata.path, (db) => {
 				expect(
-					sql`SELECT COUNT(*) AS count FROM usage_ledger WHERE session_id = ${"fork"}`.get<{ count: number }>(db),
+					sql`SELECT COUNT(*) AS count FROM usage_ledger WHERE session_id = ${"fork"}`.get<{
+						count: number;
+					}>(db),
 				).toEqual({ count: 0 });
 			});
 			await Promise.all([source.close(BACKGROUND_CONTEXT), fork.close(BACKGROUND_CONTEXT)]);
@@ -767,7 +793,12 @@ describe("SqliteSessionRepo", () => {
 				(mutator) =>
 					mutator.commit(
 						[
-							sessionWrites.insertEntry({ id: "left-root", parentId: null, type: "custom", customType: "left" }),
+							sessionWrites.insertEntry({
+								id: "left-root",
+								parentId: null,
+								type: "custom",
+								customType: "left",
+							}),
 							storedValues.setValue(storedValues.branchTip("main"), "left-root"),
 							storedValues.setValue(storedValues.laneConfig("main"), TEST_LANE_CONFIGURATION),
 							storedValues.setValue(storedValues.laneState("main"), IDLE_LANE_STATE),
@@ -826,7 +857,12 @@ describe("SqliteSessionRepo", () => {
 					(mutator) =>
 						mutator.commit(
 							[
-								sessionWrites.insertEntry({ id: "root", parentId: null, type: "custom", customType: "root" }),
+								sessionWrites.insertEntry({
+									id: "root",
+									parentId: null,
+									type: "custom",
+									customType: "root",
+								}),
 								storedValues.setValue(storedValues.branchTip("main"), "root"),
 								storedValues.setValue(storedValues.laneConfig("main"), TEST_LANE_CONFIGURATION),
 								storedValues.setValue(storedValues.laneState("main"), IDLE_LANE_STATE),

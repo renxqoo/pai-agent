@@ -137,7 +137,12 @@ async function loadSkillsFromDirInternal(
 
 	const entriesResult = await env.listDir(dir, context);
 	if (!entriesResult.ok) {
-		diagnostics.push({ type: "warning", code: "list_failed", message: entriesResult.error.message, path: dir });
+		diagnostics.push({
+			type: "warning",
+			code: "list_failed",
+			message: entriesResult.error.message,
+			path: dir,
+		});
 		return { skills, diagnostics };
 	}
 	const entries = entriesResult.value;
@@ -220,7 +225,12 @@ async function addIgnoreRules(
 		if (info.value.kind !== "file") continue;
 		const content = await env.readTextFile(ignorePath, context);
 		if (!content.ok) {
-			diagnostics.push({ type: "warning", code: "read_failed", message: content.error.message, path: ignorePath });
+			diagnostics.push({
+				type: "warning",
+				code: "read_failed",
+				message: content.error.message,
+				path: ignorePath,
+			});
 			continue;
 		}
 		const patterns = content.value
@@ -263,14 +273,24 @@ async function loadSkillFromFile(
 			.pop() === "SKILL.md";
 	const rawContent = await env.readTextFile(filePath, context);
 	if (!rawContent.ok) {
-		diagnostics.push({ type: "warning", code: "read_failed", message: rawContent.error.message, path: filePath });
+		diagnostics.push({
+			type: "warning",
+			code: "read_failed",
+			message: rawContent.error.message,
+			path: filePath,
+		});
 		return { skill: null, diagnostics };
 	}
 
 	const parsed = parseFrontmatter<SkillFrontmatter>(rawContent.value);
 	if (!parsed.ok) {
 		if (isDeclaredSkill) {
-			diagnostics.push({ type: "warning", code: "parse_failed", message: parsed.error.message, path: filePath });
+			diagnostics.push({
+				type: "warning",
+				code: "parse_failed",
+				message: parsed.error.message,
+				path: filePath,
+			});
 		}
 		return { skill: null, diagnostics };
 	}

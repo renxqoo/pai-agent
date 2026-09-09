@@ -59,7 +59,11 @@ const turn2 = assistant({
 describe("computeCacheWaste", () => {
 	it("accumulates missed tokens and cost across turns", () => {
 		// Turn 3: full miss, previous 105k prompt re-billed at $3.75/M write
-		const turn3 = assistant({ cacheWrite: 110_000, cost: { cacheWrite: 0.4125 }, timestamp: 120_000 });
+		const turn3 = assistant({
+			cacheWrite: 110_000,
+			cost: { cacheWrite: 0.4125 },
+			timestamp: 120_000,
+		});
 		const totals = computeCacheWaste([entry(turn1), entry(turn2), entry(turn3)], models);
 		expect(totals.missedTokens).toBe(105_000);
 		// 105k at ($3.75 - $0.30)/M
@@ -80,7 +84,11 @@ describe("computeCacheWaste", () => {
 	});
 
 	it("counts misses caused by model switches", () => {
-		const otherModel = assistant({ cacheWrite: 100_000, cost: { cacheWrite: 0.375 }, model: "other-model" });
+		const otherModel = assistant({
+			cacheWrite: 100_000,
+			cost: { cacheWrite: 0.375 },
+			model: "other-model",
+		});
 		const totals = computeCacheWaste([entry(turn1), entry(otherModel)], models);
 		expect(totals.missedTokens).toBe(100_000);
 		expect(totals.missCount).toBe(1);
@@ -96,7 +104,11 @@ describe("computeCacheWaste", () => {
 
 describe("collectCacheMisses", () => {
 	it("maps counted misses to their assistant messages by reference", () => {
-		const missTurn = assistant({ cacheWrite: 110_000, cost: { cacheWrite: 0.4125 }, timestamp: 120_000 });
+		const missTurn = assistant({
+			cacheWrite: 110_000,
+			cost: { cacheWrite: 0.4125 },
+			timestamp: 120_000,
+		});
 		const misses = collectCacheMisses([entry(turn1), entry(turn2), entry(missTurn)], models);
 		expect(misses.size).toBe(1);
 		expect(misses.get(missTurn)?.missedTokens).toBe(105_000);
@@ -105,7 +117,11 @@ describe("collectCacheMisses", () => {
 
 describe("detectCacheMiss", () => {
 	it("detects a miss on a just-completed message with idle time", () => {
-		const missMessage = assistant({ cacheWrite: 110_000, cost: { cacheWrite: 0.4125 }, timestamp: 600_000 });
+		const missMessage = assistant({
+			cacheWrite: 110_000,
+			cost: { cacheWrite: 0.4125 },
+			timestamp: 600_000,
+		});
 		const miss = detectCacheMiss([entry(turn1), entry(turn2)], missMessage, models);
 		expect(miss).toBeDefined();
 		expect(miss?.missedTokens).toBe(105_000);

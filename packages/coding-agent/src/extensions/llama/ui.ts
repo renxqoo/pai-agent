@@ -330,7 +330,11 @@ class LlamaView implements LlamaUi, Focusable {
 				label: model.id,
 				description: modelDescription(model),
 			})),
-			{ value: DOWNLOAD_VALUE, label: "Download model…", description: "Hugging Face owner/repository[:quant]" },
+			{
+				value: DOWNLOAD_VALUE,
+				label: "Download model…",
+				description: "Hugging Face owner/repository[:quant]",
+			},
 		];
 		return new Promise((resolve) => {
 			const list = new SelectList(items, Math.min(items.length, 12), selectTheme(this.theme), {
@@ -504,7 +508,11 @@ export async function runWithProgress<T>(
 	},
 ): Promise<{ cancelled: true } | { cancelled: false; value: T }> {
 	const controller = new AbortController();
-	const state: ProgressState = { title: options.title, model: options.model, message: options.initialMessage };
+	const state: ProgressState = {
+		title: options.title,
+		model: options.model,
+		message: options.initialMessage,
+	};
 	const settled = options
 		.run(controller.signal, (progress) => {
 			Object.assign(state, progress);

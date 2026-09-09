@@ -333,7 +333,10 @@ class ModelsImpl implements MutableModels {
 		return generation;
 	}
 
-	private beginProviderRefresh(providerId: string): { generation: number; controller: AbortController } {
+	private beginProviderRefresh(providerId: string): {
+		generation: number;
+		controller: AbortController;
+	} {
 		const generation = this.supersedeProviderRefresh(providerId);
 		const controller = new AbortController();
 		this.refreshControllers.set(providerId, controller);
@@ -430,7 +433,9 @@ class ModelsImpl implements MutableModels {
 							provider.id,
 							error instanceof Error
 								? error
-								: new ModelsError("model_source", `Model refresh failed for ${provider.id}`, { cause: error }),
+								: new ModelsError("model_source", `Model refresh failed for ${provider.id}`, {
+										cause: error,
+									}),
 						);
 					}
 				} finally {
@@ -483,7 +488,9 @@ class ModelsImpl implements MutableModels {
 		try {
 			return await this.credentials.read(providerId, { signal });
 		} catch (error) {
-			throw new ModelsError("auth", `Credential store read failed for ${providerId}`, { cause: error });
+			throw new ModelsError("auth", `Credential store read failed for ${providerId}`, {
+				cause: error,
+			});
 		}
 	}
 
@@ -505,11 +512,15 @@ class ModelsImpl implements MutableModels {
 					signal,
 				});
 			} catch (error) {
-				throw new ModelsError("auth", `API key auth check failed for provider ${provider.id}`, { cause: error });
+				throw new ModelsError("auth", `API key auth check failed for provider ${provider.id}`, {
+					cause: error,
+				});
 			}
 		}
 
-		const resolution = await resolveProviderAuth(provider, this.credentials, this.authContext, { signal });
+		const resolution = await resolveProviderAuth(provider, this.credentials, this.authContext, {
+			signal,
+		});
 		return resolution ? { source: resolution.source, type: "api_key" } : undefined;
 	}
 
@@ -534,7 +545,11 @@ class ModelsImpl implements MutableModels {
 			const checks = await Promise.all(
 				providers.map(async (provider) => {
 					const credential = await this.readCredential(provider.id, signal);
-					return { provider, credential, auth: await this.checkProviderAuth(provider, credential, signal) };
+					return {
+						provider,
+						credential,
+						auth: await this.checkProviderAuth(provider, credential, signal),
+					};
 				}),
 			);
 			return checks.flatMap(({ provider, credential, auth }) => {
@@ -556,7 +571,10 @@ class ModelsImpl implements MutableModels {
 		const providerId = typeof providerOrModel === "string" ? providerOrModel : providerOrModel.provider;
 		const provider = this.providers.get(providerId);
 		if (!provider) return undefined;
-		const result = await resolveProviderAuth(provider, this.credentials, this.authContext, { ...overrides, signal });
+		const result = await resolveProviderAuth(provider, this.credentials, this.authContext, {
+			...overrides,
+			signal,
+		});
 		if (!result || typeof providerOrModel === "string" || !providerOrModel.headers) return result;
 		return {
 			...result,
@@ -614,7 +632,9 @@ class ModelsImpl implements MutableModels {
 			await mutation;
 		} catch (error) {
 			signal.throwIfAborted();
-			throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, { cause: error });
+			throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, {
+				cause: error,
+			});
 		}
 		return credential;
 	}
@@ -626,7 +646,9 @@ class ModelsImpl implements MutableModels {
 			await this.credentials.delete(providerId, { signal });
 		} catch (error) {
 			signal.throwIfAborted();
-			throw new ModelsError("auth", `Credential store delete failed for ${providerId}`, { cause: error });
+			throw new ModelsError("auth", `Credential store delete failed for ${providerId}`, {
+				cause: error,
+			});
 		}
 	}
 

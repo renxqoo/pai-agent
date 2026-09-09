@@ -1079,7 +1079,12 @@ describe("TUI overlay non-capturing", () => {
 			tui.setFocus(editor);
 			tui.start();
 			try {
-				const aHandle = tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
+				const aHandle = tui.showOverlay(new StaticOverlay(["A"]), {
+					row: 0,
+					col: 0,
+					width: 1,
+					nonCapturing: true,
+				});
 				tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				aHandle.focus();
 				tui.showOverlay(new StaticOverlay(["C"]), { row: 0, col: 0, width: 1, nonCapturing: true });
@@ -1115,7 +1120,12 @@ describe("TUI overlay non-capturing", () => {
 			tui.addChild(new EmptyContent());
 			tui.start();
 			try {
-				const lower = tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
+				const lower = tui.showOverlay(new StaticOverlay(["A"]), {
+					row: 0,
+					col: 0,
+					width: 1,
+					nonCapturing: true,
+				});
 				tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
 				await renderAndFlush(tui, terminal);
 				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
@@ -1134,8 +1144,18 @@ describe("TUI overlay non-capturing", () => {
 			tui.start();
 			try {
 				tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
-				const middle = tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
-				const top = tui.showOverlay(new StaticOverlay(["C"]), { row: 0, col: 0, width: 1, nonCapturing: true });
+				const middle = tui.showOverlay(new StaticOverlay(["B"]), {
+					row: 0,
+					col: 0,
+					width: 1,
+					nonCapturing: true,
+				});
+				const top = tui.showOverlay(new StaticOverlay(["C"]), {
+					row: 0,
+					col: 0,
+					width: 1,
+					nonCapturing: true,
+				});
 				await renderAndFlush(tui, terminal);
 				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "C");
 				middle.focus();
@@ -1182,8 +1202,18 @@ describe("TUI overlay non-capturing", () => {
 			tui.setFocus(editor);
 			tui.start();
 			try {
-				const a = tui.showOverlay(new StaticOverlay(["A"]), { row: 0, col: 0, width: 1, nonCapturing: true });
-				const b = tui.showOverlay(new StaticOverlay(["B"]), { row: 0, col: 0, width: 1, nonCapturing: true });
+				const a = tui.showOverlay(new StaticOverlay(["A"]), {
+					row: 0,
+					col: 0,
+					width: 1,
+					nonCapturing: true,
+				});
+				const b = tui.showOverlay(new StaticOverlay(["B"]), {
+					row: 0,
+					col: 0,
+					width: 1,
+					nonCapturing: true,
+				});
 				await renderAndFlush(tui, terminal);
 				assert.strictEqual(terminal.getViewport()[0]?.charAt(0), "B");
 				a.focus();

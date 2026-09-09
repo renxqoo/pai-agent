@@ -6,21 +6,21 @@ The runtime example shows how to build a recreate function that closes over proc
 
 ## Examples
 
-| File | Description |
-|------|-------------|
-| `01-minimal.ts` | Simplest usage with all defaults |
-| `02-custom-model.ts` | Select model and thinking level |
-| `03-custom-prompt.ts` | Replace or modify system prompt |
-| `04-skills.ts` | Discover, filter, or replace skills |
-| `05-tools.ts` | Built-in tool allowlists |
-| `06-extensions.ts` | Logging, blocking, result modification |
-| `07-context-files.ts` | AGENTS.md context files |
-| `08-slash-commands.ts` | File-based slash commands |
-| `09-api-keys-and-oauth.ts` | API key resolution, OAuth config |
-| `10-settings.ts` | Override compaction, retry, terminal settings |
-| `11-sessions.ts` | In-memory, persistent, continue, list sessions |
-| `12-full-control.ts` | Replace everything, no discovery |
-| `13-session-runtime.ts` | Manage runtime-backed session replacement |
+| File                       | Description                                    |
+| -------------------------- | ---------------------------------------------- |
+| `01-minimal.ts`            | Simplest usage with all defaults               |
+| `02-custom-model.ts`       | Select model and thinking level                |
+| `03-custom-prompt.ts`      | Replace or modify system prompt                |
+| `04-skills.ts`             | Discover, filter, or replace skills            |
+| `05-tools.ts`              | Built-in tool allowlists                       |
+| `06-extensions.ts`         | Logging, blocking, result modification         |
+| `07-context-files.ts`      | AGENTS.md context files                        |
+| `08-slash-commands.ts`     | File-based slash commands                      |
+| `09-api-keys-and-oauth.ts` | API key resolution, OAuth config               |
+| `10-settings.ts`           | Override compaction, retry, terminal settings  |
+| `11-sessions.ts`           | In-memory, persistent, continue, list sessions |
+| `12-full-control.ts`       | Replace everything, no discovery               |
+| `13-session-runtime.ts`    | Manage runtime-backed session replacement      |
 
 ## Running
 
@@ -58,7 +58,10 @@ await loader.reload();
 const { session } = await createAgentSession({ resourceLoader: loader, modelRuntime });
 
 // Read-only
-const { session } = await createAgentSession({ tools: ["read", "grep", "find", "ls"], modelRuntime });
+const { session } = await createAgentSession({
+  tools: ["read", "grep", "find", "ls"],
+  modelRuntime,
+});
 
 // In-memory
 const { session } = await createAgentSession({
@@ -103,18 +106,18 @@ await session.prompt("Hello");
 
 ## Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `modelRuntime` | Runtime using `agentDir/auth.json` and `models.json` | Canonical model and authentication runtime |
-| `cwd` | `process.cwd()` | Working directory |
-| `agentDir` | `~/.pi/agent` | Config directory |
-| `model` | From settings/first available | Model to use |
-| `thinkingLevel` | From settings/"off" | off, low, medium, high |
-| `tools` | `["read", "bash", "edit", "write"]` built-ins | Allowlist tool names across built-in, extension, and custom tools |
-| `customTools` | `[]` | Additional tool definitions |
-| `resourceLoader` | DefaultResourceLoader | Resource loader for extensions, skills, prompts, themes, and context files |
-| `sessionManager` | `SessionManager.create(cwd)` | Persistence |
-| `settingsManager` | `SettingsManager.create(cwd, agentDir)` | Settings overrides |
+| Option            | Default                                              | Description                                                                |
+| ----------------- | ---------------------------------------------------- | -------------------------------------------------------------------------- |
+| `modelRuntime`    | Runtime using `agentDir/auth.json` and `models.json` | Canonical model and authentication runtime                                 |
+| `cwd`             | `process.cwd()`                                      | Working directory                                                          |
+| `agentDir`        | `~/.pi/agent`                                        | Config directory                                                           |
+| `model`           | From settings/first available                        | Model to use                                                               |
+| `thinkingLevel`   | From settings/"off"                                  | off, low, medium, high                                                     |
+| `tools`           | `["read", "bash", "edit", "write"]` built-ins        | Allowlist tool names across built-in, extension, and custom tools          |
+| `customTools`     | `[]`                                                 | Additional tool definitions                                                |
+| `resourceLoader`  | DefaultResourceLoader                                | Resource loader for extensions, skills, prompts, themes, and context files |
+| `sessionManager`  | `SessionManager.create(cwd)`                         | Persistence                                                                |
+| `settingsManager` | `SettingsManager.create(cwd, agentDir)`              | Settings overrides                                                         |
 
 ## Events
 

@@ -5,7 +5,11 @@ import { SessionManager } from "../../src/core/session-manager.ts";
 const UUID_V7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function userMessage(text: string) {
-	return { role: "user" as const, content: [{ type: "text" as const, text }], timestamp: Date.now() };
+	return {
+		role: "user" as const,
+		content: [{ type: "text" as const, text }],
+		timestamp: Date.now(),
+	};
 }
 
 function storedEntries(build: (source: SessionManager) => void): SessionEntry[] {
@@ -133,7 +137,13 @@ describe("SessionManager.inMemory with preloaded entries", () => {
 	it("takes the session identity from a header among the entries", () => {
 		const body = storedEntries((source) => source.appendMessage(userMessage("hello")));
 		const entries: FileEntry[] = [
-			{ type: "session", version: 3, id: "stored-session", timestamp: "2026-01-01T00:00:00Z", cwd: "/stored" },
+			{
+				type: "session",
+				version: 3,
+				id: "stored-session",
+				timestamp: "2026-01-01T00:00:00Z",
+				cwd: "/stored",
+			},
 			...body,
 		];
 
@@ -145,7 +155,13 @@ describe("SessionManager.inMemory with preloaded entries", () => {
 
 	it("migrates entries restored with an older header", () => {
 		const entries: FileEntry[] = [
-			{ type: "session", version: 2, id: "v2-session", timestamp: "2026-01-01T00:00:00Z", cwd: "/project" },
+			{
+				type: "session",
+				version: 2,
+				id: "v2-session",
+				timestamp: "2026-01-01T00:00:00Z",
+				cwd: "/project",
+			},
 			{
 				type: "message",
 				id: "abc12345",

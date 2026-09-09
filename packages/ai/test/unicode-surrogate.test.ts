@@ -260,7 +260,12 @@ async function testUnpairedHighSurrogate<TApi extends Api>(llm: Model<TApi>, opt
 		role: "toolResult",
 		toolCallId: toolCallId,
 		toolName: "test_tool",
-		content: [{ type: "text", text: `Text with unpaired surrogate: ${unpairedSurrogate} <- should be sanitized` }],
+		content: [
+			{
+				type: "text",
+				text: `Text with unpaired surrogate: ${unpairedSurrogate} <- should be sanitized`,
+			},
+		],
 		isError: false,
 		timestamp: Date.now(),
 	};

@@ -27,7 +27,11 @@ export function createAgentController(lane: AgentLane): AgentControllerService {
 			const result = await lane.prompt(message, images, context);
 			return result.ok
 				? toOperationResponse(result.value)
-				: { accepted: false, operationId: operationId(result.error), error: toAgentError(result.error) };
+				: {
+						accepted: false,
+						operationId: operationId(result.error),
+						error: toAgentError(result.error),
+					};
 		},
 		async requestAbort(operationId, context) {
 			const result = await lane.requestAbort(operationId, context);
@@ -54,7 +58,11 @@ export function createAgentController(lane: AgentLane): AgentControllerService {
 			);
 			return result.ok
 				? toOperationResponse(result.value.compaction)
-				: { accepted: false, operationId: operationId(result.error), error: toAgentError(result.error) };
+				: {
+						accepted: false,
+						operationId: operationId(result.error),
+						error: toAgentError(result.error),
+					};
 		},
 		async navigate(request, context) {
 			const result = await lane.navigateTree(
@@ -68,7 +76,11 @@ export function createAgentController(lane: AgentLane): AgentControllerService {
 			);
 			return result.ok
 				? toOperationResponse(result.value.navigation)
-				: { accepted: false, operationId: operationId(result.error), error: toAgentError(result.error) };
+				: {
+						accepted: false,
+						operationId: operationId(result.error),
+						error: toAgentError(result.error),
+					};
 		},
 	};
 }

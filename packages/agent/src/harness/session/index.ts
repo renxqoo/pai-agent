@@ -9,7 +9,13 @@ export type {
 	CommitValidationState,
 	PreparedCommit,
 } from "./commit.ts";
-export { commitWrite, insertEntry, insertUsage, prepareStorageCommit, validateCommittedWrites } from "./commit.ts";
+export {
+	commitWrite,
+	insertEntry,
+	insertUsage,
+	prepareStorageCommit,
+	validateCommittedWrites,
+} from "./commit.ts";
 export { createForkSnapshot, type ForkSourceSnapshot } from "./fork.ts";
 export { classifyForkAddress, type ForkDisposition } from "./fork-policy.ts";
 export {

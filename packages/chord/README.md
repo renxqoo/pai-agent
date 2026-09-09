@@ -9,7 +9,7 @@ workspace package and can be used by unrelated applications.
 ## What Chord is for
 
 A single application feature may need to run in several environments: for
-example, an agent worker, a terminal UI, and a remote WebUI.  Chord provides the
+example, an agent worker, a terminal UI, and a remote WebUI. Chord provides the
 generic machinery to write such extensions in a way that is both delightful for
 humans as well as agents.
 
@@ -18,16 +18,16 @@ The design has a few connected pieces:
 - **Plugins** are synchronous setup units that declare the services they provide
   and require. After every plugin has declared its shape, a host validates the
   complete dependency graph, binds services, activates providers before consumers,
-  and disposes resources in reverse dependency order.  These units are called
-  *facets*.
+  and disposes resources in reverse dependency order. These units are called
+  _facets_.
 
-- **Facets** are parts of a plugin.  Each facet is bundled up separately and runs
-  in the process or environment where it's supposed to run.  You can use facets
+- **Facets** are parts of a plugin. Each facet is bundled up separately and runs
+  in the process or environment where it's supposed to run. You can use facets
   to split a plugin into separate pieces that need to be loaded into different
   processes and environments (think backend, browser, TUI etc.)
 
 - **Services** are typed, stable tokens with either one provider (**singleton**)
-  or dynamic keyed instances (**keyed**).  A service can be process-local, with
+  or dynamic keyed instances (**keyed**). A service can be process-local, with
   an unrestricted JavaScript contract, or remotely exposable. Consumers retain a
   stable facade while a provider disconnects or is replaced.
 
@@ -149,12 +149,12 @@ facet path conventions supplied by the host application:
 import { bundleFacetPackage } from "@earendil-works/chord/bundler";
 
 await bundleFacetPackage({
-	packagePath: "/path/to/my-plugin",
-	outdir: "/application-owned/plugin-builds/my-plugin",
-	defaultFacets: {
-		worker: "src/worker.ts",
-		presentation: "src/presentation.ts",
-	},
+  packagePath: "/path/to/my-plugin",
+  outdir: "/application-owned/plugin-builds/my-plugin",
+  defaultFacets: {
+    worker: "src/worker.ts",
+    presentation: "src/presentation.ts",
+  },
 });
 ```
 
@@ -172,9 +172,9 @@ loader:
 import { createFacetBundleLoader } from "@earendil-works/chord/node";
 
 const loader = createFacetBundleLoader({
-	manifestPath: "/application-owned/plugin-builds/my-plugin/chord-facets.json",
-	entry: "worker",
-	resolveExternal: (specifier) => import.meta.resolve(specifier),
+  manifestPath: "/application-owned/plugin-builds/my-plugin/chord-facets.json",
+  entry: "worker",
+  resolveExternal: (specifier) => import.meta.resolve(specifier),
 });
 const loaded = await loader.load();
 ```

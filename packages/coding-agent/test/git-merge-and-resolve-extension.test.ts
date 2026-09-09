@@ -15,7 +15,10 @@ function withUpstream(results: Map<string, ExecResult>): Map<string, ExecResult>
 	results.set("git rev-parse --git-dir", ok);
 	results.set("git rev-parse MERGE_HEAD", fail);
 	results.set("git status --porcelain", ok);
-	results.set("git rev-parse --abbrev-ref --symbolic-full-name @{u}", { ...ok, stdout: "origin/main\n" });
+	results.set("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
+		...ok,
+		stdout: "origin/main\n",
+	});
 	results.set("git fetch origin", ok);
 	return results;
 }

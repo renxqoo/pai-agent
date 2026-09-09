@@ -56,7 +56,9 @@ const Projection = defineService<Projection>("test.experimental.projection");
 const KeyedValue = defineService<KeyedValue>("test.experimental.keyed-value");
 const Watched = defineService<Watched>("test.experimental.watched");
 const HostValues = defineService<HostValues>("test.experimental.host-values", { local: true });
-const LocalKeyedValue = defineService<LocalKeyedValue>("test.experimental.local-keyed-value", { local: true });
+const LocalKeyedValue = defineService<LocalKeyedValue>("test.experimental.local-keyed-value", {
+	local: true,
+});
 const LeftValue = defineService<LeftValue>("test.experimental.left-value");
 const RightValue = defineService<RightValue>("test.experimental.right-value");
 const CombinedValue = defineService<CombinedValue>("test.experimental.combined-value");
@@ -279,7 +281,10 @@ describe("facet host", () => {
 		const first = observed[0]!;
 		expect(first.service.read()).toBe("A");
 		expect(first.service.metadata.get("value")).toBe("A");
-		expect(host.services.catalogue).not.toContainEqual({ serviceId: LocalKeyedValue.id, mode: "keyed" });
+		expect(host.services.catalogue).not.toContainEqual({
+			serviceId: LocalKeyedValue.id,
+			mode: "keyed",
+		});
 		expect(() => host.services.use(LocalKeyedValue)).toThrow("process-local");
 
 		await host.reload([provider("B")]);

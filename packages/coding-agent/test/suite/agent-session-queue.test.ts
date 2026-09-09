@@ -313,7 +313,12 @@ describe("AgentSession queue characterization", () => {
 
 		await waitForToolStart;
 		await harness.session.sendCustomMessage(
-			{ customType: "queue-test", content: "follow-up custom", display: true, details: { value: 1 } },
+			{
+				customType: "queue-test",
+				content: "follow-up custom",
+				display: true,
+				details: { value: 1 },
+			},
 			{ deliverAs: "followUp" },
 		);
 		releaseToolExecution();

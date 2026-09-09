@@ -178,7 +178,13 @@ describe("AgentSession.getSessionStats", () => {
 			syncAgentMessages(session, sessionManager);
 
 			const stats = session.getSessionStats();
-			expect(stats.tokens).toEqual({ input: 10, output: 20, cacheRead: 30, cacheWrite: 40, total: 100 });
+			expect(stats.tokens).toEqual({
+				input: 10,
+				output: 20,
+				cacheRead: 30,
+				cacheWrite: 40,
+				total: 100,
+			});
 			expect(stats.cost).toBe(1);
 		} finally {
 			session.dispose();
@@ -201,7 +207,13 @@ describe("AgentSession.getSessionStats", () => {
 			syncAgentMessages(session, sessionManager);
 
 			const stats = session.getSessionStats();
-			expect(stats.tokens).toEqual({ input: 10, output: 20, cacheRead: 30, cacheWrite: 40, total: 100 });
+			expect(stats.tokens).toEqual({
+				input: 10,
+				output: 20,
+				cacheRead: 30,
+				cacheWrite: 40,
+				total: 100,
+			});
 			expect(stats.cost).toBe(1);
 		} finally {
 			session.dispose();
@@ -225,7 +237,13 @@ describe("AgentSession.getSessionStats", () => {
 			syncAgentMessages(session, sessionManager);
 
 			const stats = session.getSessionStats();
-			expect(stats.tokens).toEqual({ input: 10, output: 20, cacheRead: 30, cacheWrite: 40, total: 100 });
+			expect(stats.tokens).toEqual({
+				input: 10,
+				output: 20,
+				cacheRead: 30,
+				cacheWrite: 40,
+				total: 100,
+			});
 			expect(stats.cost).toBe(1);
 		} finally {
 			session.dispose();
@@ -240,7 +258,10 @@ describe("AgentSession.getSessionStats", () => {
 			usage: { ...createUsage(100), cost: { ...createUsage(100).cost, total: 0.5 } },
 		});
 		sessionManager.appendMessage(
-			createToolResultMessage({ ...createUsage(100), cost: { ...createUsage(100).cost, total: 1 } }),
+			createToolResultMessage({
+				...createUsage(100),
+				cost: { ...createUsage(100).cost, total: 1 },
+			}),
 		);
 		sessionManager.appendCompaction("summary", rootId, 100, undefined, false, {
 			...createUsage(100),

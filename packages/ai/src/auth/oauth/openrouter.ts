@@ -290,7 +290,10 @@ async function loginOpenRouter(interaction: ProviderAuthInteraction): Promise<OA
 		if (manualError) throw manualError;
 		const code = manualInput ? parseAuthorizationInput(manualInput) : undefined;
 		if (!code) throw new Error("Missing authorization code");
-		interaction.notify({ type: "progress", message: "Exchanging authorization code for an API key..." });
+		interaction.notify({
+			type: "progress",
+			message: "Exchanging authorization code for an API key...",
+		});
 		return await exchangeAuthorizationCode(code, verifier, interaction.signal);
 	} finally {
 		manualAbort.abort();

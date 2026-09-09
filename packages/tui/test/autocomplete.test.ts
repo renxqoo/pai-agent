@@ -52,7 +52,11 @@ const getSuggestions = (
 	cursorLine: number,
 	cursorCol: number,
 	force: boolean = false,
-) => provider.getSuggestions(lines, cursorLine, cursorCol, { signal: new AbortController().signal, force });
+) =>
+	provider.getSuggestions(lines, cursorLine, cursorCol, {
+		signal: new AbortController().signal,
+		force,
+	});
 
 describe("CombinedAutocompleteProvider", () => {
 	describe("extractPathPrefix", () => {

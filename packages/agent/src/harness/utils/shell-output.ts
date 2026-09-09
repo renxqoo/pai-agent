@@ -88,7 +88,12 @@ export async function executeShellWithCapture(
 	const progress = progressFrom(output);
 	if (!result.ok) {
 		if (result.error.code === "aborted" || context.abortSignal?.aborted) {
-			return ok({ ...progress, exitCode: undefined, cancelled: true, truncated: progress.truncation.truncated });
+			return ok({
+				...progress,
+				exitCode: undefined,
+				cancelled: true,
+				truncated: progress.truncation.truncated,
+			});
 		}
 		if (options?.returnExecutionErrors) {
 			return ok({

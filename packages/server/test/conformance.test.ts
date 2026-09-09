@@ -203,7 +203,11 @@ describe("Session protocol", () => {
 		const host = new TestServerHost();
 		await host.seed("session-1");
 		const errors: Error[] = [];
-		const server = new Server(host, { listeners: [], serverId, onError: (error) => errors.push(error) });
+		const server = new Server(host, {
+			listeners: [],
+			serverId,
+			onError: (error) => errors.push(error),
+		});
 		servers.add(server);
 		const first = connect(server);
 		const second = connect(server);

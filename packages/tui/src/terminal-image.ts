@@ -337,7 +337,10 @@ let kittyTransmissionGeneration = 0;
 export function registerKittyImageMetadata(metadata: KittyImageMetadata): void {
 	kittyTransmissionGeneration += 1;
 	kittyImageMetadata.delete(metadata.imageId);
-	kittyImageMetadata.set(metadata.imageId, { ...metadata, transmissionGeneration: kittyTransmissionGeneration });
+	kittyImageMetadata.set(metadata.imageId, {
+		...metadata,
+		transmissionGeneration: kittyTransmissionGeneration,
+	});
 	if (kittyImageMetadata.size > 1000) {
 		const oldestImageId = kittyImageMetadata.keys().next().value;
 		if (oldestImageId !== undefined) kittyImageMetadata.delete(oldestImageId);

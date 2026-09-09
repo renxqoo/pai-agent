@@ -174,7 +174,10 @@ describe("AuthStorage", () => {
 	test("modify with undefined leaves the current credential unchanged", async () => {
 		writeAuthJson({ anthropic: { type: "api_key", key: "stored" } });
 		const storage = AuthStorage.create(authJsonPath);
-		expect(await storage.modify("anthropic", async () => undefined)).toEqual({ type: "api_key", key: "stored" });
+		expect(await storage.modify("anthropic", async () => undefined)).toEqual({
+			type: "api_key",
+			key: "stored",
+		});
 		expect(await storage.read("anthropic")).toEqual({ type: "api_key", key: "stored" });
 	});
 
@@ -346,7 +349,10 @@ describe("AuthStorage", () => {
 			async () => {
 				markStarted?.();
 				await blocked;
-				return { result: undefined, next: JSON.stringify({ openai: { type: "api_key", key: "cancelled" } }) };
+				return {
+					result: undefined,
+					next: JSON.stringify({ openai: { type: "api_key", key: "cancelled" } }),
+				};
 			},
 			{ signal: controller.signal },
 		);
@@ -538,7 +544,9 @@ describe("AuthStorage", () => {
 		models.setProvider(provider);
 
 		await expect(models.getAuth(providerId)).rejects.toMatchObject({ code: "auth" });
-		await expect(models.getAuth(providerId)).resolves.toMatchObject({ auth: { apiKey: "refreshed-access" } });
+		await expect(models.getAuth(providerId)).resolves.toMatchObject({
+			auth: { apiKey: "refreshed-access" },
+		});
 	});
 
 	test("does not overwrite malformed auth files", async () => {

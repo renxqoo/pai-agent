@@ -26,63 +26,63 @@ Modifier combinations: `ctrl+shift+x`, `alt+ctrl+x`, `ctrl+shift+alt+x`, `super+
 
 ### TUI Editor Cursor Movement
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `tui.editor.cursorUp` | `up` | Move cursor up, browsing older history at the top |
-| `tui.editor.cursorDown` | `down` | Move cursor down, browsing newer history at the bottom |
-| `tui.editor.historyPrevious` | *(none)* | Select the previous prompt history entry |
-| `tui.editor.historyNext` | *(none)* | Select the next prompt history entry |
-| `tui.editor.cursorLeft` | `left`, `ctrl+b` | Move cursor left |
-| `tui.editor.cursorRight` | `right`, `ctrl+f` | Move cursor right |
-| `tui.editor.cursorWordLeft` | `alt+left`, `ctrl+left`, `alt+b` | Move cursor word left |
-| `tui.editor.cursorWordRight` | `alt+right`, `ctrl+right`, `alt+f` | Move cursor word right |
-| `tui.editor.cursorLineStart` | `home`, `ctrl+home`, `ctrl+a` | Move to line start |
-| `tui.editor.cursorLineEnd` | `end`, `ctrl+end`, `ctrl+e` | Move to line end |
-| `tui.editor.jumpForward` | `ctrl+]` | Jump forward to character |
-| `tui.editor.jumpBackward` | `ctrl+alt+]` | Jump backward to character |
-| `tui.editor.pageUp` | `pageUp`, `ctrl+pageUp` | Scroll up by page |
-| `tui.editor.pageDown` | `pageDown`, `ctrl+pageDown` | Scroll down by page |
+| Keybinding id                | Default                            | Description                                            |
+| ---------------------------- | ---------------------------------- | ------------------------------------------------------ |
+| `tui.editor.cursorUp`        | `up`                               | Move cursor up, browsing older history at the top      |
+| `tui.editor.cursorDown`      | `down`                             | Move cursor down, browsing newer history at the bottom |
+| `tui.editor.historyPrevious` | _(none)_                           | Select the previous prompt history entry               |
+| `tui.editor.historyNext`     | _(none)_                           | Select the next prompt history entry                   |
+| `tui.editor.cursorLeft`      | `left`, `ctrl+b`                   | Move cursor left                                       |
+| `tui.editor.cursorRight`     | `right`, `ctrl+f`                  | Move cursor right                                      |
+| `tui.editor.cursorWordLeft`  | `alt+left`, `ctrl+left`, `alt+b`   | Move cursor word left                                  |
+| `tui.editor.cursorWordRight` | `alt+right`, `ctrl+right`, `alt+f` | Move cursor word right                                 |
+| `tui.editor.cursorLineStart` | `home`, `ctrl+home`, `ctrl+a`      | Move to line start                                     |
+| `tui.editor.cursorLineEnd`   | `end`, `ctrl+end`, `ctrl+e`        | Move to line end                                       |
+| `tui.editor.jumpForward`     | `ctrl+]`                           | Jump forward to character                              |
+| `tui.editor.jumpBackward`    | `ctrl+alt+]`                       | Jump backward to character                             |
+| `tui.editor.pageUp`          | `pageUp`, `ctrl+pageUp`            | Scroll up by page                                      |
+| `tui.editor.pageDown`        | `pageDown`, `ctrl+pageDown`        | Scroll down by page                                    |
 
 The dedicated history actions always change history entries, regardless of the cursor position in a multiline prompt. Explicit history bindings take precedence over application actions while the main editor is focused, so binding `tui.editor.historyPrevious` to `ctrl+p` overrides model cycling in that context without changing `Ctrl+P` in selectors.
 
 ### TUI Editor Deletion
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `tui.editor.deleteCharBackward` | `backspace` | Delete character backward |
-| `tui.editor.deleteCharForward` | `delete`, `ctrl+d` | Delete character forward |
-| `tui.editor.deleteWordBackward` | `ctrl+w`, `alt+backspace` | Delete word backward |
-| `tui.editor.deleteWordForward` | `alt+d`, `alt+delete` | Delete word forward |
-| `tui.editor.deleteToLineStart` | `ctrl+u` | Delete to line start |
-| `tui.editor.deleteToLineEnd` | `ctrl+k` | Delete to line end |
+| Keybinding id                   | Default                   | Description               |
+| ------------------------------- | ------------------------- | ------------------------- |
+| `tui.editor.deleteCharBackward` | `backspace`               | Delete character backward |
+| `tui.editor.deleteCharForward`  | `delete`, `ctrl+d`        | Delete character forward  |
+| `tui.editor.deleteWordBackward` | `ctrl+w`, `alt+backspace` | Delete word backward      |
+| `tui.editor.deleteWordForward`  | `alt+d`, `alt+delete`     | Delete word forward       |
+| `tui.editor.deleteToLineStart`  | `ctrl+u`                  | Delete to line start      |
+| `tui.editor.deleteToLineEnd`    | `ctrl+k`                  | Delete to line end        |
 
 ### TUI Input
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `tui.input.newLine` | `shift+enter`, `ctrl+j` | Insert new line |
-| `tui.input.submit` | `enter` | Submit input |
-| `tui.input.tab` | `tab` | Tab / autocomplete |
+| Keybinding id       | Default                 | Description        |
+| ------------------- | ----------------------- | ------------------ |
+| `tui.input.newLine` | `shift+enter`, `ctrl+j` | Insert new line    |
+| `tui.input.submit`  | `enter`                 | Submit input       |
+| `tui.input.tab`     | `tab`                   | Tab / autocomplete |
 
 ### TUI Kill Ring
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `tui.editor.yank` | `ctrl+y` | Paste most recently deleted text |
-| `tui.editor.yankPop` | `alt+y` | Cycle through deleted text after yank |
-| `tui.editor.undo` | `ctrl+-` (`ctrl+z` on Windows; `alt+z` on WSL) | Undo last edit |
+| Keybinding id        | Default                                        | Description                           |
+| -------------------- | ---------------------------------------------- | ------------------------------------- |
+| `tui.editor.yank`    | `ctrl+y`                                       | Paste most recently deleted text      |
+| `tui.editor.yankPop` | `alt+y`                                        | Cycle through deleted text after yank |
+| `tui.editor.undo`    | `ctrl+-` (`ctrl+z` on Windows; `alt+z` on WSL) | Undo last edit                        |
 
 ### TUI Clipboard and Selection
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `tui.input.copy` | `ctrl+c` | Copy selection |
-| `tui.select.up` | `up` | Move selection up |
-| `tui.select.down` | `down` | Move selection down |
-| `tui.select.pageUp` | `pageUp` | Page up in list |
-| `tui.select.pageDown` | `pageDown` | Page down in list |
-| `tui.select.confirm` | `enter` | Confirm selection |
-| `tui.select.cancel` | `escape`, `ctrl+c` | Cancel selection |
+| Keybinding id         | Default            | Description         |
+| --------------------- | ------------------ | ------------------- |
+| `tui.input.copy`      | `ctrl+c`           | Copy selection      |
+| `tui.select.up`       | `up`               | Move selection up   |
+| `tui.select.down`     | `down`             | Move selection down |
+| `tui.select.pageUp`   | `pageUp`           | Page up in list     |
+| `tui.select.pageDown` | `pageDown`         | Page down in list   |
+| `tui.select.confirm`  | `enter`            | Confirm selection   |
+| `tui.select.cancel`   | `escape`, `ctrl+c` | Cancel selection    |
 
 ### TUI Fullscreen Viewport
 
@@ -92,106 +92,106 @@ Fullscreen transcript bindings take precedence over editor bindings. The default
 
 The transcript search panel shows the configured previous/next shortcuts and clickable arrow controls. Press `tui.altScreen.search` again, or use `tui.altScreen.searchClose`, to close it.
 
-| Key | Default mode | Fullscreen mode |
-|-----|--------------|-----------------|
-| `home`, `end` | Editor | Transcript |
-| `ctrl+home`, `ctrl+end` | Editor | Editor |
-| `pageUp`, `pageDown` | Editor | Transcript |
-| `ctrl+pageUp`, `ctrl+pageDown` | Editor | Editor |
+| Key                            | Default mode | Fullscreen mode |
+| ------------------------------ | ------------ | --------------- |
+| `home`, `end`                  | Editor       | Transcript      |
+| `ctrl+home`, `ctrl+end`        | Editor       | Editor          |
+| `pageUp`, `pageDown`           | Editor       | Transcript      |
+| `ctrl+pageUp`, `ctrl+pageDown` | Editor       | Editor          |
 
 This routing remains configurable through the ordinary action bindings. For example, `"tui.altScreen.pageUp": "ctrl+pageUp"` makes `pageUp` control the editor and `ctrl+pageUp` control the transcript in fullscreen mode. Bind `tui.altScreen.halfPageUp` and `tui.altScreen.halfPageDown` for half-page steps, or bind `tui.altScreen.lineUp` and `tui.altScreen.lineDown` for single-line steps. Setting `"tui.altScreen.pageUp": []` disables that transcript shortcut entirely. User bindings replace the defaults for that action.
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `tui.altScreen.pageUp` | `pageUp` | Scroll the transcript up by one page |
-| `tui.altScreen.pageDown` | `pageDown` | Scroll the transcript down by one page |
-| `tui.altScreen.halfPageUp` | *(none)* | Scroll the transcript up by half a page |
-| `tui.altScreen.halfPageDown` | *(none)* | Scroll the transcript down by half a page |
-| `tui.altScreen.lineUp` | *(none)* | Scroll the transcript up by one line |
-| `tui.altScreen.lineDown` | *(none)* | Scroll the transcript down by one line |
-| `tui.altScreen.previousPrompt` | `ctrl+shift+up`, `ctrl+up` (`ctrl+up` only on Windows and WSL) | Jump to the previous marked message |
-| `tui.altScreen.nextPrompt` | `ctrl+shift+down`, `ctrl+down` (`ctrl+down` only on Windows and WSL) | Jump to the next marked message |
-| `tui.altScreen.search` | `ctrl+shift+f` (`ctrl+f` on Windows and WSL) | Search the rendered transcript |
-| `tui.altScreen.searchNext` | `enter`, `ctrl+g` | Select the next search match while searching |
-| `tui.altScreen.searchPrevious` | `shift+enter`, `ctrl+shift+g` | Select the previous search match while searching |
-| `tui.altScreen.searchClose` | `escape` | Close transcript search |
-| `tui.altScreen.top` | `home` | Scroll to the beginning of the transcript |
-| `tui.altScreen.bottom` | `end` | Scroll to the transcript end and follow new output |
+| Keybinding id                  | Default                                                              | Description                                        |
+| ------------------------------ | -------------------------------------------------------------------- | -------------------------------------------------- |
+| `tui.altScreen.pageUp`         | `pageUp`                                                             | Scroll the transcript up by one page               |
+| `tui.altScreen.pageDown`       | `pageDown`                                                           | Scroll the transcript down by one page             |
+| `tui.altScreen.halfPageUp`     | _(none)_                                                             | Scroll the transcript up by half a page            |
+| `tui.altScreen.halfPageDown`   | _(none)_                                                             | Scroll the transcript down by half a page          |
+| `tui.altScreen.lineUp`         | _(none)_                                                             | Scroll the transcript up by one line               |
+| `tui.altScreen.lineDown`       | _(none)_                                                             | Scroll the transcript down by one line             |
+| `tui.altScreen.previousPrompt` | `ctrl+shift+up`, `ctrl+up` (`ctrl+up` only on Windows and WSL)       | Jump to the previous marked message                |
+| `tui.altScreen.nextPrompt`     | `ctrl+shift+down`, `ctrl+down` (`ctrl+down` only on Windows and WSL) | Jump to the next marked message                    |
+| `tui.altScreen.search`         | `ctrl+shift+f` (`ctrl+f` on Windows and WSL)                         | Search the rendered transcript                     |
+| `tui.altScreen.searchNext`     | `enter`, `ctrl+g`                                                    | Select the next search match while searching       |
+| `tui.altScreen.searchPrevious` | `shift+enter`, `ctrl+shift+g`                                        | Select the previous search match while searching   |
+| `tui.altScreen.searchClose`    | `escape`                                                             | Close transcript search                            |
+| `tui.altScreen.top`            | `home`                                                               | Scroll to the beginning of the transcript          |
+| `tui.altScreen.bottom`         | `end`                                                                | Scroll to the transcript end and follow new output |
 
 ### Application
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `app.interrupt` | `escape` | Cancel / abort |
-| `app.clear` | `ctrl+c` | Clear editor (first) / exit (second) |
-| `app.exit` | `ctrl+d` | Exit (when editor empty) |
-| `app.suspend` | `ctrl+z` (none on Windows) | Suspend to background |
-| `app.editor.external` | `ctrl+g` | Open in external editor (`externalEditor`, `$VISUAL`, `$EDITOR`, Notepad on Windows, or `nano` elsewhere) |
-| `app.clipboard.pasteImage` | `ctrl+v` (`alt+v` on Windows and WSL) | Paste image or text from clipboard |
+| Keybinding id              | Default                               | Description                                                                                               |
+| -------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `app.interrupt`            | `escape`                              | Cancel / abort                                                                                            |
+| `app.clear`                | `ctrl+c`                              | Clear editor (first) / exit (second)                                                                      |
+| `app.exit`                 | `ctrl+d`                              | Exit (when editor empty)                                                                                  |
+| `app.suspend`              | `ctrl+z` (none on Windows)            | Suspend to background                                                                                     |
+| `app.editor.external`      | `ctrl+g`                              | Open in external editor (`externalEditor`, `$VISUAL`, `$EDITOR`, Notepad on Windows, or `nano` elsewhere) |
+| `app.clipboard.pasteImage` | `ctrl+v` (`alt+v` on Windows and WSL) | Paste image or text from clipboard                                                                        |
 
 ### Sessions
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `app.session.new` | *(none)* | Start a new session (`/new`) |
-| `app.session.tree` | *(none)* | Open session tree navigator (`/tree`) |
-| `app.session.fork` | *(none)* | Fork current session (`/fork`) |
-| `app.session.resume` | *(none)* | Open session resume picker (`/resume`) |
-| `app.session.togglePath` | `ctrl+p` | Toggle path display |
-| `app.session.toggleSort` | `ctrl+s` | Toggle sort mode |
-| `app.session.toggleNamedFilter` | `ctrl+n` | Toggle named-only filter |
-| `app.session.rename` | `ctrl+r` | Rename session |
-| `app.session.delete` | `ctrl+d` | Delete session |
-| `app.session.deleteNoninvasive` | `ctrl+backspace` | Delete session when query is empty |
+| Keybinding id                   | Default          | Description                            |
+| ------------------------------- | ---------------- | -------------------------------------- |
+| `app.session.new`               | _(none)_         | Start a new session (`/new`)           |
+| `app.session.tree`              | _(none)_         | Open session tree navigator (`/tree`)  |
+| `app.session.fork`              | _(none)_         | Fork current session (`/fork`)         |
+| `app.session.resume`            | _(none)_         | Open session resume picker (`/resume`) |
+| `app.session.togglePath`        | `ctrl+p`         | Toggle path display                    |
+| `app.session.toggleSort`        | `ctrl+s`         | Toggle sort mode                       |
+| `app.session.toggleNamedFilter` | `ctrl+n`         | Toggle named-only filter               |
+| `app.session.rename`            | `ctrl+r`         | Rename session                         |
+| `app.session.delete`            | `ctrl+d`         | Delete session                         |
+| `app.session.deleteNoninvasive` | `ctrl+backspace` | Delete session when query is empty     |
 
 ### Models and Thinking
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `app.model.select` | `ctrl+l` | Open model selector |
-| `app.model.cycleForward` | `ctrl+p` | Cycle to next model |
-| `app.model.cycleBackward` | `shift+ctrl+p` (`alt+p` on Windows and WSL) | Cycle to previous model |
-| `app.models.save` | `ctrl+s` | Save the selected default model or scoped model configuration to settings |
-| `app.thinking.cycle` | `shift+tab` | Cycle thinking level |
-| `app.thinking.save` | `ctrl+s` | Save current thinking level to settings |
-| `app.thinking.toggle` | `ctrl+t` | Collapse or expand thinking blocks |
+| Keybinding id             | Default                                     | Description                                                               |
+| ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
+| `app.model.select`        | `ctrl+l`                                    | Open model selector                                                       |
+| `app.model.cycleForward`  | `ctrl+p`                                    | Cycle to next model                                                       |
+| `app.model.cycleBackward` | `shift+ctrl+p` (`alt+p` on Windows and WSL) | Cycle to previous model                                                   |
+| `app.models.save`         | `ctrl+s`                                    | Save the selected default model or scoped model configuration to settings |
+| `app.thinking.cycle`      | `shift+tab`                                 | Cycle thinking level                                                      |
+| `app.thinking.save`       | `ctrl+s`                                    | Save current thinking level to settings                                   |
+| `app.thinking.toggle`     | `ctrl+t`                                    | Collapse or expand thinking blocks                                        |
 
 ### Display and Message Queue
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `app.tools.expand` | `ctrl+o` | Collapse or expand tool output |
-| `app.message.copy` | `ctrl+x` | Copy the selected message in `/tree`; otherwise copy the last assistant message, or the active fullscreen text selection when `fullscreenCopyOnSelect` is disabled |
-| `app.message.followUp` | `alt+enter` (`ctrl+q` on Windows and WSL) | Queue follow-up message |
-| `app.message.dequeue` | `alt+up` (`alt+q` on Windows and WSL) | Restore queued messages to editor |
+| Keybinding id          | Default                                   | Description                                                                                                                                                        |
+| ---------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app.tools.expand`     | `ctrl+o`                                  | Collapse or expand tool output                                                                                                                                     |
+| `app.message.copy`     | `ctrl+x`                                  | Copy the selected message in `/tree`; otherwise copy the last assistant message, or the active fullscreen text selection when `fullscreenCopyOnSelect` is disabled |
+| `app.message.followUp` | `alt+enter` (`ctrl+q` on Windows and WSL) | Queue follow-up message                                                                                                                                            |
+| `app.message.dequeue`  | `alt+up` (`alt+q` on Windows and WSL)     | Restore queued messages to editor                                                                                                                                  |
 
 ### Tree Navigation
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `app.tree.foldOrUp` | `ctrl+left`, `alt+left` | Fold current branch segment, or jump to the previous segment start |
-| `app.tree.unfoldOrDown` | `ctrl+right`, `alt+right` | Unfold current branch segment, or jump to the next segment start or branch end |
-| `app.tree.editLabel` | `shift+l` | Edit the label on the selected tree node |
-| `app.tree.toggleLabelTimestamp` | `shift+t` | Toggle label timestamps in the tree |
-| `app.tree.filter.default` | `ctrl+d` | Set tree filter to default view |
-| `app.tree.filter.noTools` | `ctrl+t` | Toggle tree filter that hides tool results |
-| `app.tree.filter.userOnly` | `ctrl+u` | Toggle tree filter that shows only user messages |
-| `app.tree.filter.labeledOnly` | `ctrl+l` | Toggle tree filter that shows only labeled entries |
-| `app.tree.filter.all` | `ctrl+a` | Toggle tree filter that shows all entries |
-| `app.tree.filter.cycleForward` | `ctrl+o` | Cycle tree filter forward |
-| `app.tree.filter.cycleBackward` | `shift+ctrl+o` | Cycle tree filter backward |
+| Keybinding id                   | Default                   | Description                                                                    |
+| ------------------------------- | ------------------------- | ------------------------------------------------------------------------------ |
+| `app.tree.foldOrUp`             | `ctrl+left`, `alt+left`   | Fold current branch segment, or jump to the previous segment start             |
+| `app.tree.unfoldOrDown`         | `ctrl+right`, `alt+right` | Unfold current branch segment, or jump to the next segment start or branch end |
+| `app.tree.editLabel`            | `shift+l`                 | Edit the label on the selected tree node                                       |
+| `app.tree.toggleLabelTimestamp` | `shift+t`                 | Toggle label timestamps in the tree                                            |
+| `app.tree.filter.default`       | `ctrl+d`                  | Set tree filter to default view                                                |
+| `app.tree.filter.noTools`       | `ctrl+t`                  | Toggle tree filter that hides tool results                                     |
+| `app.tree.filter.userOnly`      | `ctrl+u`                  | Toggle tree filter that shows only user messages                               |
+| `app.tree.filter.labeledOnly`   | `ctrl+l`                  | Toggle tree filter that shows only labeled entries                             |
+| `app.tree.filter.all`           | `ctrl+a`                  | Toggle tree filter that shows all entries                                      |
+| `app.tree.filter.cycleForward`  | `ctrl+o`                  | Cycle tree filter forward                                                      |
+| `app.tree.filter.cycleBackward` | `shift+ctrl+o`            | Cycle tree filter backward                                                     |
 
 ### Scoped Models Selector
 
 Used inside the scoped models selector (opened via `/scoped-models`).
 
-| Keybinding id | Default | Description |
-|--------|---------|-------------|
-| `app.models.enableAll` | `ctrl+a` | Enable all models (or all matching the current search) |
-| `app.models.clearAll` | `ctrl+x` | Clear all models (or all matching the current search) |
-| `app.models.toggleProvider` | `ctrl+p` | Toggle all models for the current provider |
-| `app.models.reorderUp` | `alt+up` | Move the selected model up in the cycle order |
-| `app.models.reorderDown` | `alt+down` | Move the selected model down in the cycle order |
+| Keybinding id               | Default    | Description                                            |
+| --------------------------- | ---------- | ------------------------------------------------------ |
+| `app.models.enableAll`      | `ctrl+a`   | Enable all models (or all matching the current search) |
+| `app.models.clearAll`       | `ctrl+x`   | Clear all models (or all matching the current search)  |
+| `app.models.toggleProvider` | `ctrl+p`   | Toggle all models for the current provider             |
+| `app.models.reorderUp`      | `alt+up`   | Move the selected model up in the cycle order          |
+| `app.models.reorderDown`    | `alt+down` | Move the selected model down in the cycle order        |
 
 ## Custom Configuration
 

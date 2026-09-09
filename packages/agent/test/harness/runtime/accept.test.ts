@@ -58,7 +58,10 @@ function options(session: Session) {
 async function createHarness(
 	beforeCreate?: (session: Session) => Promise<void>,
 	resources: Parameters<typeof createAgentHarness>[0]["resources"] = {},
-	queueModes: { steeringMode?: "all" | "one-at-a-time"; followUpMode?: "all" | "one-at-a-time" } = {},
+	queueModes: {
+		steeringMode?: "all" | "one-at-a-time";
+		followUpMode?: "all" | "one-at-a-time";
+	} = {},
 ): Promise<{
 	harness: Harness<object | undefined>;
 	lane: Lane<object | undefined>;
@@ -121,7 +124,10 @@ describe("runtime atomic run acceptance", () => {
 		const entry = await session.getEntry(entryId, BACKGROUND_CONTEXT);
 
 		expect(admission).toMatchObject({ operationId: operation.meta.operationId, kind: "run" });
-		expect(entry).toMatchObject({ type: "message", message: { role: "user", content: expectedContent } });
+		expect(entry).toMatchObject({
+			type: "message",
+			message: { role: "user", content: expectedContent },
+		});
 		expect(operation.state.settings).toEqual({
 			compaction: DEFAULT_COMPACTION_SETTINGS,
 			steeringMode: "all",
@@ -150,7 +156,11 @@ describe("runtime atomic run acceptance", () => {
 			await lane.accept({ kind: "prompt", operationId: "operation", prompt: messages }, context),
 		);
 
-		expect(admission).toEqual({ operationId: "operation", kind: "run", startedAt: expect.any(Number) });
+		expect(admission).toEqual({
+			operationId: "operation",
+			kind: "run",
+			startedAt: expect.any(Number),
+		});
 		expect(storage.getCommitAttempts()).toHaveLength(1);
 		expect(
 			storage
@@ -340,7 +350,12 @@ describe("runtime atomic run acceptance", () => {
 	it("formats skills and templates before acceptance", async () => {
 		const resources = {
 			skills: [
-				{ name: "review", description: "Review", content: "Inspect it", filePath: "/skills/review/SKILL.md" },
+				{
+					name: "review",
+					description: "Review",
+					content: "Inspect it",
+					filePath: "/skills/review/SKILL.md",
+				},
 			],
 			promptTemplates: [{ name: "fix", content: "Fix $1 then $@" }],
 		};
@@ -354,7 +369,9 @@ describe("runtime atomic run acceptance", () => {
 		const skillEntry = await skill.session.getEntry(skill.lane.state.tipId!, BACKGROUND_CONTEXT);
 		expect(skillEntry).toMatchObject({
 			type: "message",
-			message: { content: [{ type: "text", text: expect.stringContaining('<skill name="review"') }] },
+			message: {
+				content: [{ type: "text", text: expect.stringContaining('<skill name="review"') }],
+			},
 		});
 
 		const template = await createHarness(undefined, resources);
@@ -382,7 +399,11 @@ describe("runtime atomic run acceptance", () => {
 			),
 		);
 
-		expect(admission).toEqual({ operationId: "compaction", kind: "compaction", startedAt: expect.any(Number) });
+		expect(admission).toEqual({
+			operationId: "compaction",
+			kind: "compaction",
+			startedAt: expect.any(Number),
+		});
 		const operation = lane.state.operation;
 		if (operation?.state.at !== "summary.deciding") throw new Error("Expected accepted compaction");
 		expect(operation.state.task).toMatchObject({

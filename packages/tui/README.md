@@ -18,7 +18,14 @@ Minimal terminal UI framework with differential rendering and synchronized outpu
 ## Quick Start
 
 ```typescript
-import { type TUI, Text, Editor, ProcessTerminal, TuiMainScreen, matchesKey } from "@earendil-works/pi-tui";
+import {
+  type TUI,
+  Text,
+  Editor,
+  ProcessTerminal,
+  TuiMainScreen,
+  matchesKey,
+} from "@earendil-works/pi-tui";
 
 // Create terminal
 const terminal = new ProcessTerminal();
@@ -29,7 +36,7 @@ const tui: TUI = new TuiMainScreen(terminal);
 // Add components
 tui.addChild(new Text("Welcome to my app!"));
 
-import { defaultEditorTheme as editorTheme } from './test/test-themes.ts';
+import { defaultEditorTheme as editorTheme } from "./test/test-themes.ts";
 const editor = new Editor(tui, editorTheme);
 editor.onSubmit = (text) => {
   console.log("Submitted:", text);
@@ -42,7 +49,7 @@ tui.setFocus(editor);
 
 // In raw mode Ctrl+C doesn't send SIGINT — intercept it here to allow exit
 tui.addInputListener((data) => {
-  if (matchesKey(data, 'ctrl+c')) {
+  if (matchesKey(data, "ctrl+c")) {
     tui.stop();
     process.exit(0);
   }
@@ -83,41 +90,34 @@ tui.onDebug = () => console.log("Debug triggered");
 `TuiAltScreen` can render an explicit terminal-height layout. `VStack` and `HStack` allocate constrained regions, while `ScrollView` owns scrolling for one region. These semantics are intentionally unavailable on `TuiMainScreen`, where the terminal owns scrollback.
 
 ```typescript
-import {
-  Container,
-  isViewportTUI,
-  ScrollView,
-  Text,
-  VStack,
-} from "@earendil-works/pi-tui";
+import { Container, isViewportTUI, ScrollView, Text, VStack } from "@earendil-works/pi-tui";
 
 const transcript = new Container();
 transcript.addChild(new Text("History"));
 
-const editorAndFooter = new VStack([
-  editor,
-  new Text("status"),
-]);
+const editorAndFooter = new VStack([editor, new Text("status")]);
 
 if (isViewportTUI(tui)) {
-  tui.setLayoutRoot(new VStack([
-    {
-      component: new ScrollView(transcript, {
-        follow: "end",
-        primary: true,
-        overscroll: "chain",
-      }),
-      basis: 0,
-      grow: 1,
-      minSize: 1,
-    },
-    {
-      component: editorAndFooter,
-      basis: "auto",
-      shrink: 1,
-      minSize: 1,
-    },
-  ]));
+  tui.setLayoutRoot(
+    new VStack([
+      {
+        component: new ScrollView(transcript, {
+          follow: "end",
+          primary: true,
+          overscroll: "chain",
+        }),
+        basis: 0,
+        grow: 1,
+        minSize: 1,
+      },
+      {
+        component: editorAndFooter,
+        basis: "auto",
+        shrink: 1,
+        minSize: 1,
+      },
+    ]),
+  );
 }
 ```
 
@@ -199,6 +199,7 @@ tui.hasOverlay();
 **Anchor values**: `'center'`, `'top-left'`, `'top-right'`, `'bottom-left'`, `'bottom-right'`, `'top-center'`, `'bottom-center'`, `'left-center'`, `'right-center'`
 
 **Resolution order**:
+
 1. `minWidth` is applied as a floor after width calculation
 2. For position: absolute `row`/`col` > percentage `row`/`col` > `anchor`
 3. `margin` clamps final position to stay within terminal bounds
@@ -217,12 +218,12 @@ interface Component {
 }
 ```
 
-| Method | Description |
-|--------|-------------|
-| `render(width)` | Returns an array of strings, one per line. Each line **must not exceed `width`** or the TUI will error. Use `truncateToWidth()` or manual wrapping to ensure this. |
-| `handleInput?(data)` | Called when the component has focus and receives keyboard input. The `data` string contains raw terminal input (may include ANSI escape sequences). |
-| `handleMouse?(event)` | Called by `TuiAltScreen` for normalized pointer input targeted at the component. |
-| `invalidate?()` | Called to clear any cached render state. Components should re-render from scratch on the next `render()` call. |
+| Method                | Description                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `render(width)`       | Returns an array of strings, one per line. Each line **must not exceed `width`** or the TUI will error. Use `truncateToWidth()` or manual wrapping to ensure this. |
+| `handleInput?(data)`  | Called when the component has focus and receives keyboard input. The `data` string contains raw terminal input (may include ANSI escape sequences).                |
+| `handleMouse?(event)` | Called by `TuiAltScreen` for normalized pointer input targeted at the component.                                                                                   |
+| `invalidate?()`       | Called to clear any cached render state. Components should re-render from scratch on the next `render()` call.                                                     |
 
 The TUI appends a full SGR reset and OSC 8 reset at the end of each rendered line. Styles do not carry across lines. If you emit multi-line text with styling, reapply styles per line or use `wrapTextWithAnsi()` so styles are preserved for each wrapped line.
 
@@ -273,8 +274,8 @@ Components that display a text cursor and need IME (Input Method Editor) support
 import { CURSOR_MARKER, type Component, type Focusable } from "@earendil-works/pi-tui";
 
 class MyInput implements Component, Focusable {
-  focused: boolean = false;  // Set by TUI when focus changes
-  
+  focused: boolean = false; // Set by TUI when focus changes
+
   render(width: number): string[] {
     const marker = this.focused ? CURSOR_MARKER : "";
     // Emit marker right before the fake cursor
@@ -284,6 +285,7 @@ class MyInput implements Component, Focusable {
 ```
 
 When a `Focusable` component has focus, TUI:
+
 1. Sets `focused = true` on the component
 2. Scans rendered output for `CURSOR_MARKER` (a zero-width APC escape sequence)
 3. Positions the hardware terminal cursor at that location
@@ -301,7 +303,9 @@ class SearchDialog extends Container implements Focusable {
 
   // Propagate focus to child input for IME cursor positioning
   private _focused = false;
-  get focused(): boolean { return this._focused; }
+  get focused(): boolean {
+    return this._focused;
+  }
   set focused(value: boolean) {
     this._focused = value;
     this.searchInput.focused = value;
@@ -335,12 +339,12 @@ Container that applies padding and background color to all children.
 
 ```typescript
 const box = new Box(
-  1,                              // paddingX (default: 1)
-  1,                              // paddingY (default: 1)
-  (text) => chalk.bgGray(text)   // optional background function
+  1, // paddingX (default: 1)
+  1, // paddingY (default: 1)
+  (text) => chalk.bgGray(text), // optional background function
 );
 box.addChild(new Text("Content"));
-box.setBgFn((text) => chalk.bgBlue(text));  // Change background dynamically
+box.setBgFn((text) => chalk.bgBlue(text)); // Change background dynamically
 ```
 
 ### Text
@@ -349,10 +353,10 @@ Displays multi-line text with word wrapping and padding.
 
 ```typescript
 const text = new Text(
-  "Hello World",                  // text content
-  1,                              // paddingX (default: 1)
-  1,                              // paddingY (default: 1)
-  (text) => chalk.bgGray(text)   // optional background function
+  "Hello World", // text content
+  1, // paddingX (default: 1)
+  1, // paddingY (default: 1)
+  (text) => chalk.bgGray(text), // optional background function
 );
 text.setText("Updated text");
 text.setCustomBgFn((text) => chalk.bgBlue(text));
@@ -365,8 +369,8 @@ Single-line text that truncates to fit viewport width. Useful for status lines a
 ```typescript
 const truncated = new TruncatedText(
   "This is a very long line that will be truncated...",
-  0,  // paddingX (default: 0)
-  0   // paddingY (default: 0)
+  0, // paddingX (default: 0)
+  0, // paddingY (default: 0)
 );
 ```
 
@@ -384,6 +388,7 @@ input.getValue();
 Clicking positions the cursor and gives the input keyboard focus in alternate-screen mode.
 
 **Key Bindings:**
+
 - `Enter` - Submit
 - `Ctrl+A` / `Ctrl+E` - Line start/end
 - `Ctrl+W` or `Alt+Backspace` - Delete word backwards
@@ -418,6 +423,7 @@ editor.getPaddingX();  // Get current padding
 ```
 
 **Features:**
+
 - Click-to-position cursor and clickable autocomplete rows in alternate-screen mode
 - Multi-line editing with word wrap
 - Slash command autocomplete (type `/`)
@@ -427,6 +433,7 @@ editor.getPaddingX();  // Get current padding
 - Fake cursor rendering (hidden real cursor)
 
 **Key Bindings:**
+
 - `Enter` - Submit
 - `Shift+Enter`, `Ctrl+Enter`, or `Alt+Enter` - New line (terminal-dependent, Alt+Enter most reliable)
 - `Tab` - Autocomplete
@@ -473,15 +480,16 @@ interface DefaultTextStyle {
 
 const md = new Markdown(
   "# Hello\n\nSome **bold** text",
-  1,              // paddingX
-  1,              // paddingY
-  theme,          // MarkdownTheme
-  defaultStyle    // optional DefaultTextStyle
+  1, // paddingX
+  1, // paddingY
+  theme, // MarkdownTheme
+  defaultStyle, // optional DefaultTextStyle
 );
 md.setText("Updated markdown");
 ```
 
 **Features:**
+
 - Headings, bold, italic, code blocks, lists, links, blockquotes
 - HTML tags rendered as plain text
 - Optional syntax highlighting via `highlightCode`
@@ -494,10 +502,10 @@ Animated loading spinner.
 
 ```typescript
 const loader = new Loader(
-  tui,                              // TUI instance for render updates
-  (s) => chalk.cyan(s),            // spinner color function
-  (s) => chalk.gray(s),            // message color function
-  "Loading..."                      // message (default: "Loading...")
+  tui, // TUI instance for render updates
+  (s) => chalk.cyan(s), // spinner color function
+  (s) => chalk.gray(s), // message color function
+  "Loading...", // message (default: "Loading...")
 );
 loader.start();
 loader.setMessage("Still loading...");
@@ -510,16 +518,17 @@ Extends Loader with Escape key handling and an AbortSignal for cancelling async 
 
 ```typescript
 const loader = new CancellableLoader(
-  tui,                              // TUI instance for render updates
-  (s) => chalk.cyan(s),            // spinner color function
-  (s) => chalk.gray(s),            // message color function
-  "Working..."                      // message
+  tui, // TUI instance for render updates
+  (s) => chalk.cyan(s), // spinner color function
+  (s) => chalk.gray(s), // message color function
+  "Working...", // message
 );
 loader.onAbort = () => done(null); // Called when user presses Escape
 doAsyncWork(loader.signal).then(done);
 ```
 
 **Properties:**
+
 - `signal: AbortSignal` - Aborted when user presses Escape
 - `aborted: boolean` - Whether the loader was aborted
 - `onAbort?: () => void` - Callback when user presses Escape
@@ -548,8 +557,8 @@ const list = new SelectList(
     { value: "opt1", label: "Option 1", description: "First option" },
     { value: "opt2", label: "Option 2", description: "Second option" },
   ],
-  5,      // maxVisible
-  theme   // SelectListTheme
+  5, // maxVisible
+  theme, // SelectListTheme
 );
 
 list.onSelect = (item) => console.log("Selected:", item);
@@ -559,6 +568,7 @@ list.setFilter("opt"); // Filter items
 ```
 
 **Controls:**
+
 - Mouse move/wheel: Highlight rows in alternate-screen mode
 - Click: Select a row
 - Arrow keys: Navigate
@@ -575,7 +585,7 @@ interface SettingItem {
   label: string;
   description?: string;
   currentValue: string;
-  values?: string[];  // If provided, Enter/Space cycles through these
+  values?: string[]; // If provided, Enter/Space cycles through these
   submenu?: (currentValue: string, done: (selectedValue?: string) => void) => Component;
 }
 
@@ -592,15 +602,16 @@ const settings = new SettingsList(
     { id: "theme", label: "Theme", currentValue: "dark", values: ["dark", "light"] },
     { id: "model", label: "Model", currentValue: "gpt-4", submenu: (val, done) => modelSelector },
   ],
-  10,      // maxVisible
-  theme,   // SettingsListTheme
+  10, // maxVisible
+  theme, // SettingsListTheme
   (id, newValue) => console.log(`${id} changed to ${newValue}`),
-  () => console.log("Cancelled")
+  () => console.log("Cancelled"),
 );
 settings.updateValue("theme", "light");
 ```
 
 **Controls:**
+
 - Mouse move/wheel: Highlight rows in alternate-screen mode
 - Click: Activate a row
 - Arrow keys: Navigate
@@ -631,10 +642,10 @@ interface ImageOptions {
 }
 
 const image = new Image(
-  base64Data,       // base64-encoded image data
-  "image/png",      // MIME type
-  theme,            // ImageTheme
-  options           // optional ImageOptions
+  base64Data, // base64-encoded image data
+  "image/png", // MIME type
+  theme, // ImageTheme
+  options, // optional ImageOptions
 );
 tui.addChild(image);
 ```
@@ -660,13 +671,14 @@ const provider = new CombinedAutocompleteProvider(
     { name: "clear", description: "Clear screen" },
     { name: "delete", description: "Delete last message" },
   ],
-  process.cwd() // base path for file completion
+  process.cwd(), // base path for file completion
 );
 
 editor.setAutocompleteProvider(provider);
 ```
 
 **Features:**
+
 - Type `/` to see slash commands
 - Press `Tab` for file path completion
 - Works with `~/`, `./`, `../`, and `@` prefix
@@ -693,6 +705,7 @@ if (matchesKey(data, Key.enter)) {
 ```
 
 **Key identifiers** (use `Key.*` for autocomplete, or string literals):
+
 - Basic keys: `Key.enter`, `Key.escape`, `Key.tab`, `Key.space`, `Key.backspace`, `Key.delete`, `Key.home`, `Key.end`
 - Arrow keys: `Key.up`, `Key.down`, `Key.left`, `Key.right`
 - With modifiers: `Key.ctrl("c")`, `Key.shift("tab")`, `Key.alt("left")`, `Key.ctrlShift("p")`
@@ -731,6 +744,7 @@ interface Terminal {
 ```
 
 **Built-in implementations:**
+
 - `ProcessTerminal` - Uses `process.stdin/stdout`
 - `VirtualTerminal` - For testing (uses `@xterm/headless`)
 
@@ -768,7 +782,7 @@ import type { Component } from "@earendil-works/pi-tui";
 class MyInteractiveComponent implements Component {
   private selectedIndex = 0;
   private items = ["Option 1", "Option 2", "Option 3"];
-  
+
   public onSelect?: (index: number) => void;
   public onCancel?: () => void;
 
@@ -871,12 +885,14 @@ class CachedComponent implements Component {
 ## Example
 
 See `test/chat-simple.ts` for a complete chat interface example with:
+
 - Markdown messages with custom background colors
 - Loading spinner during responses
 - Editor with autocomplete and slash commands
 - Spacers between messages
 
 Run it:
+
 ```bash
 npx tsx test/chat-simple.ts
 ```

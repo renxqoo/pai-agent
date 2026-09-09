@@ -313,8 +313,18 @@ describe("test harness", () => {
 				path: command.sourceInfo.path,
 			})),
 		).toEqual([
-			{ name: "shared-cmd", invocationName: "shared-cmd:1", description: "Alpha command", path: "<alpha>" },
-			{ name: "shared-cmd", invocationName: "shared-cmd:2", description: "Beta command", path: "<beta>" },
+			{
+				name: "shared-cmd",
+				invocationName: "shared-cmd:1",
+				description: "Alpha command",
+				path: "<alpha>",
+			},
+			{
+				name: "shared-cmd",
+				invocationName: "shared-cmd:2",
+				description: "Beta command",
+				path: "<beta>",
+			},
 		]);
 
 		await runner!.getCommand("shared-cmd:1")?.handler("first", runner!.createCommandContext());

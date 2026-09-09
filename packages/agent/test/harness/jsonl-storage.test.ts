@@ -196,7 +196,10 @@ describe("JsonlStorage persistence", () => {
 			seq: committed.seqs[1],
 		});
 		expect(
-			(await reopened.scanUsage({ order: "asc" }, BACKGROUND_CONTEXT)).map(({ id, seq }) => ({ id, seq })),
+			(await reopened.scanUsage({ order: "asc" }, BACKGROUND_CONTEXT)).map(({ id, seq }) => ({
+				id,
+				seq,
+			})),
 		).toEqual([{ id: "usage", seq: committed.seqs[2] }]);
 		const historicalStats = {
 			messageCount: 1,
@@ -225,7 +228,12 @@ describe("JsonlStorage snapshots", () => {
 
 		const firstCommit = storage.commit(
 			[
-				sessionWrites.insertEntry({ id: "root", parentId: null, type: "custom", customType: "root" }),
+				sessionWrites.insertEntry({
+					id: "root",
+					parentId: null,
+					type: "custom",
+					customType: "root",
+				}),
 				storedValues.setValue(storedValues.branchTip("main"), "root"),
 			],
 			BACKGROUND_CONTEXT,
@@ -233,7 +241,12 @@ describe("JsonlStorage snapshots", () => {
 		const snapshot = storage.captureForkSource(BACKGROUND_CONTEXT);
 		const secondCommit = storage.commit(
 			[
-				sessionWrites.insertEntry({ id: "child", parentId: "root", type: "custom", customType: "child" }),
+				sessionWrites.insertEntry({
+					id: "child",
+					parentId: "root",
+					type: "custom",
+					customType: "child",
+				}),
 				storedValues.setValue(storedValues.branchTip("main"), "child"),
 			],
 			BACKGROUND_CONTEXT,

@@ -10,7 +10,12 @@ const NOW = 1_700_000_000_000;
 
 class AtomicPublicationNodeExecutionEnv extends NodeExecutionEnv {
 	publication:
-		| { sourcePath: string; destinationPath: string; destinationExisted: boolean; stagedContent: string }
+		| {
+				sourcePath: string;
+				destinationPath: string;
+				destinationExisted: boolean;
+				stagedContent: string;
+		  }
 		| undefined;
 
 	override async renameFile(sourcePath: string, destinationPath: string, context: Context) {
@@ -101,7 +106,9 @@ describe("JsonlSessionRepo cwd-scoped lifecycle", () => {
 		const result = await mutation.commit([setValue(sessionName, "explicit")], BACKGROUND_CONTEXT);
 		expect(result.seqs).toHaveLength(1);
 		expect(queuedStarted).toBe(false);
-		expect(await mutation.getValue(sessionName, BACKGROUND_CONTEXT)).toMatchObject({ value: "explicit" });
+		expect(await mutation.getValue(sessionName, BACKGROUND_CONTEXT)).toMatchObject({
+			value: "explicit",
+		});
 		await mutation.end(BACKGROUND_CONTEXT);
 		await queued;
 		expect(queuedStarted).toBe(true);

@@ -76,14 +76,18 @@ describe("Anthropic forceAdaptiveThinking compat override", () => {
 	});
 
 	it("sends adaptive thinking payload when compat.forceAdaptiveThinking is true", async () => {
-		const payload = await capturePayload(makeCustomModel({ forceAdaptiveThinking: true }), { reasoning: "medium" });
+		const payload = await capturePayload(makeCustomModel({ forceAdaptiveThinking: true }), {
+			reasoning: "medium",
+		});
 
 		expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
 		expect(payload.output_config).toEqual({ effort: "medium" });
 	});
 
 	it("uses adaptive thinking with native xhigh effort for Claude Fable 5", async () => {
-		const payload = await capturePayload(getModel("anthropic", "claude-fable-5"), { reasoning: "xhigh" });
+		const payload = await capturePayload(getModel("anthropic", "claude-fable-5"), {
+			reasoning: "xhigh",
+		});
 
 		expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
 		expect(payload.output_config).toEqual({ effort: "xhigh" });

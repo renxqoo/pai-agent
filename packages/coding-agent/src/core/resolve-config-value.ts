@@ -150,7 +150,10 @@ export function resolveConfigValue(config: string, env?: Record<string, string>)
 	return resolveTemplate(reference.parts, env);
 }
 
-function executeWithConfiguredShell(command: string): { executed: boolean; value: string | undefined } {
+function executeWithConfiguredShell(command: string): {
+	executed: boolean;
+	value: string | undefined;
+} {
 	try {
 		const { shell, args, commandTransport } = getShellConfig();
 		const commandFromStdin = commandTransport === "stdin";

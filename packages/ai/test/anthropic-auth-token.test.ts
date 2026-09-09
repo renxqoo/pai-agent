@@ -189,7 +189,9 @@ describe("Anthropic auth token env", () => {
 		models.setProvider(anthropicProvider());
 
 		await models
-			.streamSimple(anthropicModel, context, { headers: { Authorization: "Bearer explicit-token" } })
+			.streamSimple(anthropicModel, context, {
+				headers: { Authorization: "Bearer explicit-token" },
+			})
 			.result();
 
 		const headers = mockState.constructorOpts?.defaultHeaders as Record<string, string>;

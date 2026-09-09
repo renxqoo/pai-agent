@@ -117,7 +117,10 @@ function deepMerge(base: SandboxConfig, overrides: Partial<SandboxConfig>): Sand
 		ignoreViolations?: Record<string, string[]>;
 		enableWeakerNestedSandbox?: boolean;
 	};
-	const extResult = result as { ignoreViolations?: Record<string, string[]>; enableWeakerNestedSandbox?: boolean };
+	const extResult = result as {
+		ignoreViolations?: Record<string, string[]>;
+		enableWeakerNestedSandbox?: boolean;
+	};
 
 	if (extOverrides.ignoreViolations) {
 		extResult.ignoreViolations = extOverrides.ignoreViolations;

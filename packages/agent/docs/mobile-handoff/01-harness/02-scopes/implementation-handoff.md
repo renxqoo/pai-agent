@@ -51,8 +51,8 @@ A scope ID is a reusable logical lifetime name, not a globally one-use token:
 export type SessionScope = { readonly kind: "session" };
 
 export interface EphemeralScope {
-	readonly kind: "ephemeral";
-	readonly id: string;
+  readonly kind: "ephemeral";
+  readonly id: string;
 }
 
 export type Scope = SessionScope | EphemeralScope;
@@ -104,13 +104,25 @@ Repository deletion separately removes every physical sidecar belonging to the d
 Addresses carry a covariant scope tag; writes carry an invariant scope tag. Preserve value-type invariance independently:
 
 ```ts
-interface Value<T, Sc extends Scope = SessionScope> { /* existing fields + scope */ }
-interface ValueList<T, Sc extends Scope = SessionScope> { /* existing fields + scope */ }
+interface Value<T, Sc extends Scope = SessionScope> {
+  /* existing fields + scope */
+}
+interface ValueList<T, Sc extends Scope = SessionScope> {
+  /* existing fields + scope */
+}
 
 declare function value<T>(namespace: string, key?: string): Value<T, SessionScope>;
-declare function value<T>(namespace: string, key: string, scope: EphemeralScope): Value<T, EphemeralScope>;
+declare function value<T>(
+  namespace: string,
+  key: string,
+  scope: EphemeralScope,
+): Value<T, EphemeralScope>;
 declare function list<T>(namespace: string, key?: string): ValueList<T, SessionScope>;
-declare function list<T>(namespace: string, key: string, scope: EphemeralScope): ValueList<T, EphemeralScope>;
+declare function list<T>(
+  namespace: string,
+  key: string,
+  scope: EphemeralScope,
+): ValueList<T, EphemeralScope>;
 ```
 
 A session-scoped address has no runtime scope ID. An ephemeral address carries its scope ID. Scope is part of physical identity: equal namespace/key addresses in session scope and ephemeral scope, or in two different ephemeral IDs, are distinct.
@@ -139,22 +151,22 @@ Step 1 adds only the mechanism required by later tracked-output recovery:
 
 ```ts
 export interface ListElement<T> {
-	seq: number;
-	value: T;
-	tag?: string;
+  seq: number;
+  value: T;
+  tag?: string;
 }
 
 export interface ListReadOptions {
-	cursor?: ListCursor;
-	order?: "asc" | "desc";
-	limit?: number;
-	stopAtTag?: string;
+  cursor?: ListCursor;
+  order?: "asc" | "desc";
+  limit?: number;
+  stopAtTag?: string;
 }
 
 export function appendList<T, Sc extends Scope>(
-	address: ValueList<T, Sc>,
-	element: NoInfer<T>,
-	tag?: string,
+  address: ValueList<T, Sc>,
+  element: NoInfer<T>,
+  tag?: string,
 ): ListAppendWrite<Sc>;
 ```
 
@@ -234,11 +246,11 @@ A sidecar begins with this exact header:
 
 ```ts
 interface JsonlScopeHeader {
-	v: 4;
-	kind: "scope_header";
-	sessionId: string;
-	scopeId: string;
-	storageVersion: 1;
+  v: 4;
+  kind: "scope_header";
+  sessionId: string;
+  scopeId: string;
+  storageVersion: 1;
 }
 ```
 
@@ -252,10 +264,10 @@ The main log records an explicit committed write:
 
 ```ts
 interface CommittedScopeRetireWrite {
-	kind: "scope";
-	op: "retire";
-	seq: number;
-	scopeId: string;
+  kind: "scope";
+  op: "retire";
+  seq: number;
+  scopeId: string;
 }
 ```
 

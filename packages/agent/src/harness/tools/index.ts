@@ -6,11 +6,7 @@ export {
 	type BashToolOptions,
 	createBashTool,
 } from "./bash.ts";
-export {
-	createEditTool,
-	type EditToolDetails,
-	type EditToolInput,
-} from "./edit.ts";
+export { createEditTool, type EditToolDetails, type EditToolInput } from "./edit.ts";
 export {
 	createReadTool,
 	type ReadImageProcessor,

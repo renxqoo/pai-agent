@@ -51,7 +51,11 @@ describe("issue #8328 zero-usage auto-compaction", () => {
 		const harness = await createCompactionHarness();
 		const assistant = createZeroUsageAssistant(harness);
 		harness.session.agent.state.messages = [
-			{ role: "user", content: [{ type: "text", text: "x".repeat(400) }], timestamp: Date.now() - 1 },
+			{
+				role: "user",
+				content: [{ type: "text", text: "x".repeat(400) }],
+				timestamp: Date.now() - 1,
+			},
 			assistant,
 		];
 		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;

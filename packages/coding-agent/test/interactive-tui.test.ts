@@ -232,7 +232,10 @@ describe("InteractiveMode copy confirmation", () => {
 			await terminal.waitForRender();
 			clipboardMocks.copyToClipboard.mockClear();
 
-			await copyCommandPrototype.handleCopyCommand.call(context, { flashConfirmation: true, preferSelection: true });
+			await copyCommandPrototype.handleCopyCommand.call(context, {
+				flashConfirmation: true,
+				preferSelection: true,
+			});
 			await terminal.waitForRender();
 
 			expect(clipboardMocks.copyToClipboard).toHaveBeenCalledOnce();
@@ -274,7 +277,10 @@ describe("InteractiveMode copy confirmation", () => {
 			await terminal.waitForRender();
 			clipboardMocks.copyToClipboard.mockClear();
 
-			await copyCommandPrototype.handleCopyCommand.call(context, { flashConfirmation: true, preferSelection: true });
+			await copyCommandPrototype.handleCopyCommand.call(context, {
+				flashConfirmation: true,
+				preferSelection: true,
+			});
 			await terminal.waitForRender();
 
 			expect(clipboardMocks.copyToClipboard).toHaveBeenCalledOnce();
@@ -308,7 +314,10 @@ describe("InteractiveMode copy confirmation", () => {
 		ui.start();
 		try {
 			await terminal.waitForRender();
-			await copyCommandPrototype.handleCopyCommand.call(context, { flashConfirmation: true, preferSelection: true });
+			await copyCommandPrototype.handleCopyCommand.call(context, {
+				flashConfirmation: true,
+				preferSelection: true,
+			});
 			await terminal.waitForRender();
 
 			expect(clipboardMocks.copyToClipboard).toHaveBeenCalledWith("assistant response");
@@ -336,7 +345,10 @@ describe("InteractiveMode copy confirmation", () => {
 			showError,
 		};
 
-		await copyCommandPrototype.handleCopyCommand.call(context, { flashConfirmation: true, preferSelection: true });
+		await copyCommandPrototype.handleCopyCommand.call(context, {
+			flashConfirmation: true,
+			preferSelection: true,
+		});
 
 		expect(showStatus).toHaveBeenCalledWith("Copied last agent message to clipboard");
 		expect(showError).not.toHaveBeenCalled();
@@ -395,7 +407,10 @@ describe("clear-on-shrink status spacing", () => {
 			["regular", 1],
 			["fullscreen", 0],
 		] as const) {
-			const defaultEditor: StatusEditor = { embedWorkingStatus: true, setWorkingStatusIndicator: vi.fn() };
+			const defaultEditor: StatusEditor = {
+				embedWorkingStatus: true,
+				setWorkingStatusIndicator: vi.fn(),
+			};
 			const customEditor = { embedWorkingStatus: false, setWorkingStatusIndicator: vi.fn() };
 			const context: ClearStatusContext = {
 				activeStatusIndicator: { kind: "working", dispose: vi.fn() },

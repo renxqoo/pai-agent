@@ -151,7 +151,11 @@ export async function seedSessionRepoForkBenchmark(
 						thinkingLevel: "off",
 						activeToolNames: [],
 					}),
-					setValue(laneState("main"), { currentOperationId: null, lastOperationId: null, inbox: [] }),
+					setValue(laneState("main"), {
+						currentOperationId: null,
+						lastOperationId: null,
+						inbox: [],
+					}),
 				],
 				BACKGROUND_CONTEXT,
 			),

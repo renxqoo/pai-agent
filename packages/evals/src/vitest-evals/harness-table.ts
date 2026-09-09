@@ -138,7 +138,11 @@ function withIterationArtifact<TInput, TOutput extends JsonValue | undefined>(
 			const artifact: EvalHarnessIterationArtifact = { ...plan, groupKey };
 			context.setArtifact(EVAL_HARNESS_ITERATION_ARTIFACT, artifact);
 			const attachIterationArtifact = <TRun extends HarnessRun>(run: TRun): TRun => {
-				run.artifacts = { ...context.artifacts, ...run.artifacts, [EVAL_HARNESS_ITERATION_ARTIFACT]: artifact };
+				run.artifacts = {
+					...context.artifacts,
+					...run.artifacts,
+					[EVAL_HARNESS_ITERATION_ARTIFACT]: artifact,
+				};
 				return run;
 			};
 			try {

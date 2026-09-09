@@ -148,7 +148,11 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 								if (isThinking) {
 									currentBlock = { type: "thinking", thinking: "", thinkingSignature: undefined };
 									output.content.push(currentBlock);
-									stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
+									stream.push({
+										type: "thinking_start",
+										contentIndex: blockIndex(),
+										partial: output,
+									});
 								} else {
 									currentBlock = { type: "text", text: "" };
 									output.content.push(currentBlock);
@@ -225,7 +229,12 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 								delta: JSON.stringify(toolCall.arguments),
 								partial: output,
 							});
-							stream.push({ type: "toolcall_end", contentIndex: blockIndex(), toolCall, partial: output });
+							stream.push({
+								type: "toolcall_end",
+								contentIndex: blockIndex(),
+								toolCall,
+								partial: output,
+							});
 						}
 					}
 				}
@@ -392,7 +401,11 @@ function buildHttpOptions(model: Model<"google-vertex">, optionsHeaders?: Provid
 		}
 	}
 
-	const headers = providerHeadersToRecord({ "User-Agent": getPiUserAgent(), ...model.headers, ...optionsHeaders });
+	const headers = providerHeadersToRecord({
+		"User-Agent": getPiUserAgent(),
+		...model.headers,
+		...optionsHeaders,
+	});
 	if (headers) {
 		httpOptions.headers = headers;
 	}

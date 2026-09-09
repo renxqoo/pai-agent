@@ -132,7 +132,10 @@ export function createLsToolDefinition(
 						signal?.removeEventListener("abort", onAbort);
 
 						if (results.length === 0) {
-							resolve({ content: [{ type: "text", text: "(empty directory)" }], details: undefined });
+							resolve({
+								content: [{ type: "text", text: "(empty directory)" }],
+								details: undefined,
+							});
 							return;
 						}
 

@@ -113,7 +113,10 @@ describe("ExtensionRunner", () => {
 			// After bindCore wires a getScopedModels action, ctx.scopedModels
 			// returns it live (same reference, lazy getter).
 			const scoped = [{ model: { id: "scoped-test" }, thinkingLevel: "high" }] as unknown as ScopedModel[];
-			runner.bindCore(extensionActions, { ...extensionContextActions, getScopedModels: () => scoped });
+			runner.bindCore(extensionActions, {
+				...extensionContextActions,
+				getScopedModels: () => scoped,
+			});
 			expect(runner.createContext().scopedModels).toBe(scoped);
 		});
 	});
@@ -319,7 +322,10 @@ describe("ExtensionRunner", () => {
 
 			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
 			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
-			const keybindings = { ...defaultKeybindings, "app.clipboard.pasteImage": ["ctrl+x", "ctrl+y"] as KeyId[] };
+			const keybindings = {
+				...defaultKeybindings,
+				"app.clipboard.pasteImage": ["ctrl+x", "ctrl+y"] as KeyId[],
+			};
 			const shortcuts = runner.getShortcuts(keybindings);
 
 			expect(warnSpy).toHaveBeenCalledWith(

@@ -265,7 +265,11 @@ After completing a step, include a [DONE:n] tag in your response.`,
 			if (todoItems.every((t) => t.completed)) {
 				const completedList = todoItems.map((t) => `~~${t.text}~~`).join("\n");
 				pi.sendMessage(
-					{ customType: "plan-complete", content: `**Plan Complete!** ✓\n\n${completedList}`, display: true },
+					{
+						customType: "plan-complete",
+						content: `**Plan Complete!** ✓\n\n${completedList}`,
+						display: true,
+					},
 					{ triggerTurn: false },
 				);
 				executionMode = false;

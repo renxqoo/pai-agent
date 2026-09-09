@@ -434,7 +434,11 @@ function appendBedrockFailureDiagnostic(
 
 	if (Object.keys(details).length === 0) return;
 
-	appendAssistantMessageDiagnostic(output, { type: "bedrock_response_failure", timestamp: Date.now(), details });
+	appendAssistantMessageDiagnostic(output, {
+		type: "bedrock_response_failure",
+		timestamp: Date.now(),
+		details,
+	});
 }
 
 /**
@@ -470,7 +474,11 @@ function addCustomHeadersMiddleware(client: BedrockRuntimeClient, headers: Recor
 		}
 		return next(args);
 	};
-	client.middlewareStack.add(middleware, { step: "build", name: "pi-ai-custom-headers", priority: "low" });
+	client.middlewareStack.add(middleware, {
+		step: "build",
+		name: "pi-ai-custom-headers",
+		priority: "low",
+	});
 }
 
 function isSmithyHttpResponse(response: unknown): response is HttpResponse {
@@ -609,13 +617,23 @@ function handleContentBlockDelta(
 	} else if (delta?.toolUse && block?.type === "toolCall") {
 		block.partialJson = (block.partialJson || "") + (delta.toolUse.input || "");
 		block.arguments = parseStreamingJson(block.partialJson);
-		stream.push({ type: "toolcall_delta", contentIndex: index, delta: delta.toolUse.input || "", partial: output });
+		stream.push({
+			type: "toolcall_delta",
+			contentIndex: index,
+			delta: delta.toolUse.input || "",
+			partial: output,
+		});
 	} else if (delta?.reasoningContent) {
 		let thinkingBlock = block;
 		let thinkingIndex = index;
 
 		if (!thinkingBlock) {
-			const newBlock: Block = { type: "thinking", thinking: "", thinkingSignature: "", index: contentBlockIndex };
+			const newBlock: Block = {
+				type: "thinking",
+				thinking: "",
+				thinkingSignature: "",
+				index: contentBlockIndex,
+			};
 			output.content.push(newBlock);
 			thinkingIndex = blocks.length - 1;
 			thinkingBlock = blocks[thinkingIndex];
@@ -714,7 +732,12 @@ function handleContentBlockStop(
 			break;
 		case "thinking":
 			flushRedactedContent(block);
-			stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: output });
+			stream.push({
+				type: "thinking_end",
+				contentIndex: index,
+				content: block.thinking,
+				partial: output,
+			});
 			break;
 		case "toolCall":
 			block.arguments = parseStreamingJson(block.partialJson);
@@ -876,7 +899,10 @@ function buildSystemPrompt(
 	// Add cache point for supported Claude models when caching is enabled
 	if (cacheRetention !== "none" && supportsPromptCaching(model, env)) {
 		blocks.push({
-			cachePoint: { type: CachePointType.DEFAULT, ...(cacheRetention === "long" ? { ttl: CacheTTL.ONE_HOUR } : {}) },
+			cachePoint: {
+				type: CachePointType.DEFAULT,
+				...(cacheRetention === "long" ? { ttl: CacheTTL.ONE_HOUR } : {}),
+			},
 		});
 	}
 
@@ -983,7 +1009,11 @@ function convertMessages(
 						}
 						case "toolCall":
 							contentBlocks.push({
-								toolUse: { toolUseId: c.id, name: c.name, input: sanitizeBedrockDocument(c.arguments) },
+								toolUse: {
+									toolUseId: c.id,
+									name: c.name,
+									input: sanitizeBedrockDocument(c.arguments),
+								},
 							});
 							break;
 						case "thinking": {
@@ -1136,7 +1166,10 @@ function convertToolConfig(
 	return { tools: bedrockTools, toolChoice: bedrockToolChoice };
 }
 
-function mapStopReason(reason: string | undefined): { stopReason: StopReason; errorMessage?: string } {
+function mapStopReason(reason: string | undefined): {
+	stopReason: StopReason;
+	errorMessage?: string;
+} {
 	switch (reason) {
 		case BedrockStopReason.END_TURN:
 		case BedrockStopReason.STOP_SEQUENCE:

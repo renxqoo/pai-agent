@@ -47,7 +47,12 @@ export async function startRun<TContext extends object | undefined>(
 
 	const hook = await lane.hooks.runWithGate(
 		"before_run",
-		{ lane: lane.name, runId: drive.operationId, prompt: prompt.value, resources: lane.readConfig().resources },
+		{
+			lane: lane.name,
+			runId: drive.operationId,
+			prompt: prompt.value,
+			resources: lane.readConfig().resources,
+		},
 		drive.gate,
 		drive.context,
 	);
@@ -130,7 +135,10 @@ export async function runCheckpoint<TContext extends object | undefined>(
 						reason: "threshold",
 						boundary: {
 							kind: "resume_checkpoint",
-							resumeAfter: { continuation: current.continuation, triggerEntryId: current.triggerEntryId },
+							resumeAfter: {
+								continuation: current.continuation,
+								triggerEntryId: current.triggerEntryId,
+							},
 						},
 					},
 				};
@@ -176,7 +184,10 @@ export async function runCheckpoint<TContext extends object | undefined>(
 			}
 			return {
 				kind: "return",
-				result: { kind: "finish_pending", entryIds: placement.entries.map((entry) => entry.id) } as const,
+				result: {
+					kind: "finish_pending",
+					entryIds: placement.entries.map((entry) => entry.id),
+				} as const,
 			};
 		},
 		drive.context,

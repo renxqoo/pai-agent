@@ -28,15 +28,26 @@ function eventsWithCacheCreation(
 	return [
 		{
 			event: "message_start",
-			data: JSON.stringify({ type: "message_start", message: { id: "msg_test", usage: startUsage } }),
+			data: JSON.stringify({
+				type: "message_start",
+				message: { id: "msg_test", usage: startUsage },
+			}),
 		},
 		{
 			event: "content_block_start",
-			data: JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+			data: JSON.stringify({
+				type: "content_block_start",
+				index: 0,
+				content_block: { type: "text", text: "" },
+			}),
 		},
 		{
 			event: "content_block_delta",
-			data: JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } }),
+			data: JSON.stringify({
+				type: "content_block_delta",
+				index: 0,
+				delta: { type: "text_delta", text: "Hi" },
+			}),
 		},
 		{ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: 0 }) },
 		{
@@ -63,9 +74,14 @@ describe("Anthropic 1h cache write cost", () => {
 	it("prices the 1h portion at 2x input and the rest at the 5m rate", async () => {
 		const model = getModel("anthropic", "claude-opus-4-8");
 		const response = createSseResponse(
-			eventsWithCacheCreation({ ephemeral_5m_input_tokens: 600_000, ephemeral_1h_input_tokens: 400_000 }),
+			eventsWithCacheCreation({
+				ephemeral_5m_input_tokens: 600_000,
+				ephemeral_1h_input_tokens: 400_000,
+			}),
 		);
-		const result = await streamAnthropic(model, context, { client: createFakeAnthropicClient(response) }).result();
+		const result = await streamAnthropic(model, context, {
+			client: createFakeAnthropicClient(response),
+		}).result();
 
 		expect(result.usage.cacheWrite).toBe(1_000_000);
 		expect(result.usage.cacheWrite1h).toBe(400_000);
@@ -76,7 +92,9 @@ describe("Anthropic 1h cache write cost", () => {
 	it("falls back to the 5m rate when no breakdown is reported", async () => {
 		const model = getModel("anthropic", "claude-opus-4-8");
 		const response = createSseResponse(eventsWithCacheCreation(undefined));
-		const result = await streamAnthropic(model, context, { client: createFakeAnthropicClient(response) }).result();
+		const result = await streamAnthropic(model, context, {
+			client: createFakeAnthropicClient(response),
+		}).result();
 
 		expect(result.usage.cacheWrite).toBe(1_000_000);
 		expect(result.usage.cacheWrite1h ?? 0).toBe(0);

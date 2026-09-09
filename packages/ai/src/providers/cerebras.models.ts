@@ -4,5 +4,7 @@
 import values from "./data/cerebras.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const CEREBRAS_MODELS: ModelCatalog<typeof values, "cerebras"> =
-	flattenModelCatalog("cerebras", values);
+export const CEREBRAS_MODELS: ModelCatalog<typeof values, "cerebras"> = flattenModelCatalog(
+  "cerebras",
+  values,
+);

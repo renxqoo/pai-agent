@@ -50,7 +50,11 @@ describe("branch summarization", () => {
 			requestOptions = options;
 			const stream = createAssistantMessageEventStream();
 			queueMicrotask(() =>
-				stream.push({ type: "done", reason: "stop", message: response([{ type: "text", text: "summary" }]) }),
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: response([{ type: "text", text: "summary" }]),
+				}),
 			);
 			return stream;
 		};
@@ -71,7 +75,11 @@ describe("branch summarization", () => {
 			requestOptions = options;
 			const stream = createAssistantMessageEventStream();
 			queueMicrotask(() =>
-				stream.push({ type: "done", reason: "stop", message: response([{ type: "text", text: "summary" }]) }),
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: response([{ type: "text", text: "summary" }]),
+				}),
 			);
 			return stream;
 		};

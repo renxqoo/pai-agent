@@ -1,7 +1,11 @@
 import type { RetryPolicy } from "@earendil-works/pi-ai";
 import type { CompactionSettings } from "./compaction/compaction.ts";
 
-export const DEFAULT_RETRY_POLICY: RetryPolicy = { enabled: true, maxRetries: 3, baseDelayMs: 1_000 };
+export const DEFAULT_RETRY_POLICY: RetryPolicy = {
+	enabled: true,
+	maxRetries: 3,
+	baseDelayMs: 1_000,
+};
 
 export function validateToolNames(tools: readonly { name: string }[]): void {
 	const names = new Set<string>();

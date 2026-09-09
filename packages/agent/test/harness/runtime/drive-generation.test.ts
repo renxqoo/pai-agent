@@ -311,13 +311,17 @@ describe("runtime generation checkpoint", () => {
 		}, BACKGROUND_CONTEXT);
 		fixture.hooks.on("before_run_end", () => ({ followUp: "continue after custom write" }));
 
-		expect(await runCheckpoint(fixture.lane, fixture.drive, checkpoint)).toEqual({ kind: "continue" });
+		expect(await runCheckpoint(fixture.lane, fixture.drive, checkpoint)).toEqual({
+			kind: "continue",
+		});
 
 		const ready = currentRun(fixture.lane);
 		if (ready.at !== "assistant.ready") throw new Error("hook follow-up did not route to generation");
 		const followUpId = ready.generationContext.triggerEntryId;
 		expect(followUpId).toBe(fixture.lane.state.tipId);
-		expect(await fixture.session.getEntry(customId, BACKGROUND_CONTEXT)).toMatchObject({ type: "custom" });
+		expect(await fixture.session.getEntry(customId, BACKGROUND_CONTEXT)).toMatchObject({
+			type: "custom",
+		});
 		expect(await fixture.session.getEntry(followUpId, BACKGROUND_CONTEXT)).toMatchObject({
 			parentId: customId,
 			type: "message",
@@ -441,7 +445,11 @@ describe("runtime assistant generation", () => {
 		const responseId = settled.latestAssistantEntryId;
 		if (responseId === null) throw new Error("missing response id");
 		const entry = await fixture.session.getEntry(responseId, BACKGROUND_CONTEXT);
-		expect(entry).toMatchObject({ id: responseId, type: "message", message: { content: [{ text: "answer" }] } });
+		expect(entry).toMatchObject({
+			id: responseId,
+			type: "message",
+			message: { content: [{ text: "answer" }] },
+		});
 		expect(
 			await fixture.session.readList(
 				storedValues.pendingAssistantFrames(operationId, responseId),
@@ -504,7 +512,11 @@ describe("runtime assistant generation", () => {
 					text.text = "ab";
 					stream.push({ type: "text_delta", contentIndex: 0, delta: "ab", partial });
 					stream.push({ type: "text_end", contentIndex: 0, content: "ab", partial });
-					stream.push({ type: "done", reason: "stop", message: fauxAssistantMessage("ab", { timestamp: 5 }) });
+					stream.push({
+						type: "done",
+						reason: "stop",
+						message: fauxAssistantMessage("ab", { timestamp: 5 }),
+					});
 				});
 				return stream;
 			},
@@ -632,7 +644,10 @@ describe("runtime assistant generation", () => {
 		const pending: AssistantEffectPendingOperation = {
 			...operationScopeOf(ready),
 			at: "assistant.effect_pending",
-			generationContext: { ...ready.generationContext, retryPolicy: { maxAttempts: 2, baseDelayMs: 1 } },
+			generationContext: {
+				...ready.generationContext,
+				retryPolicy: { maxAttempts: 2, baseDelayMs: 1 },
+			},
 			attempt: 1,
 			responseEntryId,
 			usageId,
@@ -681,7 +696,10 @@ describe("runtime assistant generation", () => {
 		const pending: AssistantEffectPendingOperation = {
 			...operationScopeOf(ready),
 			at: "assistant.effect_pending",
-			generationContext: { ...ready.generationContext, retryPolicy: { maxAttempts: 1, baseDelayMs: 1 } },
+			generationContext: {
+				...ready.generationContext,
+				retryPolicy: { maxAttempts: 1, baseDelayMs: 1 },
+			},
 			attempt: 1,
 			responseEntryId,
 			usageId,

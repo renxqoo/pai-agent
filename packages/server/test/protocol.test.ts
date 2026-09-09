@@ -7,7 +7,10 @@ import { ProtocolTestClient, TestServerHost, type WireChannel } from "../src/tes
 let server: Server | undefined;
 
 function connect(): ProtocolTestClient {
-	server = new Server(new TestServerHost(), { listeners: [], serverId: "00000000-0000-4000-8000-000000000001" });
+	server = new Server(new TestServerHost(), {
+		listeners: [],
+		serverId: "00000000-0000-4000-8000-000000000001",
+	});
 	let handler: ByteConnectionHandler;
 	let client: ProtocolTestClient;
 	let closed = false;
@@ -133,7 +136,9 @@ test("processes a hello and request coalesced in one byte chunk", async () => {
 	wire.set(request, hello.byteLength);
 
 	await client.sendBytes(wire);
-	await expect(client.next((message) => message.type === "hello")).resolves.toMatchObject({ type: "hello" });
+	await expect(client.next((message) => message.type === "hello")).resolves.toMatchObject({
+		type: "hello",
+	});
 	await expect(client.next((message) => message.type === "response")).resolves.toMatchObject({
 		type: "response",
 		id: "request-1",

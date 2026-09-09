@@ -44,7 +44,10 @@ export class ModelsService implements ModelsServiceApi {
 			const result = await refreshModelCatalogs(this.#runtime, controller.signal);
 			return result.errors.size === 0
 				? { ok: true }
-				: { ok: false, error: `Some catalogs could not be refreshed: ${[...result.errors.keys()].join(", ")}` };
+				: {
+						ok: false,
+						error: `Some catalogs could not be refreshed: ${[...result.errors.keys()].join(", ")}`,
+					};
 		} catch (error) {
 			return { ok: false, error: message(error) };
 		} finally {
@@ -128,7 +131,12 @@ function readState(runtime: ModelRuntime, refreshing: boolean): ModelsState {
 			...((status.label ?? status.source === undefined) ? {} : { source: status.label ?? status.source }),
 		};
 		if (provider.auth.oauth) {
-			accounts.push({ ...shared, authType: "oauth", interactive: true, methodName: provider.auth.oauth.name });
+			accounts.push({
+				...shared,
+				authType: "oauth",
+				interactive: true,
+				methodName: provider.auth.oauth.name,
+			});
 		}
 		if (provider.auth.apiKey) {
 			accounts.push({

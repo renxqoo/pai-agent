@@ -33,13 +33,8 @@ The design persists compact replayable stream frames without making them operati
 Built-in address constructor in `session/values.ts`:
 
 ```ts
-export const pendingAssistantFrames = (
-  operationId: string,
-  responseEntryId: string,
-) => list<AssistantMessageFrame>(
-  "pi.pending.assistant_frame",
-  `${operationId}:${responseEntryId}`,
-);
+export const pendingAssistantFrames = (operationId: string, responseEntryId: string) =>
+  list<AssistantMessageFrame>("pi.pending.assistant_frame", `${operationId}:${responseEntryId}`);
 ```
 
 The procedure binds one exact address for ordinary generation or a deferred poll:
@@ -265,17 +260,17 @@ JSONL retains deleted frame bytes until snapshot compaction. Logical deletion is
 
 ## Races
 
-| Race | Required result |
-|---|---|
-| frame append vs next frame | synchronous lane enqueue preserves provider-event order |
-| frame append vs stream settlement | settlement awaits the latest promise; all accepted appends finish first |
-| live update event vs frame commit | either may finish first; event is observation and reconnect uses only committed frames |
-| append vs external finalization | append first is deleted by cleanup; finalization first fences the append |
-| process loss with queued writes | only the committed prefix restores |
-| final frame vs response settlement | frame commits first; settlement atomically deletes the list and inserts final entry |
-| activation vs snapshot | both reduce the same committed sequence prefix; activation may then settle and clear it |
-| unknown generation vs retry | synthetic partial error commits under old reserved IDs before later attempt starts |
-| unknown deferred poll vs replacement | old list is deleted with fresh replacement intent; new response ID gets a new list |
+| Race                                 | Required result                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| frame append vs next frame           | synchronous lane enqueue preserves provider-event order                                 |
+| frame append vs stream settlement    | settlement awaits the latest promise; all accepted appends finish first                 |
+| live update event vs frame commit    | either may finish first; event is observation and reconnect uses only committed frames  |
+| append vs external finalization      | append first is deleted by cleanup; finalization first fences the append                |
+| process loss with queued writes      | only the committed prefix restores                                                      |
+| final frame vs response settlement   | frame commits first; settlement atomically deletes the list and inserts final entry     |
+| activation vs snapshot               | both reduce the same committed sequence prefix; activation may then settle and clear it |
+| unknown generation vs retry          | synthetic partial error commits under old reserved IDs before later attempt starts      |
+| unknown deferred poll vs replacement | old list is deleted with fresh replacement intent; new response ID gets a new list      |
 
 ## Invariants
 

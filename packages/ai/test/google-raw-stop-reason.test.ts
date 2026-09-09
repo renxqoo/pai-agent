@@ -106,7 +106,9 @@ async function captureGoogleHeaders(headers?: Record<string, string>): Promise<R
 	}).result();
 
 	expect(googleGenAiMock.constructorCalls).toHaveLength(1);
-	const httpOptions = googleGenAiMock.constructorCalls[0].httpOptions as { headers?: Record<string, string> };
+	const httpOptions = googleGenAiMock.constructorCalls[0].httpOptions as {
+		headers?: Record<string, string>;
+	};
 	return httpOptions.headers ?? {};
 }
 

@@ -20,7 +20,10 @@ const serverId = "00000000-0000-4000-8000-000000000001";
 const serverTarget = { serverId } as const;
 
 async function connectClient(server: MemoryByteServer, expectedServerId = serverId): Promise<Client> {
-	return Client.connect({ serverId: expectedServerId, transportFactory: (handlers) => server.connect(handlers) });
+	return Client.connect({
+		serverId: expectedServerId,
+		transportFactory: (handlers) => server.connect(handlers),
+	});
 }
 
 async function attachClient(client: Client, server: MemoryByteServer, sessionId: string): Promise<void> {
@@ -65,7 +68,10 @@ describe("Client service operations", () => {
 		client.onAttachmentChange((attachment) => changes.push(attachment?.sessionId));
 
 		await attachClient(client, server, "session-1");
-		expect(client.attachment).toMatchObject({ sessionId: "session-1", attachmentId: "attachment-session-1" });
+		expect(client.attachment).toMatchObject({
+			sessionId: "session-1",
+			attachmentId: "attachment-session-1",
+		});
 		expect(server.messages[1]).toMatchObject({
 			type: "request",
 			target: serverTarget,
@@ -117,7 +123,11 @@ describe("Client service operations", () => {
 			result: {
 				serviceId: "pi.models",
 				mode: "singleton",
-				instances: [{ members: [{ name: "state", kind: "state", sequence: 0, ops: [["r", { revision: 0 }]] }] }],
+				instances: [
+					{
+						members: [{ name: "state", kind: "state", sequence: 0, ops: [["r", { revision: 0 }]] }],
+					},
+				],
 			},
 		});
 		const subscription = await opening;
@@ -180,7 +190,11 @@ describe("Client service operations", () => {
 	test("exposes bounded server errors", async () => {
 		const server = new MemoryByteServer();
 		const client = await connectClient(server);
-		const pending = client.request(serverTarget, { serviceId: "test", member: "missing", args: [] });
+		const pending = client.request(serverTarget, {
+			serviceId: "test",
+			member: "missing",
+			args: [],
+		});
 		await server.waitForMessages(2);
 		server.send({
 			type: "response",
@@ -241,7 +255,11 @@ describe("Client service operations", () => {
 	test("rejects pending requests after disconnect or disposal", async () => {
 		const server = new MemoryByteServer();
 		const client = await connectClient(server);
-		const pending = client.request(serverTarget, { serviceId: "test", member: "pending", args: [] });
+		const pending = client.request(serverTarget, {
+			serviceId: "test",
+			member: "pending",
+			args: [],
+		});
 		server.disconnect();
 		await expect(pending).rejects.toBeInstanceOf(DisconnectedError);
 		await client.dispose();
@@ -341,7 +359,11 @@ describe("Client connection lifecycle", () => {
 	test("reports transport failures without leaving requests pending", async () => {
 		const server = new MemoryByteServer();
 		const client = await connectClient(server);
-		const pending = client.request(serverTarget, { serviceId: "test", member: "pending", args: [] });
+		const pending = client.request(serverTarget, {
+			serviceId: "test",
+			member: "pending",
+			args: [],
+		});
 		await server.waitForMessages(2);
 		server.error(new Error("read failed"));
 
@@ -361,7 +383,11 @@ describe("Client connection lifecycle", () => {
 
 		const truncatedServer = new MemoryByteServer();
 		const truncatedClient = await connectClient(truncatedServer);
-		const pending = truncatedClient.request(serverTarget, { serviceId: "test", member: "pending", args: [] });
+		const pending = truncatedClient.request(serverTarget, {
+			serviceId: "test",
+			member: "pending",
+			args: [],
+		});
 		await truncatedServer.waitForMessages(2);
 		truncatedServer.sendRaw(new Uint8Array([0, 0, 0, 2, 1]));
 		truncatedServer.disconnect();

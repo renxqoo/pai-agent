@@ -359,7 +359,10 @@ export async function ensureTool(
 	if (!config) return undefined;
 
 	if (isOfflineModeEnabled()) {
-		onStatus?.({ type: "warning", message: `${config.name} not found. Offline mode enabled, skipping download.` });
+		onStatus?.({
+			type: "warning",
+			message: `${config.name} not found. Offline mode enabled, skipping download.`,
+		});
 		return undefined;
 	}
 
@@ -367,7 +370,10 @@ export async function ensureTool(
 	// Users must install via pkg.
 	if (platform() === "android") {
 		const pkgName = TERMUX_PACKAGES[tool] ?? tool;
-		onStatus?.({ type: "warning", message: `${config.name} not found. Install with: pkg install ${pkgName}` });
+		onStatus?.({
+			type: "warning",
+			message: `${config.name} not found. Install with: pkg install ${pkgName}`,
+		});
 		return undefined;
 	}
 

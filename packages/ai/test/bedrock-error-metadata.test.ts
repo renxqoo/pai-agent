@@ -112,7 +112,11 @@ describe("bedrock failure diagnostics", () => {
 		const diagnostic = findDiagnostic(message);
 
 		expect(message.stopReason).toBe("error");
-		expect(diagnostic?.details).toEqual({ status: 400, errorCode: "ValidationException", requestId: REQUEST_ID });
+		expect(diagnostic?.details).toEqual({
+			status: 400,
+			errorCode: "ValidationException",
+			requestId: REQUEST_ID,
+		});
 		expect(diagnostic?.error).toBeUndefined();
 		expect(Object.keys(diagnostic ?? {}).sort()).toEqual(["details", "timestamp", "type"]);
 	});
@@ -201,7 +205,9 @@ describe("bedrock failure diagnostics", () => {
 		// The SDK's fallback when the response carried no `x-amzn-errortype`.
 		bedrockMock.send = {
 			kind: "reject",
-			error: makeServiceException("Unknown", { $metadata: { httpStatusCode: 403, requestId: REQUEST_ID } }),
+			error: makeServiceException("Unknown", {
+				$metadata: { httpStatusCode: 403, requestId: REQUEST_ID },
+			}),
 		};
 
 		expect(findDiagnostic(await runBedrock())?.details).toEqual({

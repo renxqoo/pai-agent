@@ -4,12 +4,12 @@ This document should guide you about understanding the security concept behind
 Pi and also where the boundaries are.
 
 In general Pi is a coding agent that runs locally within the security boundary
-of the user that is running it.  It's the responsibility of the user to monitor
+of the user that is running it. It's the responsibility of the user to monitor
 its operations or to contain it within a container, virtual machine or other
 Sandbox solution.
 
 Pi treats the local user account and files writable by that account as inside
-the same trust boundary as the Pi process itself.  If an attacker can modify files
+the same trust boundary as the Pi process itself. If an attacker can modify files
 under the user's home directory, workspace, shell startup files, environment, or
 Pi configuration, they can generally influence Pi or other local developer tools.
 Reports that depend on such prior local write access are not security
@@ -17,7 +17,7 @@ vulnerabilities unless they demonstrate how Pi grants that write access or cross
 an operating-system privilege boundary.
 
 Pi relies on users installing trustworthy extensions and loading trustworthy
-skills and only to use pi within trusted repositories.  This is because files
+skills and only to use pi within trusted repositories. This is because files
 like `AGENTS.md` or instructions in comments can be used to prompt inject the
 coding agent trivially and this cannot be protected against.
 
@@ -36,7 +36,7 @@ Please include:
 - Affected package, version, commit, or configuration
 - Any known mitigations
 
-Do not open a public issue for security-sensitive reports.  We will review
+Do not open a public issue for security-sensitive reports. We will review
 reports and coordinate disclosure as appropriate.
 
 ## Scope
@@ -70,7 +70,7 @@ on `pi.dev`.
 ## Notes for Reporters
 
 The most useful reports show a current, reproducible security boundary bypass
-with demonstrated impact.  Reports that only show expected local-agent behavior,
+with demonstrated impact. Reports that only show expected local-agent behavior,
 prompt injection, or a malicious trusted extension/skill are not security
 vulnerabilities under this model.
 
@@ -81,7 +81,7 @@ is out of scope.
 
 When possible, include the exact affected path, package version or commit SHA,
 configuration, and a proof of concept against the latest release or latest
-`main`.  For dependency reports, include evidence that the shipped dependency is
-affected and that the issue is reachable through Pi.  For exposed-secret reports,
+`main`. For dependency reports, include evidence that the shipped dependency is
+affected and that the issue is reachable through Pi. For exposed-secret reports,
 include evidence that the credential is owned by Earendil or grants access to
 Earendil-operated infrastructure or services.

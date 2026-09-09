@@ -232,7 +232,11 @@ function convertMessages(messages: Message[], isOAuth: boolean, _tools?: Tool[])
 						? { type: "text" as const, text: sanitizeSurrogates(item.text) }
 						: {
 								type: "image" as const,
-								source: { type: "base64" as const, media_type: item.mimeType as any, data: item.data },
+								source: {
+									type: "base64" as const,
+									media_type: item.mimeType as any,
+									data: item.data,
+								},
 							},
 				);
 				if (blocks.length > 0) {
@@ -446,7 +450,9 @@ function streamCustomAnthropic(
 			const anthropicStream = client.messages.stream({ ...params }, { signal: options?.signal });
 			stream.push({ type: "start", partial: output });
 
-			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & { index: number };
+			type Block = (ThinkingContent | TextContent | (ToolCall & { partialJson: string })) & {
+				index: number;
+			};
 			const blocks = output.content as Block[];
 
 			for await (const event of anthropicStream) {
@@ -461,7 +467,11 @@ function streamCustomAnthropic(
 				} else if (event.type === "content_block_start") {
 					if (event.content_block.type === "text") {
 						output.content.push({ type: "text", text: "", index: event.index } as any);
-						stream.push({ type: "text_start", contentIndex: output.content.length - 1, partial: output });
+						stream.push({
+							type: "text_start",
+							contentIndex: output.content.length - 1,
+							partial: output,
+						});
 					} else if (event.content_block.type === "thinking") {
 						output.content.push({
 							type: "thinking",
@@ -469,7 +479,11 @@ function streamCustomAnthropic(
 							thinkingSignature: "",
 							index: event.index,
 						} as any);
-						stream.push({ type: "thinking_start", contentIndex: output.content.length - 1, partial: output });
+						stream.push({
+							type: "thinking_start",
+							contentIndex: output.content.length - 1,
+							partial: output,
+						});
 					} else if (event.content_block.type === "tool_use") {
 						output.content.push({
 							type: "toolCall",
@@ -481,7 +495,11 @@ function streamCustomAnthropic(
 							partialJson: "",
 							index: event.index,
 						} as any);
-						stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
+						stream.push({
+							type: "toolcall_start",
+							contentIndex: output.content.length - 1,
+							partial: output,
+						});
 					}
 				} else if (event.type === "content_block_delta") {
 					const index = blocks.findIndex((b) => b.index === event.index);
@@ -490,7 +508,12 @@ function streamCustomAnthropic(
 
 					if (event.delta.type === "text_delta" && block.type === "text") {
 						block.text += event.delta.text;
-						stream.push({ type: "text_delta", contentIndex: index, delta: event.delta.text, partial: output });
+						stream.push({
+							type: "text_delta",
+							contentIndex: index,
+							delta: event.delta.text,
+							partial: output,
+						});
 					} else if (event.delta.type === "thinking_delta" && block.type === "thinking") {
 						block.thinking += event.delta.thinking;
 						stream.push({
@@ -520,15 +543,30 @@ function streamCustomAnthropic(
 
 					delete (block as any).index;
 					if (block.type === "text") {
-						stream.push({ type: "text_end", contentIndex: index, content: block.text, partial: output });
+						stream.push({
+							type: "text_end",
+							contentIndex: index,
+							content: block.text,
+							partial: output,
+						});
 					} else if (block.type === "thinking") {
-						stream.push({ type: "thinking_end", contentIndex: index, content: block.thinking, partial: output });
+						stream.push({
+							type: "thinking_end",
+							contentIndex: index,
+							content: block.thinking,
+							partial: output,
+						});
 					} else if (block.type === "toolCall") {
 						try {
 							block.arguments = JSON.parse((block as any).partialJson);
 						} catch {}
 						delete (block as any).partialJson;
-						stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: output });
+						stream.push({
+							type: "toolcall_end",
+							contentIndex: index,
+							toolCall: block,
+							partial: output,
+						});
 					}
 				} else if (event.type === "message_delta") {
 					if ((event.delta as any).stop_reason) {

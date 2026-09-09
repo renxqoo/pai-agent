@@ -55,7 +55,10 @@ const ServiceCallSchema = Type.Unsafe<ServiceCall>(
 	StrictObject({
 		serviceId: Type.String({ minLength: 1 }),
 		instance: Type.Optional(
-			StrictObject({ key: Type.String({ minLength: 1 }), generation: Type.Integer({ minimum: 1 }) }),
+			StrictObject({
+				key: Type.String({ minLength: 1 }),
+				generation: Type.Integer({ minimum: 1 }),
+			}),
 		),
 		member: Type.String({ minLength: 1 }),
 		args: Type.Array(Type.Unknown()),
@@ -327,7 +330,11 @@ const CoordinatorInputSchema = Type.Union([
 	}),
 	Type.Object({ type: Type.Literal("server_connected"), serverConnectionId: Type.String() }),
 	Type.Object({ type: Type.Literal("server_disconnected"), serverConnectionId: Type.String() }),
-	Type.Object({ type: Type.Literal("message"), from: Type.Literal("server"), payload: Type.Unknown() }),
+	Type.Object({
+		type: Type.Literal("message"),
+		from: Type.Literal("server"),
+		payload: Type.Unknown(),
+	}),
 ]);
 type CoordinatorInput = Static<typeof CoordinatorInputSchema>;
 
@@ -353,7 +360,11 @@ async function connectControl(): Promise<WorkerControl> {
 		socket.once("error", reject);
 	});
 	const messages = createJsonLineMessages(socket);
-	await writeJsonLine(socket, { type: "register_peer", protocol: COORDINATOR_PROTOCOL_VERSION, peerId });
+	await writeJsonLine(socket, {
+		type: "register_peer",
+		protocol: COORDINATOR_PROTOCOL_VERSION,
+		peerId,
+	});
 	const registered = await messages[Symbol.asyncIterator]().next();
 	if (
 		registered.done ||

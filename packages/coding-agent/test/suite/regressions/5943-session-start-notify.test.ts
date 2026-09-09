@@ -38,7 +38,10 @@ function createUiContext(
 		},
 		getAllThemes: () => [],
 		getTheme: () => undefined,
-		setTheme: (_theme: string | Theme) => ({ success: false, error: "Theme switching not available in tests" }),
+		setTheme: (_theme: string | Theme) => ({
+			success: false,
+			error: "Theme switching not available in tests",
+		}),
 		getToolsExpanded: () => false,
 		setToolsExpanded: () => {},
 	};
@@ -116,7 +119,10 @@ type ReloadCommandContext = {
 		setClearOnShrink: (enabled: boolean) => void;
 	};
 	editor: unknown;
-	defaultEditor: { setPaddingX: (padding: number) => void; setAutocompleteMaxVisible: (maxVisible: number) => void };
+	defaultEditor: {
+		setPaddingX: (padding: number) => void;
+		setAutocompleteMaxVisible: (maxVisible: number) => void;
+	};
 	themeController: { applyFromSettings: () => Promise<void> };
 	resetExtensionUI: () => void;
 	rebuildChatFromMessages: () => void;
@@ -132,7 +138,11 @@ type ReloadCommandContext = {
 type InteractiveModePrototype = {
 	showLoadedResources(
 		this: LoadedResourcesContext,
-		options?: { extensions?: Array<{ path: string }>; force?: boolean; showDiagnosticsWhenQuiet?: boolean },
+		options?: {
+			extensions?: Array<{ path: string }>;
+			force?: boolean;
+			showDiagnosticsWhenQuiet?: boolean;
+		},
 	): void;
 	rebindCurrentSession(this: RebindContext, options?: { renderBeforeBind?: boolean }): Promise<void>;
 	handleReloadCommand(this: ReloadCommandContext): Promise<void>;
@@ -188,7 +198,11 @@ function createReloadCommandContext(overrides: ReloadCommandContextOverrides = {
 			...overrides.ui,
 		},
 		editor,
-		defaultEditor: { setPaddingX: () => {}, setAutocompleteMaxVisible: () => {}, ...overrides.defaultEditor },
+		defaultEditor: {
+			setPaddingX: () => {},
+			setAutocompleteMaxVisible: () => {},
+			...overrides.defaultEditor,
+		},
 		themeController: { applyFromSettings: async () => {}, ...overrides.themeController },
 		customHeader: overrides.customHeader,
 		builtInHeader: overrides.builtInHeader,

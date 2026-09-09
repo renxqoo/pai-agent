@@ -499,7 +499,11 @@ Project skill content`,
 		});
 
 		it("does not expose literal system prompt text as a source", async () => {
-			const loader = new DefaultResourceLoader({ cwd, agentDir, systemPrompt: "Literal system prompt." });
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				systemPrompt: "Literal system prompt.",
+			});
 			await loader.reload();
 
 			expect(loader.getSystemPrompt()).toBe("Literal system prompt.");
@@ -531,7 +535,11 @@ Project skill content`,
 		});
 
 		it("does not expose literal append system prompt text as a source", async () => {
-			const loader = new DefaultResourceLoader({ cwd, agentDir, appendSystemPrompt: ["Literal append prompt."] });
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				appendSystemPrompt: ["Literal append prompt."],
+			});
 			await loader.reload();
 
 			expect(loader.getAppendSystemPrompt()).toEqual(["Literal append prompt."]);

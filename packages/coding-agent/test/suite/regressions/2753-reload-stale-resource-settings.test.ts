@@ -33,7 +33,10 @@ describe("issue #2753 reload stale resource settings", () => {
 			models: [{ id: "faux-1", reasoning: false }],
 		});
 		const authStorage = AuthStorage.inMemory();
-		await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
+		await authStorage.modify(faux.getModel().provider, async () => ({
+			type: "api_key",
+			key: "faux-key",
+		}));
 		const modelRuntime = await ModelRuntime.create({
 			credentials: authStorage,
 			modelsPath: join(agentDir, "models.json"),

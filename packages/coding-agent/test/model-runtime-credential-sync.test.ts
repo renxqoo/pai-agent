@@ -53,7 +53,11 @@ async function runtimeWithProvider(
 	registered: Provider,
 	credentials: AuthStorage = AuthStorage.inMemory(),
 ): Promise<ModelRuntime> {
-	const runtime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
+	const runtime = await ModelRuntime.create({
+		credentials,
+		modelsPath: null,
+		allowModelNetwork: false,
+	});
 	runtime.registerNativeProvider(registered);
 	await runtime.refresh({ allowNetwork: false, providers: [registered.id] });
 	return runtime;
@@ -96,7 +100,10 @@ describe("ModelRuntime credential synchronization", () => {
 			credentials,
 		);
 
-		const login = runtime.login("ordered", "api_key", { prompt: async () => "unused", notify: () => {} });
+		const login = runtime.login("ordered", "api_key", {
+			prompt: async () => "unused",
+			notify: () => {},
+		});
 		await loginStarted;
 		const logout = runtime.logout("ordered");
 		await new Promise((resolve) => setTimeout(resolve, 0));
@@ -121,7 +128,10 @@ describe("ModelRuntime credential synchronization", () => {
 		const blocked = new Promise<void>((resolve) => {
 			finish = resolve;
 		});
-		const runtime = await ModelRuntime.create({ credentials: AuthStorage.inMemory(), modelsPath: null });
+		const runtime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory(),
+			modelsPath: null,
+		});
 		runtime.registerNativeProvider(
 			provider("one", {
 				login: async () => {
@@ -151,7 +161,10 @@ describe("ModelRuntime credential synchronization", () => {
 
 	it("does not wait for unrelated provider availability during local synchronization", async () => {
 		let stallUnrelated = false;
-		const runtime = await ModelRuntime.create({ credentials: AuthStorage.inMemory(), modelsPath: null });
+		const runtime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory(),
+			modelsPath: null,
+		});
 		runtime.registerNativeProvider(provider("target"));
 		const unrelated = provider("unrelated");
 		if (unrelated.auth.apiKey) {
@@ -212,7 +225,10 @@ describe("ModelRuntime credential synchronization", () => {
 			}),
 		);
 
-		await runtime.login("local-only", "api_key", { prompt: async () => "unused", notify: () => {} });
+		await runtime.login("local-only", "api_key", {
+			prompt: async () => "unused",
+			notify: () => {},
+		});
 		expect(networkRefresh).not.toHaveBeenCalled();
 		expect(runtime.hasConfiguredAuth("local-only")).toBe(true);
 	});
@@ -227,7 +243,10 @@ describe("ModelRuntime credential synchronization", () => {
 		const blocked = new Promise<void>((resolve) => {
 			finish = resolve;
 		});
-		const runtime = await ModelRuntime.create({ credentials: AuthStorage.inMemory(), modelsPath: null });
+		const runtime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory(),
+			modelsPath: null,
+		});
 		runtime.registerNativeProvider(
 			provider("one", {
 				refreshModels: async (context) => {
@@ -362,7 +381,10 @@ describe("ModelRuntime credential synchronization", () => {
 		);
 		failCacheRefresh = true;
 
-		const login = runtime.login("broken-sync", "api_key", { prompt: async () => "unused", notify: () => {} });
+		const login = runtime.login("broken-sync", "api_key", {
+			prompt: async () => "unused",
+			notify: () => {},
+		});
 		await expect(login).rejects.toMatchObject({
 			name: "CredentialSynchronizationError",
 			providerId: "broken-sync",
@@ -370,6 +392,9 @@ describe("ModelRuntime credential synchronization", () => {
 			credential: { type: "api_key", key: "broken-sync-key" },
 		});
 		await expect(login).rejects.toBeInstanceOf(CredentialSynchronizationError);
-		expect(await credentials.read("broken-sync")).toEqual({ type: "api_key", key: "broken-sync-key" });
+		expect(await credentials.read("broken-sync")).toEqual({
+			type: "api_key",
+			key: "broken-sync-key",
+		});
 	});
 });

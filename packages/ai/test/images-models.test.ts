@@ -196,7 +196,9 @@ describe("ImagesModels", () => {
 	});
 
 	it("builtinImagesModels registers the openrouter provider with its catalog", async () => {
-		const models = builtinImagesModels({ authContext: fakeAuthContext({ OPENROUTER_API_KEY: "or-key" }) });
+		const models = builtinImagesModels({
+			authContext: fakeAuthContext({ OPENROUTER_API_KEY: "or-key" }),
+		});
 		const providers = models.getProviders();
 		expect(providers.map((p) => p.id)).toEqual(["openrouter"]);
 

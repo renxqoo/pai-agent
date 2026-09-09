@@ -182,7 +182,9 @@ describe("faux provider", () => {
 		]);
 
 		const events = await collectEvents(
-			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+			stream(registration.getModel(), {
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			}),
 		);
 
 		expect(events).toHaveLength(1);
@@ -199,7 +201,9 @@ describe("faux provider", () => {
 		registration.setResponses([fauxAssistantMessage("partial", { stopReason: "pending" })]);
 
 		const events = await collectEvents(
-			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+			stream(registration.getModel(), {
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			}),
 		);
 
 		expect(events.some((event) => event.type === "done")).toBe(false);
@@ -333,7 +337,10 @@ describe("faux provider", () => {
 			messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
 		};
 
-		await complete(registration.getModel(), context, { sessionId: "session-1", cacheRetention: "none" });
+		await complete(registration.getModel(), context, {
+			sessionId: "session-1",
+			cacheRetention: "none",
+		});
 		context.messages.push(fauxAssistantMessage("first"));
 		context.messages.push({ role: "user", content: "follow up", timestamp: Date.now() + 1 });
 		const second = await complete(registration.getModel(), context, {
@@ -360,7 +367,9 @@ describe("faux provider", () => {
 
 		const events: string[] = [];
 		const toolCallDeltas: string[] = [];
-		const s = stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] });
+		const s = stream(registration.getModel(), {
+			messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+		});
 		for await (const event of s) {
 			events.push(event.type);
 			if (event.type === "toolcall_delta") {
@@ -389,7 +398,9 @@ describe("faux provider", () => {
 		]);
 
 		const events = await collectEvents(
-			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+			stream(registration.getModel(), {
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			}),
 		);
 
 		expect(events[0]).toMatchObject({ type: "start", partial: { stopReason: "pending" } });
@@ -422,7 +433,9 @@ describe("faux provider", () => {
 		]);
 
 		const events = await collectEvents(
-			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+			stream(registration.getModel(), {
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			}),
 		);
 
 		expect(events.filter((event) => event.type === "toolcall_start")).toHaveLength(2);
@@ -441,7 +454,9 @@ describe("faux provider", () => {
 		]);
 
 		const events = await collectEvents(
-			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+			stream(registration.getModel(), {
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			}),
 		);
 
 		expect(events.map((event) => event.type)).toEqual(["start", "text_start", "text_delta", "text_end", "error"]);
@@ -466,7 +481,9 @@ describe("faux provider", () => {
 		]);
 
 		const events = await collectEvents(
-			stream(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+			stream(registration.getModel(), {
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			}),
 		);
 
 		expect(events.map((event) => event.type)).toEqual(["start", "text_start", "text_delta", "text_end", "error"]);
@@ -480,7 +497,10 @@ describe("faux provider", () => {
 	});
 
 	it("supports aborting before the first chunk", async () => {
-		const registration = registerFauxProvider({ tokensPerSecond: 50, tokenSize: { min: 3, max: 3 } });
+		const registration = registerFauxProvider({
+			tokensPerSecond: 50,
+			tokenSize: { min: 3, max: 3 },
+		});
 		registrations.push(registration);
 		registration.setResponses([fauxAssistantMessage("abcdefghijklmnopqrstuvwxyz")]);
 
@@ -503,7 +523,10 @@ describe("faux provider", () => {
 	});
 
 	it("supports aborting mid-text stream when paced", async () => {
-		const registration = registerFauxProvider({ tokensPerSecond: 100, tokenSize: { min: 3, max: 3 } });
+		const registration = registerFauxProvider({
+			tokensPerSecond: 100,
+			tokenSize: { min: 3, max: 3 },
+		});
 		registrations.push(registration);
 		registration.setResponses([fauxAssistantMessage("abcdefghijklmnopqrstuvwxyz")]);
 
@@ -531,7 +554,10 @@ describe("faux provider", () => {
 	});
 
 	it("supports aborting mid-thinking stream when paced", async () => {
-		const registration = registerFauxProvider({ tokensPerSecond: 100, tokenSize: { min: 3, max: 3 } });
+		const registration = registerFauxProvider({
+			tokensPerSecond: 100,
+			tokenSize: { min: 3, max: 3 },
+		});
 		registrations.push(registration);
 		registration.setResponses([
 			{
@@ -564,7 +590,10 @@ describe("faux provider", () => {
 	});
 
 	it("supports aborting mid-toolcall stream when paced", async () => {
-		const registration = registerFauxProvider({ tokensPerSecond: 100, tokenSize: { min: 3, max: 3 } });
+		const registration = registerFauxProvider({
+			tokensPerSecond: 100,
+			tokenSize: { min: 3, max: 3 },
+		});
 		registrations.push(registration);
 		registration.setResponses([
 			{
@@ -610,7 +639,9 @@ describe("faux provider", () => {
 		registration.unregister();
 
 		await expect(
-			complete(registration.getModel(), { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] }),
+			complete(registration.getModel(), {
+				messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
+			}),
 		).rejects.toThrow(`No API provider registered for api: ${registration.api}`);
 	});
 });

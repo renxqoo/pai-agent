@@ -116,7 +116,12 @@ export function decodeEntryRow(row: EntryRow): Entry {
 			return { ...base, type: "branch_summary", ...parsePayload<BranchSummaryEntry>(row) };
 		case "custom":
 			if (row.custom_type === null) throw new Error(`Custom entry ${row.id} is missing custom_type`);
-			return { ...base, type: "custom", customType: row.custom_type, ...parsePayload<CustomEntry>(row) };
+			return {
+				...base,
+				type: "custom",
+				customType: row.custom_type,
+				...parsePayload<CustomEntry>(row),
+			};
 	}
 }
 

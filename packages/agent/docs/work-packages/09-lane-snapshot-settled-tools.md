@@ -139,7 +139,7 @@ type SnapshotTool =
       toolCallId: string;
       toolName: string;
       args: unknown;
-      result: AgentToolResult<unknown>;  // complete finalized result
+      result: AgentToolResult<unknown>; // complete finalized result
       isError: boolean;
     };
 ```

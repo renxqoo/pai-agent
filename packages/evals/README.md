@@ -47,10 +47,10 @@ import { createPiCodingAgentHarness } from "./pi-harness.ts";
 const harness = createPiCodingAgentHarness({ noTools: "all" });
 
 describeEval("Pi smoke", { harness }, (it) => {
-	it("answers a factual question", async ({ run }) => {
-		const result = await run("What is the capital of France? Reply with only the city name.");
-		expect(result.output).toBe("Paris");
-	});
+  it("answers a factual question", async ({ run }) => {
+    const result = await run("What is the capital of France? Reply with only the city name.");
+    expect(result.output).toBe("Paris");
+  });
 });
 ```
 
@@ -68,8 +68,8 @@ An explicitly selected model makes model-comparison harnesses independent of the
 
 ```ts
 const harness = createPiCodingAgentHarness({
-	name: "claude-opus-4-6",
-	model: { provider: "anthropic", id: "claude-opus-4-6" },
+  name: "claude-opus-4-6",
+  model: { provider: "anthropic", id: "claude-opus-4-6" },
 });
 ```
 
@@ -78,9 +78,9 @@ prompt creates or changes Pi resources:
 
 ```ts
 const result = await run([
-	{ type: "prompt", content: "Create a Pi extension." },
-	{ type: "reload" },
-	{ type: "prompt", content: "Use the extension." },
+  { type: "prompt", content: "Create a Pi extension." },
+  { type: "reload" },
+  { type: "prompt", content: "Use the extension." },
 ]);
 ```
 
@@ -90,11 +90,11 @@ Use `output` to expose scenario-specific, JSON-safe behavior without adding that
 
 ```ts
 const harness = createPiCodingAgentHarness({
-	output: ({ response, session }) => ({
-		response,
-		activeTools: session.getActiveToolNames(),
-		extensionErrors: session.resourceLoader.getExtensions().errors,
-	}),
+  output: ({ response, session }) => ({
+    response,
+    activeTools: session.getActiveToolNames(),
+    extensionErrors: session.resourceLoader.getExtensions().errors,
+  }),
 });
 ```
 
@@ -112,24 +112,25 @@ import { createJudge, describeEval } from "vitest-evals";
 import { evalHarnessTable } from "./vitest-evals/harness-table.ts";
 
 const TargetTaskJudge = createJudge<string, string>("TargetTaskJudge", ({ output }) => ({
-	score: output === "expected result" ? 1 : 0,
+  score: output === "expected result" ? 1 : 0,
 }));
 
-const harnessTable = evalHarnessTable(
-	"target skill effectiveness",
-	{
-		baseline: withoutTargetSkillHarness,
-		candidate: withTargetSkillHarness,
-		repetitions: 6,
-	},
-);
+const harnessTable = evalHarnessTable("target skill effectiveness", {
+  baseline: withoutTargetSkillHarness,
+  candidate: withTargetSkillHarness,
+  repetitions: 6,
+});
 
 describe.for(harnessTable)("$name repetition $repetition", ({ harness }) => {
-	describeEval("target skill effectiveness", { harness, judges: [TargetTaskJudge], judgeThreshold: null }, (it) => {
-		it("completes the target task", async ({ run }) => {
-			await run("Complete the target task.");
-		});
-	});
+  describeEval(
+    "target skill effectiveness",
+    { harness, judges: [TargetTaskJudge], judgeThreshold: null },
+    (it) => {
+      it("completes the target task", async ({ run }) => {
+        await run("Complete the target task.");
+      });
+    },
+  );
 });
 ```
 

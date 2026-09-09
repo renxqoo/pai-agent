@@ -103,7 +103,9 @@ describe("OpenAI Codex OAuth", () => {
 			if (url === "https://auth.openai.com/api/accounts/deviceauth/usercode") {
 				expect(init?.method).toBe("POST");
 				expect(init?.headers).toMatchObject({ "Content-Type": "application/json" });
-				expect(JSON.parse(String(init?.body))).toEqual({ client_id: "app_EMoamEEZ73f0CkXaXp7hrann" });
+				expect(JSON.parse(String(init?.body))).toEqual({
+					client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+				});
 				return jsonResponse({
 					device_auth_id: "device-auth-id",
 					user_code: "ABCD-1234",
@@ -128,7 +130,9 @@ describe("OpenAI Codex OAuth", () => {
 
 			if (url === "https://auth.openai.com/oauth/token") {
 				expect(init?.method).toBe("POST");
-				expect(init?.headers).toMatchObject({ "Content-Type": "application/x-www-form-urlencoded" });
+				expect(init?.headers).toMatchObject({
+					"Content-Type": "application/x-www-form-urlencoded",
+				});
 				const params = new URLSearchParams(String(init?.body));
 				expect(params.get("grant_type")).toBe("authorization_code");
 				expect(params.get("client_id")).toBe("app_EMoamEEZ73f0CkXaXp7hrann");
@@ -195,7 +199,9 @@ describe("OpenAI Codex OAuth", () => {
 			vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
 				const url = getUrl(input);
 				if (url === "https://auth.openai.com/api/accounts/deviceauth/usercode") {
-					expect(JSON.parse(String(init?.body))).toEqual({ client_id: "app_EMoamEEZ73f0CkXaXp7hrann" });
+					expect(JSON.parse(String(init?.body))).toEqual({
+						client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+					});
 					return jsonResponse({
 						device_auth_id: "device-auth-id",
 						user_code: "WXYZ-7890",
@@ -285,7 +291,9 @@ describe("OpenAI Codex OAuth", () => {
 			vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
 				const url = getUrl(input);
 				if (url === "https://auth.openai.com/api/accounts/deviceauth/usercode") {
-					expect(JSON.parse(String(init?.body))).toEqual({ client_id: "app_EMoamEEZ73f0CkXaXp7hrann" });
+					expect(JSON.parse(String(init?.body))).toEqual({
+						client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+					});
 					return jsonResponse({
 						device_auth_id: "device-auth-id",
 						user_code: "ABCD-1234",
@@ -329,7 +337,9 @@ describe("OpenAI Codex OAuth", () => {
 			vi.fn(async (input: unknown, init?: RequestInit): Promise<Response> => {
 				const url = getUrl(input);
 				if (url === "https://auth.openai.com/api/accounts/deviceauth/usercode") {
-					expect(JSON.parse(String(init?.body))).toEqual({ client_id: "app_EMoamEEZ73f0CkXaXp7hrann" });
+					expect(JSON.parse(String(init?.body))).toEqual({
+						client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+					});
 					return jsonResponse({
 						device_auth_id: "device-auth-id",
 						user_code: "ABCD-1234",
@@ -465,7 +475,11 @@ describe("OpenAI Codex OAuth", () => {
 							type: "invalid_request_error",
 						},
 					}),
-					{ status: 401, statusText: "Unauthorized", headers: { "Content-Type": "application/json" } },
+					{
+						status: 401,
+						statusText: "Unauthorized",
+						headers: { "Content-Type": "application/json" },
+					},
 				);
 			}),
 		);

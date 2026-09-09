@@ -140,7 +140,9 @@ type RunnerEmitEvent = Exclude<
 
 type SessionBeforeEvent = Extract<
 	RunnerEmitEvent,
-	{ type: "session_before_switch" | "session_before_fork" | "session_before_compact" | "session_before_tree" }
+	{
+		type: "session_before_switch" | "session_before_fork" | "session_before_compact" | "session_before_tree";
+	}
 >;
 
 type SessionBeforeEventResult =
@@ -149,7 +151,9 @@ type SessionBeforeEventResult =
 	| SessionBeforeCompactResult
 	| SessionBeforeTreeResult;
 
-type RunnerEmitResult<TEvent extends RunnerEmitEvent> = TEvent extends { type: "session_before_switch" }
+type RunnerEmitResult<TEvent extends RunnerEmitEvent> = TEvent extends {
+	type: "session_before_switch";
+}
 	? SessionBeforeSwitchResult | undefined
 	: TEvent extends { type: "session_before_fork" }
 		? SessionBeforeForkResult | undefined
@@ -169,12 +173,20 @@ export type NewSessionHandler = (options?: {
 
 export type ForkHandler = (
 	entryId: string,
-	options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
+	options?: {
+		position?: "before" | "at";
+		withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
+	},
 ) => Promise<{ cancelled: boolean }>;
 
 export type NavigateTreeHandler = (
 	targetId: string,
-	options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string },
+	options?: {
+		summarize?: boolean;
+		customInstructions?: string;
+		replaceInstructions?: boolean;
+		label?: string;
+	},
 ) => Promise<{ cancelled: boolean }>;
 
 export type SwitchSessionHandler = (
@@ -454,7 +466,12 @@ export class ExtensionRunner {
 		const outerPrompt = this.uiPromptDepth++ === 0;
 		if (outerPrompt) {
 			this.activeUIPrompt = { kind, title };
-			this.emitUIPromptEvent({ type: "ui_prompt_start", reason: "ui_prompt", kind, ...(title ? { title } : {}) });
+			this.emitUIPromptEvent({
+				type: "ui_prompt_start",
+				reason: "ui_prompt",
+				kind,
+				...(title ? { title } : {}),
+			});
 		}
 
 		const finish = () => {

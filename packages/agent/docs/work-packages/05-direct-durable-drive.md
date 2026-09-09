@@ -57,12 +57,12 @@ Queued input is lane-owned, never operation-owned. `LaneState` (durable and proc
 
 Tags are consumption-eligibility markers, not ownership. Enqueue always succeeds — during runs, structural operations, cancellation, and idle. Every drain point selects eligible items per tag, applying queue modes during selection, but places all selected items in the inbox's single global admission order. Tag grouping must never reorder user input. At acceptance, request prompt entries follow the selected inbox items because the request is the newest admission.
 
-| Drain point | Eligibility and decision order |
-| --- | --- |
-| acceptance (idle lane) | write + nextRun (all), steer (`steeringMode`: all or oldest), and followUp (`followUpMode`) are eligible. Place selected items in global admission order, then request prompt entries. The acceptance transaction places them and removes their ids; `starting` drains nothing. followUp is eligible because an idle lane vacuously satisfies its "after current work" condition. |
-| turn-end boundary pass (run) | write + steer are eligible before threshold/continuation planning and are placed in global admission order. followUp becomes eligible only at `may_finish`, before `before_run_end` and finish. nextRun is never eligible mid-run and never blocks finish. |
-| idle direct append | queued write items are placed in admission order, then the new entry, in one commit |
-| abort (M7) | steer + followUp are removed from the inbox, payload values deleted, and payloads returned; nextRun and write items stay |
+| Drain point                  | Eligibility and decision order                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| acceptance (idle lane)       | write + nextRun (all), steer (`steeringMode`: all or oldest), and followUp (`followUpMode`) are eligible. Place selected items in global admission order, then request prompt entries. The acceptance transaction places them and removes their ids; `starting` drains nothing. followUp is eligible because an idle lane vacuously satisfies its "after current work" condition. |
+| turn-end boundary pass (run) | write + steer are eligible before threshold/continuation planning and are placed in global admission order. followUp becomes eligible only at `may_finish`, before `before_run_end` and finish. nextRun is never eligible mid-run and never blocks finish.                                                                                                                        |
+| idle direct append           | queued write items are placed in admission order, then the new entry, in one commit                                                                                                                                                                                                                                                                                               |
+| abort (M7)                   | steer + followUp are removed from the inbox, payload values deleted, and payloads returned; nextRun and write items stay                                                                                                                                                                                                                                                          |
 
 **One decision, at most one commit (R1b).** A boundary pass may enter the mutation line several times for bounded reads and for `before_run_end` mediation, but it performs **at most one commit**, and that commit always lands in a state that neither drains nor rechecks (`assistant.ready`, `summary.deciding`, placed entries + `assistant.ready`, or a terminal transaction). No boundary decision ever commits back into `checkpoint`. A crash before the commit re-runs the whole decision with nothing consumed; a crash after it lands past the decision point. Consequently `skipInboxOnce` and `thresholdCheckedTriggerEntryId` are deleted: drains cannot re-fire because their target states do not drain, and the threshold marker is replaced by a guard derived from the branch itself — threshold fires only when `shouldCompact` holds **and** the branch's newest compaction entry is older than the trigger entry, so a committed threshold compaction is its own durable marker. Mode remainders stay queued and are consumed at later boundaries, giving the per-turn steer cadence and per-run-end followUp cadence.
 
@@ -272,17 +272,21 @@ type TerminalStatus = "completed" | "declined" | "aborted" | "failed";
 /** Stored at operationResult(operationId) — namespace "pi.result" — by the terminal transaction. Immutable, lane-lived. */
 interface OperationResultRecord {
   operationId: string;
-  kind: "run" | "compaction" | "navigation";   // meta.intent.kind; matches OperationAdmission.kind
+  kind: "run" | "compaction" | "navigation"; // meta.intent.kind; matches OperationAdmission.kind
   status: TerminalStatus;
-  error?: OperationError;              // status "failed"
-  fromTipId: string | null;            // meta.sourceTipId — start of the transcript segment
-  tipId: string | null;                // lane tip at terminal — end of the segment
-  startedAt: number;                   // Unix ms, from meta
-  endedAt: number;                     // Unix ms, Date.now() at terminal planning
+  error?: OperationError; // status "failed"
+  fromTipId: string | null; // meta.sourceTipId — start of the transcript segment
+  tipId: string | null; // lane tip at terminal — end of the segment
+  startedAt: number; // Unix ms, from meta
+  endedAt: number; // Unix ms, Date.now() at terminal planning
 }
 
 /** Convenience-only suspension observation for prompt()/resume() (M8). Never stored. */
-interface SuspendedRun { operationId: string; status: "suspended"; deferred: DeferredHandle }
+interface SuspendedRun {
+  operationId: string;
+  status: "suspended";
+  deferred: DeferredHandle;
+}
 ```
 
 The record is a disposition plus a pointer to the transcript segment `(fromTipId, tipId]`. It never lists intermediate work (compactions, turns, tools) and never embeds entries. There is **no `tipEntry` and no `OperationOutcome` union**: a caller that wants the payload dereferences `tipId` with the already-public `getEntry`/`findEntry` (for runs, the final message was additionally delivered by `message_end`/`entry_added`). This buys three things: terminal planners perform zero outcome reads, observation cannot fault on a missing entry (a `getEntries` throw inside hydration was a harness-fault path for a read-only convenience), and the future protocol never serializes `Entry` inside results — a result frame is eight flat fields. `SuspendedRun` is the one non-terminal observation, exists only on convenience returns, and carries nothing derivable elsewhere.
@@ -325,11 +329,16 @@ Collapse 22 leaves to the 13 in §1; rebuild `structural.ts`'s state-shape layer
 ### Types
 
 ```ts
-interface OperationScope { control: Control; settings: RunSettings; latestAssistantEntryId: string | null }
+interface OperationScope {
+  control: Control;
+  settings: RunSettings;
+  latestAssistantEntryId: string | null;
+}
 
-type ResultBoundary =                                  // closed; do not extend
-  | { kind: "resume_checkpoint"; resumeAfter: CheckpointData }   // in-run threshold/overflow
-  | { kind: "finish" }                                            // standalone compaction
+type ResultBoundary =
+  // closed; do not extend
+  | { kind: "resume_checkpoint"; resumeAfter: CheckpointData } // in-run threshold/overflow
+  | { kind: "finish" } // standalone compaction
   | { kind: "commit_navigation"; targetId: string; label?: string };
 
 interface SummaryTask {
@@ -344,11 +353,11 @@ The summary algorithm kind is **derived from the boundary** (`resume_checkpoint`
 
 ### Reachability (restore check; replaces the intent-prefix check)
 
-| Intent | Admissible leaves |
-| --- | --- |
-| run | `starting`, `checkpoint`, `assistant.*`, `tools`, `deferred.*`, `summary.*` with boundary `resume_checkpoint` |
-| compaction | `summary.*` with boundary `finish` |
-| navigation | `navigation.ready_to_commit`; `summary.*` with boundary `commit_navigation` |
+| Intent     | Admissible leaves                                                                                             |
+| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| run        | `starting`, `checkpoint`, `assistant.*`, `tools`, `deferred.*`, `summary.*` with boundary `resume_checkpoint` |
+| compaction | `summary.*` with boundary `finish`                                                                            |
+| navigation | `navigation.ready_to_commit`; `summary.*` with boundary `commit_navigation`                                   |
 
 Forbidden and unreachable by construction (assert in tests, never implement): any edge into `starting` or `navigation.ready_to_commit` other than acceptance; `summary.*` → `tools`/`assistant.*` directly; `navigation.ready_to_commit` → `summary.*`; terminal → anything.
 

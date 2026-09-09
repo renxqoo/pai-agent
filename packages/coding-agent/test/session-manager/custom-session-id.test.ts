@@ -157,7 +157,9 @@ describe("SessionManager.newSession with custom id", () => {
 			})}\n`,
 		);
 
-		const forked = SessionManager.forkFrom(sourcePath, tempDir, tempDir, { id: "forked-session-id" });
+		const forked = SessionManager.forkFrom(sourcePath, tempDir, tempDir, {
+			id: "forked-session-id",
+		});
 		const header = forked.getHeader();
 		expect(header).not.toBeNull();
 		expect(header!.id).toBe("forked-session-id");

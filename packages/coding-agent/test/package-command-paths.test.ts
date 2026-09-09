@@ -205,12 +205,16 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		await main(["install", `${packageDir}/`]);
 
 		const settingsPath = join(agentDir, "settings.json");
-		const installedSettings = JSON.parse(readFileSync(settingsPath, "utf-8")) as { packages?: string[] };
+		const installedSettings = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
+			packages?: string[];
+		};
 		expect(installedSettings.packages?.length).toBe(1);
 
 		await main(["remove", `${packageDir}/`]);
 
-		const removedSettings = JSON.parse(readFileSync(settingsPath, "utf-8")) as { packages?: string[] };
+		const removedSettings = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
+			packages?: string[];
+		};
 		expect(removedSettings.packages ?? []).toHaveLength(0);
 	});
 
@@ -341,7 +345,10 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		);
 		writeFileSync(
 			join(projectDir, ".pi", "settings.json"),
-			JSON.stringify({ packages: ["npm:fake-package"], npmCommand: [originalExecPath, fakeNpmPath] }),
+			JSON.stringify({
+				packages: ["npm:fake-package"],
+				npmCommand: [originalExecPath, fakeNpmPath],
+			}),
 		);
 		let projectTrustCalled = false;
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -378,7 +385,10 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		);
 		writeFileSync(
 			join(projectDir, ".pi", "settings.json"),
-			JSON.stringify({ packages: ["npm:fake-package"], npmCommand: [originalExecPath, fakeNpmPath] }),
+			JSON.stringify({
+				packages: ["npm:fake-package"],
+				npmCommand: [originalExecPath, fakeNpmPath],
+			}),
 		);
 		new ProjectTrustStore(agentDir).set(projectDir, true);
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

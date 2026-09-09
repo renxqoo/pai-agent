@@ -71,7 +71,12 @@ write.
 the loop to stop:
 
 ```ts
-try { await thing(); } catch (error) { out.terminate(true); throw error; }
+try {
+  await thing();
+} catch (error) {
+  out.terminate(true);
+  throw error;
+}
 ```
 
 This closes a gap in the current implementation, where `executeToolCall`'s catch
@@ -187,7 +192,7 @@ interface ToolOutputState {
   usage?: Usage;
   addedTools?: string[];
   terminate: boolean;
-  truncation: ShellOutputTruncation;   // totals over everything ever written, without duplicate text
+  truncation: ShellOutputTruncation; // totals over everything ever written, without duplicate text
 }
 ```
 
@@ -195,7 +200,7 @@ Ops rather than a typed variant union, for one decisive reason: **only ops give
 details granularity without the harness knowing `TDetails`**. A typed union would
 need per-tool recipes, which is the machinery §2.1 deletes.
 
-Text still gets delta treatment, because the sink applies the cap *before*
+Text still gets delta treatment, because the sink applies the cap _before_
 mutating, so a rolling window produces `truncate` + `append` on
 `content[0].text` rather than a whole-value set.
 
@@ -246,7 +251,7 @@ nothing new has happened.
 
 This dissolves an earlier open question about settle-time truncation disagreeing
 with the running fold. There is no separate settle-time truncation: the sink's
-window *is* the truncation. Anything a tool wants to add at the end — bash's
+window _is_ the truncation. Anything a tool wants to add at the end — bash's
 `[Showing lines 8000-8123 of 8123]` footer — is `out.write(footer)`, one more
 append.
 
@@ -292,8 +297,8 @@ resume, if the tool is not replay-safe, `readCheckpoint` turns it into a real
 plus `details` and `usage`.
 
 Note the implication that misled an earlier draft: because the checkpoint must
-*be* the current state, it was read as needing `value` semantics. It does not. It
-needs to be *derivable*, and folding encoded batches from the last base batch derives it — which is the point of tagging base batches (§7.3). `checkpoint: true`
+_be_ the current state, it was read as needing `value` semantics. It does not. It
+needs to be _derivable_, and folding encoded batches from the last base batch derives it — which is the point of tagging base batches (§7.3). `checkpoint: true`
 requests a durable write, not a replacement.
 
 `pendingAssistantFrames` is a `list<AssistantMessageFrame>` appended per frame,
@@ -347,7 +352,7 @@ The landed tracker emits structural ops unconditionally. There is no serialized-
 before re-executing a replay-safe tool (`drive/tools.ts:257`). **This is a bug.**
 
 Replay-safe means the tool is re-executed, but memos exist precisely so it does
-*not* redo work it already did — and skipped work emits nothing. Any output for
+_not_ redo work it already did — and skipped work emits nothing. Any output for
 memoised work is lost today.
 
 The fix: seed a fresh `ToolOutput` from the durable state, then re-execute. The
@@ -395,7 +400,7 @@ enough — two file writes are not atomic. The periodic checkpoint stays as it
 is — best-effort, for the interruption path; this forces one where correctness
 requires it.
 
-The invariant holds because the tool does X, writes X's output to the sink, *then*
+The invariant holds because the tool does X, writes X's output to the sink, _then_
 calls `setMemo("did X")` — so the sink's state at commit time already contains X's
 output.
 
@@ -417,13 +422,13 @@ value. Memos are rare — a handful per invocation — so this is bounded by
 
 `commitWrite(item)` captures `item` when `write()` is called, and the write is
 fire-and-forget with only `latest` tracked. A checkpoint captured at T1 can
-therefore commit *after* a memo-bundled checkpoint at T2, overwriting newer state
+therefore commit _after_ a memo-bundled checkpoint at T2, overwriting newer state
 with older — reintroducing exactly the loss §7.5 prevents.
 
 Fix: resolve the sink's state inside the command planner rather than at call time.
 
 ```ts
-commitWrite: () => setValue(address, out.snapshot())   // evaluated under the Session line
+commitWrite: () => setValue(address, out.snapshot()); // evaluated under the Session line
 ```
 
 `lane.command` serializes on the Session line, so checkpoint writes become
@@ -437,7 +442,7 @@ rewritten between crash and resume cannot make a persisted stream unreadable.
 
 > **The durable path uses only harness-owned reducers.**
 
-This also rules out persisting *facet* ops. The harness has no facet state,
+This also rules out persisting _facet_ ops. The harness has no facet state,
 facets come and go, and a recovering harness must rebuild its working values with
 no facet present.
 
@@ -452,7 +457,7 @@ no facet present.
 - Whether `retain: "head"` should keep emitting counter-only updates once capped
   so a renderer can report how much was suppressed. [`execenv.md`](../03-execenv/execenv.md) answers this
   for exec-originated output; agent-side output needs the same answer.
-- Whether a failing tool *should* be able to terminate, or whether the current
+- Whether a failing tool _should_ be able to terminate, or whether the current
   inability is deliberate — there is a reasonable argument the model should
   receive the error and decide.
 - **Derived values.** `arguments` parsed from accumulated JSON should not be

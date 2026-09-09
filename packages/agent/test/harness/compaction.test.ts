@@ -606,7 +606,10 @@ describe("harness compaction", () => {
 			undefined,
 			BACKGROUND_CONTEXT,
 		);
-		expect(abortedResult).toMatchObject({ ok: false, error: { code: "aborted", message: "stopped" } });
+		expect(abortedResult).toMatchObject({
+			ok: false,
+			error: { code: "aborted", message: "stopped" },
+		});
 	});
 
 	it("clamps compaction summary maxTokens to the model output cap", async () => {
@@ -777,7 +780,10 @@ describe("harness compaction", () => {
 			await compact(preparation, models, model, undefined, undefined, undefined, undefined, BACKGROUND_CONTEXT),
 		).toMatchObject({
 			ok: false,
-			error: { code: "summarization_failed", message: "Turn prefix summarization failed: prefix failed" },
+			error: {
+				code: "summarization_failed",
+				message: "Turn prefix summarization failed: prefix failed",
+			},
 		});
 
 		const { faux: abortedFaux, model: abortedModel } = createFauxModel(false);

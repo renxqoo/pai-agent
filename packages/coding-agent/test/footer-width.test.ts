@@ -225,7 +225,11 @@ describe("FooterComponent width handling", () => {
 	});
 
 	it("marks explicitly identified subscription auth", () => {
-		const session = createSession({ sessionName: "", provider: "anthropic", usingSubscription: true });
+		const session = createSession({
+			sessionName: "",
+			provider: "anthropic",
+			usingSubscription: true,
+		});
 		const footer = new FooterComponent(session, createFooterData(1));
 
 		expect(stripAnsi(footer.render(120)[1])).toContain("$0.000 (sub)");

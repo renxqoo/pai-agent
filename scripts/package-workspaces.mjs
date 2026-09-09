@@ -4,21 +4,21 @@ import { join } from "node:path";
 const SKIPPED_DIRECTORIES = new Set(["dist", "node_modules"]);
 
 export function findPackageDirectories(root = "packages") {
-	const packageDirectories = [];
+  const packageDirectories = [];
 
-	function visit(directory) {
-		if (existsSync(join(directory, "package.json"))) {
-			packageDirectories.push(directory);
-		}
+  function visit(directory) {
+    if (existsSync(join(directory, "package.json"))) {
+      packageDirectories.push(directory);
+    }
 
-		for (const entry of readdirSync(directory, { withFileTypes: true })) {
-			if (!entry.isDirectory() || SKIPPED_DIRECTORIES.has(entry.name)) {
-				continue;
-			}
-			visit(join(directory, entry.name));
-		}
-	}
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isDirectory() || SKIPPED_DIRECTORIES.has(entry.name)) {
+        continue;
+      }
+      visit(join(directory, entry.name));
+    }
+  }
 
-	visit(root);
-	return packageDirectories.sort();
+  visit(root);
+  return packageDirectories.sort();
 }

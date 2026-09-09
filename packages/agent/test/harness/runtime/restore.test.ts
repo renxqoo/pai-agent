@@ -198,14 +198,21 @@ describe("runtime lane restore", () => {
 	});
 
 	it("accepts exactly the family-neutral state reachability matrix", async () => {
-		const resume = { kind: "resume_checkpoint", resumeAfter: runState("trigger") } satisfies ResultBoundary;
+		const resume = {
+			kind: "resume_checkpoint",
+			resumeAfter: runState("trigger"),
+		} satisfies ResultBoundary;
 		const finish = { kind: "finish" } satisfies ResultBoundary;
 		const navigation = { kind: "commit_navigation", targetId: "target" } satisfies ResultBoundary;
 		const cases: { intent: OperationMeta["intent"]; state: OperationState; accepted: boolean }[] = [
 			{ intent: { kind: "run", promptEntryIds: [] }, state: runState("trigger"), accepted: true },
 			{ intent: { kind: "run", promptEntryIds: [] }, state: summaryState(resume), accepted: true },
 			{ intent: { kind: "run", promptEntryIds: [] }, state: summaryState(finish), accepted: false },
-			{ intent: { kind: "run", promptEntryIds: [] }, state: summaryState(navigation), accepted: false },
+			{
+				intent: { kind: "run", promptEntryIds: [] },
+				state: summaryState(navigation),
+				accepted: false,
+			},
 			{ intent: { kind: "compaction" }, state: summaryState(finish), accepted: true },
 			{ intent: { kind: "compaction" }, state: summaryState(resume), accepted: false },
 			{ intent: { kind: "compaction" }, state: summaryState(navigation), accepted: false },
@@ -285,7 +292,9 @@ describe("runtime lane restore", () => {
 			);
 			const restored = restoreLane(session, "main", BACKGROUND_CONTEXT);
 			if (testCase.accepted)
-				await expect(restored).resolves.toMatchObject({ operation: { meta, state: testCase.state } });
+				await expect(restored).resolves.toMatchObject({
+					operation: { meta, state: testCase.state },
+				});
 			else await expect(restored).rejects.toThrow("does not match state");
 		}
 	});
