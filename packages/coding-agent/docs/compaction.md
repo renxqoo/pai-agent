@@ -30,15 +30,10 @@ Both use the same structured summary format and track file operations cumulative
 Auto-compaction triggers when:
 
 ```
-contextTokens > contextWindow - reserve
+contextTokens > contextWindow - reserveTokens
 ```
 
-`reserve` comes from one of two settings (in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`):
-
-- `compaction.reservePercent` (number, 0-100 exclusive): reserve = `contextWindow * reservePercent / 100`.
-  Percentage semantics scale per model — e.g. `20` triggers compaction at 80% of every model's window.
-  Takes precedence over `reserveTokens` when present and valid.
-- `compaction.reserveTokens` (number, default 16384): flat token reserve. This leaves room for the LLM's response.
+By default, `reserveTokens` is 16384 tokens (configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`). This leaves room for the LLM's response.
 
 During a multi-turn agent run, Pi checks this threshold after tools finish and their results are appended, before starting the next assistant response. If the threshold is crossed, Pi compacts inside the same agent run and resumes with the summary and retained messages. It skips this between-turn check when the completed tool batch terminates the run and no queued message requires another response. Pi also checks the threshold before a new user prompt and after a low-level agent run ends.
 

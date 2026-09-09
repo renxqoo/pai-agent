@@ -292,36 +292,6 @@ describe("shouldCompact", () => {
 
 		expect(shouldCompact(95000, 100000, settings)).toBe(false);
 	});
-
-	it("reservePercent overrides reserveTokens: trigger at window*(1-percent/100), scaling per model", () => {
-		const settings: CompactionSettings = {
-			enabled: true,
-			reserveTokens: 10000,
-			keepRecentTokens: 20000,
-			reservePercent: 20,
-		};
-		// 100k 窗口：触发点 80,000（80%）
-		expect(shouldCompact(80001, 100000, settings)).toBe(true);
-		expect(shouldCompact(80000, 100000, settings)).toBe(false);
-		// 200k 窗口同一设置：触发点 160,000 —— 百分比随模型窗口伸缩
-		expect(shouldCompact(160001, 200000, settings)).toBe(true);
-		expect(shouldCompact(160000, 200000, settings)).toBe(false);
-		// 覆盖 reserveTokens（若按绝对值 10k，触发点应为 90k——百分比优先）
-		expect(shouldCompact(85000, 100000, settings)).toBe(true);
-	});
-
-	it("invalid reservePercent falls back to reserveTokens instead of disabling compaction", () => {
-		for (const bad of [0, 100, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
-			const settings: CompactionSettings = {
-				enabled: true,
-				reserveTokens: 10000,
-				keepRecentTokens: 20000,
-				reservePercent: bad,
-			};
-			expect(shouldCompact(90001, 100000, settings)).toBe(true);
-			expect(shouldCompact(90000, 100000, settings)).toBe(false);
-		}
-	});
 });
 
 describe("findCutPoint", () => {

@@ -116,7 +116,6 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | Setting                       | Type    | Default | Description                            |
 | ----------------------------- | ------- | ------- | -------------------------------------- |
 | `compaction.enabled`          | boolean | `true`  | Enable auto-compaction                 |
-| `compaction.reservePercent`   | number  | —       | Reserve as % of each model's context window (0-100 exclusive); overrides `reserveTokens` |
 | `compaction.reserveTokens`    | number  | `16384` | Tokens reserved for LLM response       |
 | `compaction.keepRecentTokens` | number  | `20000` | Recent tokens to keep (not summarized) |
 
@@ -124,7 +123,7 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 {
   "compaction": {
     "enabled": true,
-    "reservePercent": 20,
+    "reserveTokens": 16384,
     "keepRecentTokens": 20000
   }
 }
@@ -331,7 +330,7 @@ See [packages.md](packages.md) for package management details.
   "theme": "dark",
   "compaction": {
     "enabled": true,
-    "reservePercent": 20,
+    "reserveTokens": 16384,
     "keepRecentTokens": 20000
   },
   "retry": {
