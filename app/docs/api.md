@@ -62,7 +62,7 @@ spawn("pai-cli", [], {
 
 **`thread/stop`** — 释放对话（dispose，会话文件保留）。幂等：未知 id 也回 success。配合 resume 实现"闲置回收"。
 
-**`thread/list`** — 会话表：`[{threadId, cwd, sessionPath, isStreaming, state}]`。`state`：`live`（有 worker 进程；`isStreaming` 来自最近心跳，陈旧度 ≤1s，精确值用 `get_state`）/ `parked`（已闲置收编，下条命令自动唤醒）/ `dead`（worker 异常死亡，见 `thread_died`）。崩溃恢复的注册表来源。
+**`thread/list`** — 会话表：`[{threadId, cwd, sessionPath, isStreaming, state}]`。`state`：`live`（有 worker 进程；`isStreaming` 来自最近心跳，陈旧度 ≤1s，精确值用 `get_state`）/ `parked`（已闲置收编；读命令 `get_entries`/`get_state` 本地直读会话文件，其余命令自动唤醒）/ `dead`（worker 异常死亡，见 `thread_died`；读命令同样直读，写命令自动重开）。崩溃恢复的注册表来源。
 
 **`thread/list_saved`** — 落盘会话列表（历史会话页）。字段：`cwd?`。响应 `{sessions:[...]}`。
 
@@ -81,16 +81,16 @@ spawn("pai-cli", [], {
 
 ### 状态与历史
 
-**`get_state`** — 单次往返拿到面板所需的全部状态：`{model, thinkingLevel, isStreaming, isCompacting, sessionId, sessionName, sessionFile, messageCount}`。
+**`get_state`** — 单次往返拿到面板所需的全部状态：`{model, thinkingLevel, isStreaming, isCompacting, sessionId, sessionName, sessionFile, messageCount}`。**parked/dead thread 走 host 本地直读**（不唤醒 worker）：`isStreaming`/`isCompacting` 恒 false；`model`/`thinkingLevel`/`messageCount` 从会话文件条目推导（与 resume 后重放同源）；直读不可用（文件缺失/无效/后端不支持）自动回退唤醒路径。
 
-**`get_messages`** — 当前分支全量消息（`AgentMessage[]`：user/assistant/toolResult/bashExecution），**无分页、单帧可随会话无限增长**（数十 MB 级会话产生等量单行帧）。仅适合小会话/诊断；UI 水化与长会话一律用 `get_entries` 的 `limit` 分页。
+**`get_messages`** — 当前分支全量消息（`AgentMessage[]`：user/assistant/toolResult/bashExecution），**无分页、单帧可随会话无限增长**（数十 MB 级会话产生等量单行帧）。仅适合小会话/诊断；UI 水化与长会话一律用 `get_entries` 的 `limit` 分页。恒需 live thread（不走直读）。
 
 **`get_entries`** — 会话条目（追加序树）。游标与分页：
 
 - `since?`（前向游标，增量）：传"已见的最后一条 entry id"，只返回其后条目——**跨进程重启也有效**（entry id 持久）。
 - `before?`（后向游标，翻页）：只返回该 entry id **之前**（更旧）的条目，配合 `limit` 向前翻页。
 - `limit?`（正整数，≤5000）：窗口内只返回**最近的 N 条**；响应的 `hasMore`（恒返回）在窗口内还有更旧条目被截去时为 true。不传 = 全量（旧语义，长会话慎用）。
-- 响应：`{entries, leafId, hasMore}`。首屏水化推荐 `get_entries {threadId, limit: N}` 取尾部，`hasMore` 为 true 时用 `before: 返回的最旧 entry id` 继续向前翻。
+- 响应：`{entries, leafId, hasMore}`。首屏水化推荐 `get_entries {threadId, limit: N}` 取尾部，`hasMore` 为 true 时用 `before: 返回的最旧 entry id` 继续向前翻。**parked/dead thread 走 host 本地直读**（不唤醒 worker，推导与 resume 后重放同源）；直读不可用自动回退唤醒路径；可读快照上的游标/limit 错误照常 failure。
 - 注意：切片按追加序，`navigate_tree` 切分支后增量里可能含已放弃分支的条目，重建活动分支对话要配合 `get_tree`/`leafId`。
 
 **`get_tree`** — 会话树 `{tree, leafId}`（分支导航 UI 用）。

@@ -107,6 +107,7 @@ async function createExternalHostBackend(id: string): Promise<HostBackend> {
       rulesPath,
       resumePathError: () => "Session file must be inside the agent sessions directory",
       listSaved: async () => ({ sessions: [] }),
+      readHistory: async () => ({ ok: false, reason: "unsupported" }),
       discoverAgents: () => [],
     },
   };

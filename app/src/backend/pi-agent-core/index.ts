@@ -60,6 +60,8 @@ function sharedResources(): HostBackend["resources"] {
     // Unreachable: session.resume/listSaved/agents are capability-gated off.
     resumePathError: () => "Session file must be inside the agent sessions directory",
     listSaved: async () => ({ sessions: [] }),
+    // No session files in this backend: read commands keep the wake path.
+    readHistory: async () => ({ ok: false, reason: "unsupported" }),
     discoverAgents: () => [],
   };
 }

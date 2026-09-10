@@ -824,7 +824,19 @@ writeFileSync(
     "thread/list shows dead after worker kill",
   );
   const s = await send({ id: "w5", type: "get_state", threadId: tid });
-  assert(s.success, "next command transparently revives the dead thread (respawn+resume)");
+  assert(s.success, "read command on a dead thread answers from the session file (v0.12)");
+  const listDead = await send({ id: "w5b", type: "thread/list" });
+  assert(
+    listDead.data.threads.find((t) => t.threadId === tid)?.state === "dead",
+    "read command does not revive the dead thread (v0.12)",
+  );
+  const revive = await send({
+    id: "w5c",
+    type: "set_session_name",
+    threadId: tid,
+    name: s.data.sessionName ?? "e2e-revived",
+  });
+  assert(revive.success, "write command transparently revives the dead thread (respawn+resume)");
   const list2 = await send({ id: "w6", type: "thread/list" });
   assert(
     list2.data.threads.find((t) => t.threadId === tid)?.state === "live",
@@ -872,7 +884,28 @@ writeFileSync(
     .filter(Boolean);
   assert(children.length === 0, `parked thread has no worker process (got ${children.length})`);
   const s = await send({ id: "w12", type: "get_state", threadId: tid });
-  assert(s.success, "command to parked thread wakes it transparently");
+  assert(s.success, "read command on a parked thread answers from the session file (v0.12)");
+  const listParked = await send({ id: "w12b", type: "thread/list" });
+  assert(
+    listParked.data.threads.find((t) => t.threadId === tid)?.state === "parked",
+    "read command does not wake the parked thread (v0.12)",
+  );
+  const childrenAfterRead = String(
+    spawnSync("pgrep", ["-P", String(hub.pid)], { encoding: "utf8" }).stdout ?? "",
+  )
+    .split("\n")
+    .filter(Boolean);
+  assert(
+    childrenAfterRead.length === 0,
+    `parked read spawned no worker process (got ${childrenAfterRead.length})`,
+  );
+  const wake = await send({
+    id: "w12c",
+    type: "set_session_name",
+    threadId: tid,
+    name: s.data.sessionName ?? "e2e-woken",
+  });
+  assert(wake.success, "write command to parked thread wakes it transparently");
   const list = await send({ id: "w13", type: "thread/list" });
   assert(
     list.data.threads.find((t) => t.threadId === tid)?.state === "live",
@@ -891,7 +924,11 @@ writeFileSync(
   }
   assert(parkedAgain, "thread parked again for the stop-vs-wake race");
   const beforeDied = allFrames.filter((f) => f.type === "thread_died").length;
-  const gs = send({ id: "w15", type: "get_state", threadId: tid }).catch(() => "settled");
+  // Write command: keeps the wake in flight that the race needs (a read
+  // command would answer host-locally without waking, v0.12).
+  const gs = send({ id: "w15", type: "set_session_name", threadId: tid, name: "e2e-race" }).catch(
+    () => "settled",
+  );
   const st = await send({ id: "w16", type: "thread/stop", threadId: tid });
   assert(st.success, "thread/stop succeeds while a wake is in flight");
   await gs; // must settle (failure is fine), never hang

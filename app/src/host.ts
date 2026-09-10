@@ -20,6 +20,7 @@ import type { HubCommand, HubFrame } from "./protocol.ts";
 import { responseFailure } from "./frames.ts";
 import { createInflightRegistry } from "./inflight-registry.ts";
 import { handlePassthrough, hostHandlers, type HostDeps } from "./host-commands.ts";
+import { tryHandleReadHistory } from "./read-history-command.ts";
 import {
   createFrameWriter,
   getRawStdoutWrite,
@@ -251,6 +252,9 @@ export async function runHost(argv: string[]): Promise<void> {
       await handler(deps, cmd, id);
       return;
     }
+    // v0.12 parked read shortcut: answered from the session file without a
+    // worker; false falls through to the wake path (fail-open).
+    if (await tryHandleReadHistory(deps, cmd, id)) return;
     await handlePassthrough(deps, cmd, line);
   };
 

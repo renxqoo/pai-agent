@@ -432,8 +432,20 @@ assert(true, "interleaved stream + bash both completed");
     const s = await send({ id: `ok-${other.slice(0, 4)}`, type: "get_state", threadId: other });
     assert(s.success, "other workers unaffected by the kill");
   }
-  const revived = await send({ id: "revive", type: "get_state", threadId: victimTid });
-  assert(revived.success, "victim thread transparently recovers on next command");
+  const readOnDead = await send({ id: "revive-read", type: "get_state", threadId: victimTid });
+  assert(readOnDead.success, "read command on the dead victim answers from the file (v0.12)");
+  const listDead = await send({ id: "post-kill-list-dead", type: "thread/list" });
+  assert(
+    listDead.data.threads.find((t) => t.threadId === victimTid)?.state === "dead",
+    "read command does not revive the dead victim (v0.12)",
+  );
+  const revived = await send({
+    id: "revive",
+    type: "set_session_name",
+    threadId: victimTid,
+    name: readOnDead.data.sessionName ?? "e2e-multi-revived",
+  });
+  assert(revived.success, "victim thread transparently recovers on write command");
   const list = await send({ id: "post-kill-list", type: "thread/list" });
   assert(
     list.data.threads.filter((t) => t.state === "live").length === THREADS,

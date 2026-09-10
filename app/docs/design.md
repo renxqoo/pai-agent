@@ -9,19 +9,19 @@
 
 ### 命令（stdin → hub），全部可选携带 `id`
 
-| type                                         | 字段                                                | 语义                                                           |
-| -------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------- |
-| `thread/start`                               | `cwd?` `provider?`+`modelId?` `trusted?`            | 新建对话；默认 cwd=hub cwd；`trusted` 默认 false               |
-| `thread/resume`                              | `sessionPath` `cwd?` `trusted?`                     | 恢复；本 hub 内已打开同一文件 → failure                        |
-| `thread/stop`                                | `threadId`                                          | dispose；幂等（未知 id 也 success）                            |
-| `thread/list` / `thread/list_saved`          | `threadId` 无 / `cwd?`                              | 活跃线程 / 落盘会话列表                                        |
-| `prompt`                                     | `threadId` `message` `streamingBehavior?` `images?` | fire-and-accept；行首 `/compact` 例外（v0.11，见「恰好一次」） |
-| `steer` / `follow_up`                        | `threadId` `message` `images?`                      | 入队                                                           |
-| `abort` / `compact`                          | `threadId`（`customInstructions?`）                 |                                                                |
-| `get_state` / `get_messages`                 | `threadId`                                          |                                                                |
-| `set_model` / `get_models`                   | `provider`+`modelId` / 无                           | 模型目录全局共享                                               |
-| `set_thinking_level` / `get_thinking_levels` | `threadId` `level?`                                 |                                                                |
-| `ui_response`                                | `requestId` `payload`                               | 答复对话框；**总是**回 ack                                     |
+| type                                         | 字段                                                | 语义                                                                   |
+| -------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `thread/start`                               | `cwd?` `provider?`+`modelId?` `trusted?`            | 新建对话；默认 cwd=hub cwd；`trusted` 默认 false                       |
+| `thread/resume`                              | `sessionPath` `cwd?` `trusted?`                     | 恢复；本 hub 内已打开同一文件 → failure                                |
+| `thread/stop`                                | `threadId`                                          | dispose；幂等（未知 id 也 success）                                    |
+| `thread/list` / `thread/list_saved`          | `threadId` 无 / `cwd?`                              | 活跃线程 / 落盘会话列表                                                |
+| `prompt`                                     | `threadId` `message` `streamingBehavior?` `images?` | fire-and-accept；行首 `/compact` 例外（v0.11，见「恰好一次」）         |
+| `steer` / `follow_up`                        | `threadId` `message` `images?`                      | 入队                                                                   |
+| `abort` / `compact`                          | `threadId`（`customInstructions?`）                 |                                                                        |
+| `get_state` / `get_messages`                 | `threadId`                                          | get_state 非 live thread 走 host 直读（v0.12）；get_messages 恒需 live |
+| `set_model` / `get_models`                   | `provider`+`modelId` / 无                           | 模型目录全局共享                                                       |
+| `set_thinking_level` / `get_thinking_levels` | `threadId` `level?`                                 |                                                                        |
+| `ui_response`                                | `requestId` `payload`                               | 答复对话框；**总是**回 ack                                             |
 
 ### 帧与响应（stdout ← hub）
 
@@ -83,20 +83,20 @@ threadId 恒等于当前 session 的 sessionId。**fork/clone 后 session 被替
 
 ### 新命令
 
-| type                | 字段                                                                                                                                 | 语义                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `get_entries`       | `threadId`, `since?`, `before?`, `limit?`（≤5000，取窗口内最近 N 条，响应带 `hasMore?`；`since` 前向/`before` 后向游标，防无界单帧） | 会话条目窗口（追加树，entry id 即持久游标）；`since`/`before` 不存在 → failure                                  |
-| `get_tree`          | `threadId`                                                                                                                           | 会话树 + `leafId`                                                                                               |
-| `set_session_name`  | `threadId`, `name`（trim 后非空）                                                                                                    | 显示名                                                                                                          |
-| `get_session_stats` | `threadId`                                                                                                                           | token/成本/上下文用量                                                                                           |
-| `clear_queue`       | `threadId`                                                                                                                           | 清空排队 steer/followUp → `{steering, followUp}`                                                                |
-| `fork`              | `threadId`, `entryId`, `position?`（`before`\|`at`，默认 before）                                                                    | 从历史条目分叉 → 新 threadId                                                                                    |
-| `clone`             | `threadId`                                                                                                                           | 在当前 leaf 处复制分叉（= fork at leaf；无 leaf → failure）                                                     |
-| `navigate_tree`     | `threadId`, `targetId`, `summarize?`/`customInstructions?`/`replaceInstructions?`/`label?`                                           | 会话内跳转                                                                                                      |
-| `get_fork_messages` | `threadId`                                                                                                                           | 可分叉的用户消息列表                                                                                            |
-| `get_commands`      | `threadId`                                                                                                                           | 斜杠命令/skills 枚举（extension/prompt/skill/builtin 四源，v0.11）                                              |
-| `bash`              | `threadId`, `command`, `excludeFromContext?`                                                                                         | 直执行 shell：结果在 response；流式输出经既有 `event` 帧（`bash_execution_update`，带 command 的 `id`）自动下发 |
-| `abort_bash`        | `threadId`                                                                                                                           | 中止运行中的 bash                                                                                               |
+| type                | 字段                                                                                                                                 | 语义                                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `get_entries`       | `threadId`, `since?`, `before?`, `limit?`（≤5000，取窗口内最近 N 条，响应带 `hasMore?`；`since` 前向/`before` 后向游标，防无界单帧） | 会话条目窗口（追加树，entry id 即持久游标）；`since`/`before` 不存在 → failure；非 live thread 走 host 直读（v0.12） |
+| `get_tree`          | `threadId`                                                                                                                           | 会话树 + `leafId`                                                                                                    |
+| `set_session_name`  | `threadId`, `name`（trim 后非空）                                                                                                    | 显示名                                                                                                               |
+| `get_session_stats` | `threadId`                                                                                                                           | token/成本/上下文用量                                                                                                |
+| `clear_queue`       | `threadId`                                                                                                                           | 清空排队 steer/followUp → `{steering, followUp}`                                                                     |
+| `fork`              | `threadId`, `entryId`, `position?`（`before`\|`at`，默认 before）                                                                    | 从历史条目分叉 → 新 threadId                                                                                         |
+| `clone`             | `threadId`                                                                                                                           | 在当前 leaf 处复制分叉（= fork at leaf；无 leaf → failure）                                                          |
+| `navigate_tree`     | `threadId`, `targetId`, `summarize?`/`customInstructions?`/`replaceInstructions?`/`label?`                                           | 会话内跳转                                                                                                           |
+| `get_fork_messages` | `threadId`                                                                                                                           | 可分叉的用户消息列表                                                                                                 |
+| `get_commands`      | `threadId`                                                                                                                           | 斜杠命令/skills 枚举（extension/prompt/skill/builtin 四源，v0.11）                                                   |
+| `bash`              | `threadId`, `command`, `excludeFromContext?`                                                                                         | 直执行 shell：结果在 response；流式输出经既有 `event` 帧（`bash_execution_update`，带 command 的 `id`）自动下发      |
+| `abort_bash`        | `threadId`                                                                                                                           | 中止运行中的 bash                                                                                                    |
 
 ### 其他修订
 
@@ -335,3 +335,14 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
   - **拦截优先于 pi 扩展命令**（hub 编排层先于 SDK `_tryExecuteExtensionCommand`；与 skill 指针化同层同优先级）——扩展注册 `compact` 命令的冲突场景属边缘，落档此裁决；该场景下目录会同时列出扩展条目（经 prompt 通路不可达）与 builtin 条目，已知重复面，后续按需收敛。
 - **并发预算**：`isCompacting` 判定与 `compact()` 调用之间存在受理窗口（SDK 到 `compact()` 内首个 await 才置压缩态）——窗口内二次提交直达 SDK；SDK 手动压缩**无互斥**（审查实证：同批双 `/compact` 可各自完成压缩；`Already compacted` 仅在会话末条已是 compaction 时触发），即窗口内可双压缩——与 `compact` 命令自身的同一窗口，属已接受的兜底语义，后续批次如需收紧再议。流式中的拦截路径不预置流态判定（SDK `compact()` 先 abort 当前轮再压缩，行为如实透传）。
 - **不处理**（归属）：TUI 与 pi rpc-mode 的 `/compact`（SDK 既有机制，保持不动）；其他 builtin 命令（/subagents 等）提升进目录——仅入驻 compact 一条，后续按需逐条同型；pi-agent-core 后端的压缩支持（unsupported 照旧）；`reason` 结构化词表（hub 全局改造）；自动压缩（threshold/overflow）与 branch summary。
+
+## 契约 v0.12 增补：parked 只读历史（2026-09-10，已实施；方案 docs/plans/2026-09-10-parked-read-history.md）
+
+对外零破坏增量：命令/帧/能力位词表均不变。`get_entries`/`get_state` 对**非 live**（parked/dead）thread 的应答路径从「唤醒 worker」改为「host 本地直读会话文件」——读不唤醒、写才唤醒（Electron 侧浏览历史零 worker 成本）。推导与 worker 重放**同源**：条目/leafId 经 pi SDK 同一解析器，model/thinkingLevel/messages 经 `buildSessionContext`（路径序最后 model_change 或 assistant message 胜出），窗口经 `selectEntriesWindow`（两路径共用）。
+
+- **路由**：host 命令分发在透传前的只读短路（`src/read-history-command.ts`）：命令 ∈ {get_entries, get_state} ∧ entry 非 live ∧ 有 sessionPath ∧ 后端 `resources.readHistory` 可用 → 直读应答；**任何不可用（live/未知 thread/无路径/后端不支持/文件缺失或无效/IO 错误）返回未处理，继续走唤醒路径**（fail-open：最坏行为 = 增补前）。可读快照上的游标/limit 错误是真命令失败（与 worker 路径同文案），不回退。
+- **直读口径**（`src/read-history.ts`）：`isStreaming`/`isCompacting` 恒 false（无 worker 定义上无在途轮）；`sessionId` = header id；`sessionName` = 追加序最后 `session_info`（空名清除）；`messageCount` = compaction 感知的上下文消息数；`model` 经 host 快照 `resolveModel` 富解析、未命中回落瘦形状 `{provider, modelId}`（live 版经 runtime 恢复链可能为富或缺失——两者客户端都只按 provider/modelId 消费，差异落档于此）。直读**无副作用**：不 spawn、不改 thread 状态、不写文件（解析用 `parseSessionEntries`，不经 `SessionManager.open` 的迁移/修复路径）。
+- **live 恒透传**（负向不变量）：worker 内存态领先文件 flush，live 读不得走文件。直读与唤醒竞态读到 append-only 一致前缀，过期响应由事件流 + 下次 live 读最终一致（不做排序协调）。
+- **能力协商**：`resources.readHistory` 是 backend 资源端口方法而非能力位——核心必选命令的可用性不受后端影响；无文件概念的后端（pi-agent-core/external）报 unsupported，读命令退回唤醒路径。
+- **`thread/list` state 描述修订**：`parked` = 已闲置收编（读命令本地直读，其余命令自动唤醒）；`dead` = worker 异常死亡（读命令本地直读，写命令自动重开）。「下条命令自动唤醒」语义收窄为「写命令自动唤醒」。
+- **测试口径**：直读 ≡ SessionManager 重放（临时文件黄金对齐）；短路路由单测（live/未知/无路径/unsupported/invalid/not_found/IO 错误→未处理；游标错误→真失败）；e2e-mock `parked-read-history` 场景（retire → 直读零 worker → 写命令透明唤醒）。

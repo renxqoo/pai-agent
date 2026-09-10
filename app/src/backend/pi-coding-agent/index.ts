@@ -6,15 +6,17 @@
  * grandchild communication) exactly as the previous inline assembly did.
  */
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join as joinPath, resolve as resolvePath } from "node:path";
 import {
   ModelRuntime,
   SessionManager,
   VERSION,
   getAgentDir,
+  parseSessionEntries,
 } from "@earendil-works/pi-coding-agent";
 import type { CapabilityBit } from "../capabilities.ts";
+import type { ReadHistoryResult } from "../ports/resources.ts";
 import type { HostBackend, WorkerBackend, WorkerSessionDeps } from "../ports/backend.ts";
 import { SessionHost } from "./session-adapter.ts";
 import { createTaskTool } from "../tools/task/subagent-tool.ts";
@@ -86,6 +88,36 @@ export function resumePathError(sessionPath: string): string | undefined {
   return undefined;
 }
 
+/** Parked read history (v0.12): the same admission fence as thread/resume,
+ * then a side-effect-free parse (parseSessionEntries skips malformed lines;
+ * unlike SessionManager.open/loadEntriesFromFile it never migrates or
+ * repairs the file). An empty or header-less file is invalid — the host
+ * falls back to the wake path, which owns the failure wording. */
+function readHistory(sessionPath: string): Promise<ReadHistoryResult> {
+  return Promise.resolve(readHistorySync(sessionPath));
+}
+
+function readHistorySync(sessionPath: string): ReadHistoryResult {
+  if (resumePathError(sessionPath) !== undefined) {
+    return { ok: false, reason: "not_found" };
+  }
+  let entries;
+  try {
+    entries = parseSessionEntries(readFileSync(resolvePath(sessionPath), "utf8"));
+  } catch {
+    return { ok: false, reason: "invalid_file" };
+  }
+  const [header] = entries;
+  if (
+    header === undefined ||
+    header.type !== "session" ||
+    typeof (header as { id?: unknown }).id !== "string"
+  ) {
+    return { ok: false, reason: "invalid_file" };
+  }
+  return { ok: true, fileEntries: entries };
+}
+
 export async function createCodingAgentHostBackend(): Promise<HostBackend> {
   const modelRuntime = await ModelRuntime.create({ modelsPath: modelsJsonPath() });
   return {
@@ -119,6 +151,7 @@ export async function createCodingAgentHostBackend(): Promise<HostBackend> {
       rulesPath,
       resumePathError,
       listSaved: async (cwd) => ({ sessions: await SessionManager.list(cwd) }),
+      readHistory,
       discoverAgents,
     },
   };

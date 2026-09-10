@@ -175,6 +175,13 @@ export class WorkerPool {
     const entry = this.table.entry(threadId);
     return entry === undefined ? undefined : { cwd: entry.cwd, trusted: entry.trusted };
   }
+  /** Parked read-history routing fact (v0.12): entry state + session path. */
+  historyTarget(
+    threadId: string,
+  ): { state: "live" | "parked" | "dead"; sessionPath: string | null } | undefined {
+    const entry = this.table.entry(threadId);
+    return entry === undefined ? undefined : { state: entry.state, sessionPath: entry.sessionPath };
+  }
   liveCount(): number {
     return this.table.liveCount();
   }

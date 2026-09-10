@@ -1,0 +1,126 @@
+// Scenario: parked read history (v0.12, docs/plans/2026-09-10-parked-read-history.md).
+// After the idle retire moves a thread to parked, get_entries/get_state are
+// answered host-locally from the session file — zero worker processes — and
+// an ordinary write command still wakes the thread transparently. Cursor
+// errors on a readable snapshot keep the worker-path failure wording.
+
+import { makeWorld, startHost, writeAgentFiles } from "../kit/host-client.mjs";
+import { startMockModel } from "../kit/mock-model.mjs";
+
+export const name = "parked-read-history";
+export const timeoutMs = 120_000;
+
+const IDLE_RETIRE_MS = 3_000;
+
+async function waitParked(host, tid, assert) {
+  let parked = false;
+  let pollSeq = 0;
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline && !parked) {
+    pollSeq += 1;
+    const pollId = `ls_${pollSeq}`;
+    host.send({ id: pollId, type: "thread/list" });
+    const list = await host.waitResponse(pollId, { ms: 15_000 });
+    parked = list.data.threads.some((t) => t.threadId === tid && t.state === "parked");
+    if (!parked) {
+      await new Promise((done) => {
+        setTimeout(done, 500);
+      });
+    }
+  }
+  assert(parked, "thread parks within the shrunken retire window");
+  return parked;
+}
+
+export async function run({ assert }) {
+  const world = makeWorld(name);
+  const mock = startMockModel({
+    models: {
+      "mock-main": [
+        { kind: "text", text: "first round persists the session" },
+        { kind: "text", text: "wake round works" },
+      ],
+    },
+  });
+  writeAgentFiles(world.agentDir, { mockUrl: mock.url });
+  const host = startHost({
+    agentDir: world.agentDir,
+    env: { PAI_IDLE_RETIRE_MS: String(IDLE_RETIRE_MS) },
+  });
+  try {
+    await host.waitFrame((f) => f.type === "heartbeat", { label: "first heartbeat", ms: 15_000 });
+    host.send({
+      id: "s1",
+      type: "thread/start",
+      provider: "mock",
+      modelId: "mock-main",
+      cwd: world.projectDir,
+    });
+    const start = await host.waitResponse("s1", { ms: 20_000 });
+    assert(start.success, "thread/start succeeds");
+    const tid = start.data.threadId;
+
+    // Persist the session (retire requires a persisted path) and settle.
+    host.send({ id: "p0", type: "prompt", threadId: tid, message: "persisting round" });
+    assert((await host.waitResponse("p0", { ms: 15_000 })).success, "round 1 accepted");
+
+    // Live passthrough sanity before parking: get_entries works on live too.
+    host.send({ id: "ge_live", type: "get_entries", threadId: tid });
+    const liveEntries = await host.waitResponse("ge_live", { ms: 15_000 });
+    assert(liveEntries.success, "get_entries on live thread succeeds (worker passthrough)");
+
+    if (!(await waitParked(host, tid, assert))) return;
+    assert(host.workerPids().length === 0, "parked means zero worker processes");
+
+    // Parked get_entries: answered from the file, still zero workers.
+    host.send({ id: "ge1", type: "get_entries", threadId: tid });
+    const entries = await host.waitResponse("ge1", { ms: 15_000 });
+    assert(entries.success, "parked get_entries succeeds without waking");
+    const messageEntries = (entries.data.entries ?? []).filter((e) => e.type === "message");
+    assert(
+      messageEntries.length >= 2,
+      "parked get_entries replays the persisted conversation (user + assistant)",
+    );
+    assert(typeof entries.data.leafId === "string", "parked get_entries reports the leaf cursor");
+    assert(host.workerPids().length === 0, "parked get_entries did not spawn a worker");
+
+    // Parked get_state: derivation shape, still zero workers.
+    host.send({ id: "gs1", type: "get_state", threadId: tid });
+    const state = await host.waitResponse("gs1", { ms: 15_000 });
+    assert(state.success, "parked get_state succeeds without waking");
+    assert(state.data.isStreaming === false, "parked get_state reports isStreaming false");
+    assert(state.data.isCompacting === false, "parked get_state reports isCompacting false");
+    assert(state.data.sessionId === tid, "parked get_state derives the header session id");
+    assert(state.data.messageCount >= 2, "parked get_state counts replayed messages");
+    assert(host.workerPids().length === 0, "parked get_state did not spawn a worker");
+
+    // Cursor error on a readable snapshot: genuine failure, no wake.
+    host.send({ id: "ge2", type: "get_entries", threadId: tid, since: "gone-cursor" });
+    const cursorError = await host.waitResponse("ge2", { ms: 15_000 });
+    assert(!cursorError.success, "unknown cursor fails");
+    assert(
+      /Entry not found: gone-cursor/.test(cursorError.error ?? ""),
+      "cursor error keeps the worker-path wording",
+    );
+    assert(host.workerPids().length === 0, "cursor error did not spawn a worker");
+
+    // Write command: the transparent wake still works after the read shortcut.
+    const w0 = host.frames.length;
+    host.send({ id: "p1", type: "prompt", threadId: tid, message: "wake round" });
+    const wakeResp = await host.waitResponse("p1", { ms: 30_000 });
+    assert(wakeResp.success, "write command wakes the parked thread");
+    await host.waitFrame((f) => f.type === "event" && f.event?.type === "agent_settled", {
+      label: "wake round settled",
+      ms: 30_000,
+      since: w0,
+    });
+    assert(host.workerPids().length === 1, "thread is live again after the write command");
+
+    const exitCode = await host.endGracefully();
+    assert(exitCode === 0, `stdin EOF graceful exit 0 (got ${exitCode})`);
+  } finally {
+    host.killTree();
+    mock.stop();
+    world.cleanup();
+  }
+}
