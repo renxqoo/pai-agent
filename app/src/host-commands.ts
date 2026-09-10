@@ -22,6 +22,7 @@ import type {
   SetPermissionRulesCmd,
   ThreadListCmd,
   ThreadListSavedCmd,
+  ThreadRegisterCmd,
   ThreadResumeCmd,
   ThreadStartCmd,
   ThreadStopCmd,
@@ -29,6 +30,7 @@ import type {
 } from "./protocol.ts";
 import { THREAD_SCOPED_COMMANDS } from "./protocol.ts";
 import { handleSetModelOverride } from "./model-overrides.ts";
+import { resolve as resolvePath } from "node:path";
 import { readNonNegativeIntEnv } from "./int-env.ts";
 import { responseFailure, responseSuccess } from "./frames.ts";
 import type { RegisterInflight } from "./inflight-registry.ts";
@@ -100,6 +102,47 @@ const handleResume: HostHandler = async (deps, cmd, id) => {
     return;
   }
   await deps.pool.resumeThread(resume);
+};
+
+/** thread/register (v0.12): admit a session file as a parked entry without a
+ * worker — the cold-start host table is empty and read commands are
+ * thread-scoped, so read-only browsing needs the entry before get_entries. */
+const handleRegister: HostHandler = async (deps, cmd, id) => {
+  const register = cmd as ThreadRegisterCmd;
+  const error = deps.backend.resources.resumePathError(register.sessionPath ?? "");
+  if (error !== undefined) {
+    deps.emit(responseFailure(id, register.type, error));
+    return;
+  }
+  const sessionPath = resolvePath(register.sessionPath ?? "");
+  const history = await deps.backend.resources.readHistory(sessionPath);
+  if (!history.ok) {
+    deps.emit(responseFailure(id, register.type, `Session file not readable: ${sessionPath}`));
+    return;
+  }
+  const [header] = history.fileEntries;
+  if (
+    header === undefined ||
+    header.type !== "session" ||
+    typeof header.id !== "string" ||
+    typeof header.cwd !== "string"
+  ) {
+    deps.emit(
+      responseFailure(id, register.type, `Session file is not a pi session: ${sessionPath}`),
+    );
+    return;
+  }
+  const outcome = deps.pool.registerParked({
+    sessionPath,
+    threadId: header.id,
+    cwd: header.cwd,
+    trusted: register.trusted === true,
+  });
+  if (!outcome.ok) {
+    deps.emit(responseFailure(id, register.type, outcome.error));
+    return;
+  }
+  deps.emit(responseSuccess(id, register.type, outcome.data));
 };
 
 const handleStop: HostHandler = async (deps, cmd, id) => {
@@ -246,7 +289,7 @@ const handleAgentsList: HostHandler = (deps, cmd, id) => {
   let cwd = process.cwd();
   let trusted = false;
   if (threadId !== undefined) {
-    const entry = deps.pool.entryFor(threadId);
+    const entry = deps.pool.entryFacts(threadId);
     if (entry === undefined) {
       deps.emit(responseFailure(id, list.type, `Unknown threadId: ${threadId}`));
       return Promise.resolve();
@@ -302,6 +345,7 @@ export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, Ho
   Object.entries({
     "thread/start": handleStart,
     "thread/resume": handleResume,
+    "thread/register": handleRegister,
     "thread/stop": handleStop,
     "thread/list": handleList,
     "thread/list_saved": handleListSaved,

@@ -3,7 +3,12 @@
 // answered host-locally from the session file — zero worker processes — and
 // an ordinary write command still wakes the thread transparently. Cursor
 // errors on a readable snapshot keep the worker-path failure wording.
+// The cold-start leg reproduces the Electron symptom "every historical
+// conversation fails to load": a session file the empty-table host has never
+// admitted must be registered (thread/register, no worker) before reads.
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { makeWorld, startHost, writeAgentFiles } from "../kit/host-client.mjs";
 import { startMockModel } from "../kit/mock-model.mjs";
 
@@ -49,6 +54,57 @@ export async function run({ assert }) {
   });
   try {
     await host.waitFrame((f) => f.type === "heartbeat", { label: "first heartbeat", ms: 15_000 });
+
+    // Cold-start leg (symptom regression "every historical conversation
+    // fails to load"): a session file on disk that the empty-table host has
+    // never admitted. Unregistered reads fail with Unknown threadId; after
+    // thread/register (host-local, no worker) the read shortcut serves it.
+    const sessionsDir = join(world.agentDir, "sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+    const coldPath = join(sessionsDir, "20260910_cold.jsonl");
+    const coldLines = [
+      JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "cold-id",
+        timestamp: "t",
+        cwd: world.projectDir,
+      }),
+      JSON.stringify({
+        id: "ce1",
+        parentId: null,
+        timestamp: "t",
+        type: "message",
+        message: { role: "user", content: [{ type: "text", text: "cold history" }] },
+      }),
+    ].join("\n");
+    writeFileSync(coldPath, `${coldLines}\n`);
+    host.send({ id: "cold1", type: "get_entries", threadId: "cold-id" });
+    const unknown = await host.waitResponse("cold1", { ms: 15_000 });
+    assert(
+      !unknown.success && /Unknown threadId/.test(unknown.error ?? ""),
+      "cold-start read without register fails with Unknown threadId",
+    );
+    host.send({ id: "cold2", type: "thread/register", sessionPath: coldPath });
+    const registered = await host.waitResponse("cold2", { ms: 15_000 });
+    assert(registered.success, "thread/register admits the file without a worker");
+    assert(
+      registered.data.threadId === "cold-id",
+      "register derives the thread id from the session header",
+    );
+    assert(host.workerPids().length === 0, "cold-start register spawned no worker");
+    host.send({ id: "cold3", type: "get_entries", threadId: "cold-id" });
+    const coldEntries = await host.waitResponse("cold3", { ms: 15_000 });
+    assert(coldEntries.success, "registered cold session reads via the shortcut");
+    assert(
+      (coldEntries.data.entries ?? []).some((e) => e.type === "message"),
+      "cold-start read replays the persisted history",
+    );
+    assert(host.workerPids().length === 0, "cold-start read spawned no worker");
+    host.send({ id: "cold4", type: "thread/register", sessionPath: coldPath });
+    const again = await host.waitResponse("cold4", { ms: 15_000 });
+    assert(again.success && again.data.threadId === "cold-id", "register is idempotent");
+
     host.send({
       id: "s1",
       type: "thread/start",

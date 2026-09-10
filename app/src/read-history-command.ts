@@ -28,7 +28,7 @@ export async function tryHandleReadHistory(
   if (!READ_HISTORY_COMMANDS.has(name)) return false;
   const { threadId } = cmd as { threadId?: unknown };
   if (typeof threadId !== "string") return false;
-  const target = deps.pool.historyTarget(threadId);
+  const target = deps.pool.entryFacts(threadId);
   if (target === undefined || target.state === "live" || target.sessionPath === null) {
     return false;
   }

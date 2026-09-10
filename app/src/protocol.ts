@@ -126,6 +126,16 @@ export interface ThreadResumeCmd {
   trusted?: boolean;
 }
 
+/** v0.12 thread/register: admit a session file as a parked entry WITHOUT a
+ * worker — the read shortcut (get_entries/get_state direct read) needs a
+ * table entry, and cold-start hosts have an empty table (clients reconcile
+ * from list_saved without resuming). Idempotent per session path/thread id. */
+export interface ThreadRegisterCmd {
+  type: "thread/register";
+  sessionPath: string;
+  trusted?: boolean;
+}
+
 export interface ThreadStopCmd {
   type: "thread/stop";
   threadId: string;
@@ -417,6 +427,7 @@ export interface HostInfo {
 export type HubCommand =
   | (ThreadStartCmd & { id?: string })
   | (ThreadResumeCmd & { id?: string })
+  | (ThreadRegisterCmd & { id?: string })
   | (ThreadStopCmd & { id?: string })
   | (ThreadListCmd & { id?: string })
   | (ThreadListSavedCmd & { id?: string })

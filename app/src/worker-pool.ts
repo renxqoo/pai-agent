@@ -31,6 +31,8 @@ import {
   type AdmissionOps,
 } from "./thread-admission.ts";
 import { stopThreadSettlement, type StopOps } from "./thread-stop.ts";
+import { registerParkedAdmission, type RegisterOutcome } from "./thread-register.ts";
+import { armTeardownDeadline, sweepWorkers, type SweepOps } from "./thread-retire.ts";
 import { type ThreadEntry, ThreadTable } from "./thread-table.ts";
 import { readIntEnv } from "./int-env.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
@@ -159,7 +161,7 @@ export class WorkerPool {
     this.spawnWorkerFn = options.spawnWorker ?? spawnWorkerProcess;
     this.backendId = options.backendId ?? "pi-coding-agent";
     this.spawnSpec = options.spawnSpec;
-    this.sweep = setInterval(() => this.sweepWorkers(), SWEEP_INTERVAL_MS);
+    this.sweep = setInterval(() => sweepWorkers(this.sweepOps()), SWEEP_INTERVAL_MS);
   }
 
   listEntries(): ThreadListEntry[] {
@@ -170,17 +172,25 @@ export class WorkerPool {
     return this.table.has(threadId);
   }
 
-  /** Entry facts for host-local commands (agents/list). */
-  entryFor(threadId: string): { cwd: string; trusted: boolean } | undefined {
+  /** Host-local entry projection: agents/list reads cwd+trusted; the v0.12
+   * read shortcut reads state+sessionPath. */
+  entryFacts(threadId: string):
+    | {
+        cwd: string;
+        trusted: boolean;
+        state: "live" | "parked" | "dead";
+        sessionPath: string | null;
+      }
+    | undefined {
     const entry = this.table.entry(threadId);
-    return entry === undefined ? undefined : { cwd: entry.cwd, trusted: entry.trusted };
-  }
-  /** Parked read-history routing fact (v0.12): entry state + session path. */
-  historyTarget(
-    threadId: string,
-  ): { state: "live" | "parked" | "dead"; sessionPath: string | null } | undefined {
-    const entry = this.table.entry(threadId);
-    return entry === undefined ? undefined : { state: entry.state, sessionPath: entry.sessionPath };
+    return entry === undefined
+      ? undefined
+      : {
+          cwd: entry.cwd,
+          trusted: entry.trusted,
+          state: entry.state,
+          sessionPath: entry.sessionPath,
+        };
   }
   liveCount(): number {
     return this.table.liveCount();
@@ -243,6 +253,19 @@ export class WorkerPool {
     trusted?: boolean;
   }): Promise<void> {
     await resumeThreadAdmission(this.admissionOps(), cmd);
+  }
+
+  /** thread/register admission lives in thread-register.ts. */
+  registerParked(spec: {
+    sessionPath: string;
+    threadId: string;
+    cwd: string;
+    trusted: boolean;
+  }): RegisterOutcome {
+    return registerParkedAdmission(
+      { table: this.table, workers: () => [...this.allWorkers] },
+      spec,
+    );
   }
 
   /**
@@ -341,7 +364,7 @@ export class WorkerPool {
       table: this.table,
       emitFrame: this.emitFrame,
       liveWorker: (threadId) => this.table.liveWorker(threadId),
-      armTeardownDeadline: (worker) => this.armTeardownDeadline(worker),
+      armTeardownDeadline: (worker) => armTeardownDeadline(this.sweepOps(), worker),
       deliverCommand: (command) => this.deliverCommand(command),
     };
   }
@@ -517,44 +540,8 @@ export class WorkerPool {
     await worker.closed.finally(() => clearTimeout(grace));
   }
 
-  private retire(worker: WorkerHandle): void {
-    if (worker.retireIntent !== "none" || worker.retiring) return;
-    worker.retiring = true;
-    worker.retireIntent = "retire";
-    worker.stdin.end();
-    this.armTeardownDeadline(worker);
-  }
-
-  /** Bounded tear-down (design §6): a wedged-but-heartbeating worker would
-   * outlive the sweep's stale kill line forever — force-kill it once the
-   * exit budget lapses (killWorker owns SIGTERM -> SIGKILL; the timer is
-   * cleared on close like every other state transition). */
-  private armTeardownDeadline(worker: WorkerHandle): void {
-    const grace = setTimeout(() => void this.killWorker(worker, "none"), this.workerExitTimeoutMs);
-    void worker.closed.finally(() => clearTimeout(grace));
-  }
-
-  private sweepWorkers(): void {
-    const now = Date.now();
-    this.grantLedger.expire();
-    for (const worker of this.allWorkers) {
-      if (worker.awaitingStart && now > worker.spawnDeadline) {
-        void this.killWorker(worker, "none");
-        continue;
-      }
-      if (this.table.liveWorker(worker.threadId) !== worker) continue; // not live yet
-      if (now - worker.lastHeartbeatAt > this.workerStaleMs) {
-        void this.killWorker(worker, "none");
-        continue;
-      }
-      if (!worker.retiring && worker.idleMs >= this.idleRetireMs && worker.sessionPath !== null) {
-        this.retire(worker);
-      }
-    }
-  }
-
-  private frameRelayDeps(): FrameRelayDeps {
-    return {
+  private spawnWorker(trusted: boolean): WorkerHandle {
+    const relay: FrameRelayDeps = {
       table: this.table,
       internalIds: this.internalIds,
       emitFrame: this.emitFrame,
@@ -566,10 +553,6 @@ export class WorkerPool {
       internalKey: (worker, id) => WorkerPool.internalKey(worker, id),
       expectedBackendId: this.backendId,
     };
-  }
-
-  private spawnWorker(trusted: boolean): WorkerHandle {
-    const relay = this.frameRelayDeps();
     this.workerSeq += 1;
     const worker = this.spawnWorkerFn({
       uid: `w${this.workerSeq}`,
@@ -593,6 +576,18 @@ export class WorkerPool {
       signal,
       workerExitTimeoutMs: this.workerExitTimeoutMs,
     });
+  }
+
+  private sweepOps(): SweepOps {
+    return {
+      table: this.table,
+      grantLedger: this.grantLedger,
+      workers: () => [...this.allWorkers],
+      idleRetireMs: this.idleRetireMs,
+      workerStaleMs: this.workerStaleMs,
+      workerExitTimeoutMs: this.workerExitTimeoutMs,
+      killWorker: (worker, intent) => this.killWorker(worker, intent),
+    };
   }
 
   private deathDeps(): DeathDeps {

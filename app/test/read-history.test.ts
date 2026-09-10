@@ -217,9 +217,9 @@ function makeDeps(deps: {
   models?: Array<{ provider: string; modelId: string }>;
 }): { host: HostDeps; frames: HubFrame[] } {
   const frames: HubFrame[] = [];
-  // Minimal stub: the shortcut only calls historyTarget on the pool and
+  // Minimal stub: the shortcut only calls entryFacts on the pool and
   // getAvailableSnapshot on the model runtime.
-  const pool = { historyTarget: () => deps.target } as unknown as WorkerPool;
+  const pool = { entryFacts: () => deps.target } as unknown as WorkerPool;
   const modelRuntime = {
     getAvailableSnapshot: () => deps.models ?? [],
   } as unknown as PaiModelRuntime;
@@ -320,7 +320,7 @@ describe("tryHandleReadHistory (host shortcut routing)", () => {
   test("readHistory throwing (IO error): not handled", async () => {
     const frames: HubFrame[] = [];
     const host = {
-      pool: { historyTarget: () => ({ state: "parked", sessionPath: "/s.jsonl" }) },
+      pool: { entryFacts: () => ({ state: "parked", sessionPath: "/s.jsonl" }) },
       backend: { resources: { readHistory: () => Promise.reject(new Error("EACCES")) } },
       emit: (frame: HubFrame) => frames.push(frame),
     } as unknown as HostDeps;

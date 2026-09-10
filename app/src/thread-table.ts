@@ -97,6 +97,41 @@ export class ThreadTable {
     }
   }
 
+  /** thread/register (v0.12): first non-live entry matching the resolved
+   * session path (register is idempotent on it). */
+  nonLiveByPath(sessionPath: string): ThreadEntry | undefined {
+    for (const entry of this.entries.values()) {
+      if (
+        entry.state !== "live" &&
+        entry.sessionPath !== null &&
+        resolvePath(entry.sessionPath) === sessionPath
+      ) {
+        return entry;
+      }
+    }
+    return undefined;
+  }
+
+  /** thread/register: admit a session file as a parked entry (no worker).
+   * Never overwrites an existing entry — callers resolve idempotency first. */
+  registerParked(spec: {
+    threadId: string;
+    cwd: string;
+    sessionPath: string;
+    trusted: boolean;
+  }): void {
+    this.entries.set(spec.threadId, {
+      threadId: spec.threadId,
+      cwd: spec.cwd,
+      sessionPath: spec.sessionPath,
+      trusted: spec.trusted,
+      state: "parked",
+      wake: undefined,
+      stopRequested: false,
+    });
+    this.enforceNonLiveCap();
+  }
+
   /**
    * Path occupancy check with a belt beyond the occupiedPaths registry: a
    * spawning worker whose session file just appeared (persist → response
