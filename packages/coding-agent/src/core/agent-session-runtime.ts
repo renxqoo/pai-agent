@@ -1,5 +1,7 @@
 import { constants, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { basename, join, parse, resolve } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { resolvePath } from "../utils/paths.ts";
 import type { AgentSession } from "./agent-session.ts";
 import type { AgentSessionRuntimeDiagnostic, AgentSessionServices } from "./agent-session-services.ts";
@@ -38,6 +40,12 @@ export type CreateAgentSessionRuntimeFactory = (options: {
 	sessionManager: SessionManager;
 	sessionStartEvent?: SessionStartEvent;
 	projectTrustContext?: ProjectTrustContext;
+	/** Session replacement inheritance: current model/thinking level captured
+	 * before teardown. When omitted (fresh spawn, resume), the session resolves
+	 * the model itself — from session data when the branch has messages, else
+	 * via initial-model resolution. */
+	model?: Model<Api>;
+	thinkingLevel?: ThinkingLevel;
 }) => Promise<CreateAgentSessionRuntimeResult>;
 
 /**
@@ -128,6 +136,15 @@ export class AgentSessionRuntime {
 	 */
 	setBeforeSessionInvalidate(beforeSessionInvalidate?: () => void): void {
 		this.beforeSessionInvalidate = beforeSessionInvalidate;
+	}
+
+	/** Model/thinking level to carry into a replacing session. Must run before
+	 * teardown — after it the current session state is no longer readable. */
+	private captureSessionDefaults(): { model?: Model<Api>; thinkingLevel?: ThinkingLevel } {
+		return {
+			...(this.session.model !== undefined ? { model: this.session.model } : {}),
+			thinkingLevel: this.session.thinkingLevel,
+		};
 	}
 
 	private async emitBeforeSwitch(
@@ -290,6 +307,11 @@ export class AgentSessionRuntime {
 		}
 
 		const previousSessionFile = this.session.sessionFile;
+		// Capture before any teardown: a forked branch may contain no messages
+		// (position "before" the first user entry), which would otherwise skip
+		// session-data model restoration and fall through to initial-model
+		// resolution — silently switching the fork away from its source model.
+		const inherit = this.captureSessionDefaults();
 		if (this.session.sessionManager.isPersisted()) {
 			const currentSessionFile = this.session.sessionFile;
 			if (!currentSessionFile) {
@@ -306,6 +328,7 @@ export class AgentSessionRuntime {
 						agentDir: this.services.agentDir,
 						sessionManager,
 						sessionStartEvent: { type: "session_start", reason: "fork", previousSessionFile },
+						...inherit,
 					}),
 				);
 				await this.finishSessionReplacement(options?.withSession);
@@ -329,6 +352,7 @@ export class AgentSessionRuntime {
 					agentDir: this.services.agentDir,
 					sessionManager,
 					sessionStartEvent: { type: "session_start", reason: "fork", previousSessionFile },
+					...inherit,
 				}),
 			);
 			await this.finishSessionReplacement(options?.withSession);
@@ -348,6 +372,7 @@ export class AgentSessionRuntime {
 				agentDir: this.services.agentDir,
 				sessionManager,
 				sessionStartEvent: { type: "session_start", reason: "fork", previousSessionFile },
+				...inherit,
 			}),
 		);
 		await this.finishSessionReplacement(options?.withSession);

@@ -105,6 +105,7 @@ spawn("pai-cli", [], {
 
 **`fork`** — 从历史条目分叉出新会话。字段：`threadId`、`entryId`（来自 get_entries/get_fork_messages）、`position?`：`"before"`（默认，从该用户消息之前重试——响应带 `text` 原文）或 `"at"`（含该条目复制）。
 **响应 `{threadId: 新, previousThreadId: 旧, sessionPath, text, cancelled}`。threadId 已换新：旧 id 立即失效（查询回 Unknown threadId），把窗口路由到新 id。** `cancelled:true`（扩展拦截）时会话未变，忽略 threadId 字段。
+fork/clone 继承分叉时刻的模型与思考档：worker 在替换前捕获并显式传入新会话——分支即使早于首条用户消息（`before` 首条时新会话无任何可恢复数据），也不回落初始模型解析（源会话本身无可用模型时除外，此时行为与旧版一致）。
 fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落盘）→ `success:false`，**线程保留可继续使用**；罕见的替换中途失败（会话已被销毁）→ `success:false` + 一帧 `thread_died`（旧会话文件已落盘，可 `thread/resume` 恢复）。
 
 **`clone`** — 在当前 leaf 复制分叉（等价 fork at leaf）。响应同 fork。同样换 id。

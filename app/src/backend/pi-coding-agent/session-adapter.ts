@@ -15,6 +15,7 @@ import {
   type AgentSession,
   type AgentSessionRuntime,
   type AgentSessionEvent,
+  type CreateAgentSessionFromServicesOptions,
   type CreateAgentSessionRuntimeFactory,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -117,6 +118,28 @@ type CreateExtensionsFn = (spawn: {
   agentName?: string;
 }) => InlineExtension[];
 
+/** Session-creation inputs from a runtime factory call: replacement
+ * inheritance (fork) outranks the spawn-time model — a resumed worker has no
+ * spawn-time snapshot, and a forked branch may be too early (no messages) for
+ * session-data restoration. */
+function inheritableSessionOptions(
+  factoryOptions: Parameters<CreateAgentSessionRuntimeFactory>[0],
+  spawnModel: SessionModel | undefined,
+): Partial<
+  Pick<CreateAgentSessionFromServicesOptions, "model" | "thinkingLevel" | "sessionStartEvent">
+> {
+  const inheritedModel = factoryOptions.model ?? spawnModel;
+  return {
+    ...(factoryOptions.sessionStartEvent !== undefined
+      ? { sessionStartEvent: factoryOptions.sessionStartEvent }
+      : {}),
+    ...(inheritedModel !== undefined ? { model: inheritedModel } : {}),
+    ...(factoryOptions.thinkingLevel !== undefined
+      ? { thinkingLevel: factoryOptions.thinkingLevel }
+      : {}),
+  };
+}
+
 function makeRuntimeFactory(deps: {
   modelRuntime: ModelRuntime;
   trusted: boolean;
@@ -152,11 +175,10 @@ function makeRuntimeFactory(deps: {
     const created = await createAgentSessionFromServices({
       services,
       sessionManager: factoryOptions.sessionManager,
-      ...(factoryOptions.sessionStartEvent !== undefined
-        ? { sessionStartEvent: factoryOptions.sessionStartEvent }
-        : {}),
-      ...(model !== undefined ? { model } : {}),
+      // Inheritance last: a fork's captured model/thinking level must not be
+      // overridden by spawn-time shaping snapshots.
       ...shapingOptions(shaping),
+      ...inheritableSessionOptions(factoryOptions, model),
     });
     return { ...created, services, diagnostics: [] };
   };
