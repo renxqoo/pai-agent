@@ -95,6 +95,20 @@ export function resumePathError(sessionPath: string): string | undefined {
  * not to files it did not write this second). */
 const MAX_READ_HISTORY_BYTES = 64 * 1024 * 1024;
 
+/** Single-slot share window for one user action: a parked open fires
+ * register + get_entries + get_state back-to-back on the same file, and the
+ * same-mtime burst shares one parse. Cache residency is bounded by exactly
+ * one file's entries and rotates on the next distinct read — no long-lived
+ * per-session caches (v0.12 concurrency budget). */
+const READ_HISTORY_SHARE_MS = 1_000;
+let readHistoryShared: {
+  path: string;
+  mtimeMs: number;
+  size: number;
+  at: number;
+  entries: ReturnType<typeof parseSessionEntries>;
+} | null = null;
+
 /** Parked read history (v0.12): the same admission fence as thread/resume,
  * then a side-effect-free parse (parseSessionEntries skips malformed lines;
  * unlike SessionManager.open/loadEntriesFromFile it never migrates or
@@ -107,32 +121,67 @@ export function readHistory(sessionPath: string): Promise<ReadHistoryResult> {
 }
 
 function readHistorySync(sessionPath: string): ReadHistoryResult {
-  if (resumePathError(sessionPath) !== undefined) {
-    return { ok: false, reason: "not_found" };
-  }
-  const resolved = resolvePath(sessionPath);
+  // Fence errors are verdicts, but its realpath probes can race a deletion
+  // (TOCTOU) and throw — that is the file being gone, i.e. not_found.
+  let fenceError: string | undefined;
   try {
-    if (statSync(resolved).size > MAX_READ_HISTORY_BYTES) {
-      return { ok: false, reason: "invalid_file" };
-    }
+    fenceError = resumePathError(sessionPath);
   } catch {
     return { ok: false, reason: "not_found" };
   }
+  if (fenceError !== undefined) {
+    return { ok: false, reason: "not_found" };
+  }
+  const resolved = resolvePath(sessionPath);
+  let mtimeMs: number;
+  let size: number;
+  try {
+    ({ mtimeMs, size } = statSync(resolved));
+  } catch {
+    return { ok: false, reason: "not_found" };
+  }
+  if (size > MAX_READ_HISTORY_BYTES) {
+    return { ok: false, reason: "invalid_file" };
+  }
+  if (sharedParseHit(resolved, mtimeMs, size)) {
+    return { ok: true, fileEntries: readHistoryShared?.entries ?? [] };
+  }
+  return parseAndShare(resolved, mtimeMs, size);
+}
+
+/** True when the single-slot share window still holds this exact file. */
+function sharedParseHit(resolved: string, mtimeMs: number, size: number): boolean {
+  const shared = readHistoryShared;
+  return (
+    shared !== null &&
+    shared.path === resolved &&
+    shared.mtimeMs === mtimeMs &&
+    shared.size === size &&
+    Date.now() - shared.at < READ_HISTORY_SHARE_MS
+  );
+}
+
+function parseAndShare(resolved: string, mtimeMs: number, size: number): ReadHistoryResult {
   let entries;
   try {
     entries = parseSessionEntries(readFileSync(resolved, "utf8"));
   } catch {
     return { ok: false, reason: "invalid_file" };
   }
+  // parseSessionEntries pushes any JSON value (a literal `null` line
+  // included) without shape validation — guard before field access.
   const [header] = entries;
   if (
     header === undefined ||
+    typeof header !== "object" ||
+    header === null ||
     header.type !== "session" ||
     typeof (header as { id?: unknown }).id !== "string" ||
     (header.version ?? 1) < CURRENT_SESSION_VERSION
   ) {
     return { ok: false, reason: "invalid_file" };
   }
+  readHistoryShared = { path: resolved, mtimeMs, size, at: Date.now(), entries };
   return { ok: true, fileEntries: entries };
 }
 

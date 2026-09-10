@@ -65,10 +65,14 @@ export function readHistoryEntries(
   };
 }
 
-/** get_state over a snapshot. isStreaming/isCompacting are false by
- * definition: the thread has no worker while the host answers directly.
- * model/thinkingLevel follow buildSessionContext: the last model_change or
- * assistant message on the leaf path wins (path order, either kind).
+/** get_state over a snapshot; null when the entry graph is unusable for the
+ * context walk (a cyclic parentId chain would loop the SDK's unguarded
+ * parent walk forever INSIDE the host process — the wake path's 30s
+ * stale-kill bounds the same file to a single worker instead).
+ * isStreaming/isCompacting are false by definition: the thread has no
+ * worker while the host answers directly. model/thinkingLevel follow
+ * buildSessionContext: the last model_change or assistant message on the
+ * leaf path wins (path order, either kind).
  *
  * Declared divergences from the live get_state (design.md v0.12): the
  * direct read reports the session-recorded model as a rich SessionModel or
@@ -91,7 +95,8 @@ export function readHistoryState(
   sessionName: string | null;
   sessionFile: string;
   messageCount: number;
-} {
+} | null {
+  if (!parentChainAcyclic(snapshot.entries, snapshot.leafId)) return null;
   const context = buildSessionContext(snapshot.entries, snapshot.leafId);
   const model: SessionModel | null =
     context.model !== null && context.messages.length > 0
@@ -107,4 +112,19 @@ export function readHistoryState(
     sessionFile: options.sessionPath,
     messageCount: context.messages.length,
   };
+}
+
+/** Guard for the SDK's unguarded parent walk: a hand-crafted or corrupted
+ * file with a cyclic parentId chain must degrade to fail-open (null), not
+ * loop the host. Walks exactly the leaf path the context walk would take. */
+function parentChainAcyclic(entries: readonly SessionEntry[], leafId: string | null): boolean {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const seen = new Set<string>();
+  let current = leafId === null ? undefined : byId.get(leafId);
+  while (current !== undefined) {
+    if (seen.has(current.id)) return false;
+    seen.add(current.id);
+    current = current.parentId === null ? undefined : byId.get(current.parentId);
+  }
+  return true;
 }

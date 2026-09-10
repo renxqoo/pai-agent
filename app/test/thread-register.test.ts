@@ -77,6 +77,40 @@ describe("registerParkedAdmission (thread/register)", () => {
     }
   });
 
+  test("spawning wake window: the rejection names the worker uid when threadId is still empty", () => {
+    const table = new ThreadTable();
+    const spawning = {
+      ...fakeHandle(),
+      threadId: "",
+      uid: "w7",
+      sessionPath: SPEC.sessionPath,
+    } as unknown as WorkerHandle;
+    const outcome = registerParkedAdmission({ table, workers: () => [spawning] }, SPEC);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toContain("Session already open (worker w7)");
+    }
+  });
+
+  test("symptom regression: idempotent hit on a null-path entry repairs the table (no hollow echo)", () => {
+    const table = new ThreadTable();
+    table.registerParked({
+      threadId: "aaa",
+      cwd: "/w",
+      sessionPath: SPEC.sessionPath,
+      trusted: false,
+    });
+    const entry = table.entry("aaa");
+    if (entry === undefined) throw new Error("fixture");
+    entry.sessionPath = null;
+    const outcome = registerParkedAdmission({ table, workers: () => [] }, SPEC);
+    expect(outcome).toEqual({
+      ok: true,
+      data: { threadId: "aaa", cwd: "/w", sessionPath: SPEC.sessionPath },
+    });
+    expect(table.entry("aaa")?.sessionPath).toBe(SPEC.sessionPath);
+  });
+
   test("register then resume-path occupancy: the parked entry does not block a later wake", () => {
     const { ops, table } = makeOps();
     registerParkedAdmission(ops, SPEC);

@@ -339,9 +339,10 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 
 ## 契约 v0.12 增补：parked 只读历史（2026-09-10，已实施；方案 docs/plans/2026-09-10-parked-read-history.md）
 
-对外零破坏增量：命令/帧/能力位词表均不变。`get_entries`/`get_state` 对**非 live**（parked/dead）thread 的应答路径从「唤醒 worker」改为「host 本地直读会话文件」——读不唤醒、写才唤醒（Electron 侧浏览历史零 worker 成本）。推导与 worker 重放**同源**：条目/leafId 经 pi SDK 同一解析器，model/thinkingLevel/messages 经 `buildSessionContext`（路径序最后 model_change 或 assistant message 胜出），窗口经 `selectEntriesWindow`（两路径共用）。
+对外零破坏增量：命令/帧/能力位词表均不变。`get_entries`/`get_state` 对**非 live**（parked/dead）thread 的应答路径从「唤醒 worker」改为「host 本地直读会话文件」——读不唤醒、写才唤醒（Electron 侧浏览历史零 worker 成本）。推导与 worker 重放**同源**：条目/leafId 经 pi SDK 同一解析器，model/thinkingLevel/messages 经 `buildSessionContext`（路径序最后 model_change 或 assistant message 胜出），窗口经 `selectEntriesWindow`（两路径共用）；model 解析不到 → `null`（无瘦形状回落）。
 
 - **`thread/register`（新命令，v0.12 收口增补）**：`{sessionPath, trusted?}` → host 本地把会话文件纳管为 parked 表项（读 header 取 threadId=sessionId 与 cwd；零 worker）。裁决序：同路径 live 写者 → failure（already open）；既有同 id / 同路径非 live 表项 → 幂等返回；否则建表。动因：冷启动 host 表为空（客户端经 `thread/list_saved` 对账不 resume），读命令是 threadId 寻址——**未纳管会话的读命令回 `Unknown threadId`**（Electron 症状「所有历史对话加载失败」）；客户端在只读水化链头部先 register（毫秒级幂等）。纳管表项参与既有闲置退役/写命令唤醒语义不变（resume admission 的 deleteNonLiveByPath 照常替换表项）。
+- **环守卫**：get_state 直读前置 leaf 父链环检测（visited）——SDK 的父链行走无环保护，环形 parentId 文件在 host 进程内会死循环整机；检出即按不可用处理（fail-open 唤醒，worker 死循环有 30s stale-kill 兜底）。get_entries 不走链，不受影响。
 - **路由**：host 命令分发在透传前的只读短路（`src/read-history-command.ts`）：命令 ∈ {get_entries, get_state} ∧ entry 非 live ∧ 有 sessionPath ∧ 后端 `resources.readHistory` 可用 → 直读应答；**任何不可用（live/未知 thread/无路径/后端不支持/文件缺失或无效/IO 错误）返回未处理，继续走唤醒路径**（fail-open：最坏行为 = 增补前）。可读快照上的游标/limit 错误是真命令失败（与 worker 路径同文案），不回退。
 - **直读口径**（`src/read-history.ts`）：`isStreaming`/`isCompacting` 恒 false（无 worker 定义上无在途轮）；`sessionId` = header id；`sessionName` = 追加序最后 `session_info`（空名清除）；`messageCount` = compaction 感知的上下文消息数；`model` 经 host 快照 `resolveModel` 富解析、未命中回落瘦形状 `{provider, modelId}`（live 版经 runtime 恢复链可能为富或缺失——两者客户端都只按 provider/modelId 消费，差异落档于此）。直读**无副作用**：不 spawn、不改 thread 状态、不写文件（解析用 `parseSessionEntries`，不经 `SessionManager.open` 的迁移/修复路径）。
 - **live 恒透传**（负向不变量）：worker 内存态领先文件 flush，live 读不得走文件。直读与唤醒竞态读到 append-only 一致前缀，过期响应由事件流 + 下次 live 读最终一致（不做排序协调）。

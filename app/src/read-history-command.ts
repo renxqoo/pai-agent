@@ -47,17 +47,14 @@ export async function tryHandleReadHistory(
   if (name === "get_entries") {
     answerEntries({ host: deps, cmd, id, snapshot });
   } else {
-    deps.emit(
-      responseSuccess(
-        id,
-        name,
-        readHistoryState(snapshot, {
-          sessionPath,
-          resolveModel: (provider, modelId) =>
-            resolveModel(deps.backend.modelRuntime, provider, modelId),
-        }),
-      ),
-    );
+    // null = unusable entry graph (e.g. cyclic parentId) — fail-open to wake
+    const state = readHistoryState(snapshot, {
+      sessionPath,
+      resolveModel: (provider, modelId) =>
+        resolveModel(deps.backend.modelRuntime, provider, modelId),
+    });
+    if (state === null) return false;
+    deps.emit(responseSuccess(id, name, state));
   }
   return true;
 }

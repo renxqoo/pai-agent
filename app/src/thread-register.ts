@@ -26,32 +26,34 @@ export function registerParkedAdmission(
 ): RegisterOutcome {
   const holder = ops.table.holder(spec.sessionPath, ops.workers());
   if (holder !== undefined) {
+    // holder.threadId is "" while an in-flight wake is still spawning —
+    // the worker uid keeps the diagnostic non-empty there.
+    const who =
+      holder.threadId.length > 0 ? `threadId: ${holder.threadId}` : `worker ${holder.uid}`;
     return {
       ok: false,
-      error: `Session already open (threadId: ${holder.threadId}); two writers would corrupt the session file`,
+      error: `Session already open (${who}); two writers would corrupt the session file`,
     };
   }
   const byId = ops.table.entry(spec.threadId);
   if (byId !== undefined) {
-    // Idempotent: an existing entry (any state) is the truth for that id.
+    // Idempotent on the entry — and repairing: an entry whose sessionPath
+    // is null (worker died between persist and first heartbeat) gets the
+    // on-disk path written back instead of a hollow idempotent echo.
+    if (byId.sessionPath === null) byId.sessionPath = spec.sessionPath;
     return {
       ok: true,
-      data: {
-        threadId: byId.threadId,
-        cwd: byId.cwd,
-        sessionPath: byId.sessionPath ?? spec.sessionPath,
-      },
+      data: { threadId: byId.threadId, cwd: byId.cwd, sessionPath: byId.sessionPath },
     };
   }
   const byPath = ops.table.nonLiveByPath(spec.sessionPath);
   if (byPath !== undefined) {
+    // nonLiveByPath only matches entries whose sessionPath resolved to this
+    // path — never null here; the guard keeps the type honest.
+    const existingPath = byPath.sessionPath ?? spec.sessionPath;
     return {
       ok: true,
-      data: {
-        threadId: byPath.threadId,
-        cwd: byPath.cwd,
-        sessionPath: byPath.sessionPath ?? spec.sessionPath,
-      },
+      data: { threadId: byPath.threadId, cwd: byPath.cwd, sessionPath: existingPath },
     };
   }
   ops.table.registerParked(spec);

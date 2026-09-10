@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -409,11 +409,17 @@ describe("parser alignment: direct read equals SessionManager replay", () => {
   });
 });
 
-describe("readHistory admission (fence / legacy version / size ceiling)", () => {
+describe("readHistory admission (fence / legacy / ceiling / share cache)", () => {
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   const agentDir = mkdtempSync(join(tmpdir(), "pai-read-history-admission-"));
   const sessionsDir = join(agentDir, "sessions");
   process.env.PI_CODING_AGENT_DIR = agentDir;
   mkdirSync(sessionsDir, { recursive: true });
+  afterAll(() => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    rmSync(agentDir, { recursive: true, force: true });
+  });
 
   test("a v3 session inside the fence parses", async () => {
     const path = join(sessionsDir, "ok.jsonl");
@@ -426,6 +432,36 @@ describe("readHistory admission (fence / legacy version / size ceiling)", () => 
       ok: true,
       fileEntries: [header("s1"), USER("e1", null, "hi")],
     });
+  });
+
+  test("symptom regression: a literal-null first line is invalid_file, not a sync throw", async () => {
+    const { readHistory } = await import("../src/backend/pi-coding-agent/index.ts");
+    const nullLine = join(sessionsDir, "nullhead.jsonl");
+    writeFileSync(nullLine, "null\n");
+    expect(await readHistory(nullLine)).toEqual({ ok: false, reason: "invalid_file" });
+  });
+
+  test("share window: same-mtime burst reuses one parse (same entries reference)", async () => {
+    const { readHistory } = await import("../src/backend/pi-coding-agent/index.ts");
+    const path = join(sessionsDir, "share.jsonl");
+    writeFileSync(
+      path,
+      `${JSON.stringify(header("sh"))}\n${JSON.stringify(USER("e1", null, "hi"))}\n`,
+    );
+    const first = await readHistory(path);
+    const second = await readHistory(path);
+    expect(first.ok && second.ok).toBe(true);
+    if (first.ok && second.ok) {
+      expect(second.fileEntries).toBe(first.fileEntries);
+    }
+    // a different file rotates the single slot (no stale hit)
+    const other = join(sessionsDir, "share2.jsonl");
+    writeFileSync(
+      other,
+      `${JSON.stringify(header("sh2"))}\n${JSON.stringify(USER("e1", null, "hi"))}\n`,
+    );
+    const rotated = await readHistory(other);
+    expect(rotated.ok).toBe(true);
   });
 
   test("legacy pre-v3 files are invalid (wake path owns the migration rewrite)", async () => {
@@ -449,5 +485,25 @@ describe("readHistory admission (fence / legacy version / size ceiling)", () => 
     const outside = join(agentDir, "outside.jsonl");
     writeFileSync(outside, `${JSON.stringify(header("s1"))}\n`);
     expect(await readHistory(outside)).toEqual({ ok: false, reason: "not_found" });
+  });
+});
+
+describe("readHistoryState cyclic-parent guard (host loop safety)", () => {
+  test("symptom regression: a cyclic parentId file degrades to null instead of looping the host", () => {
+    const cyclic = snapshotOf([
+      header("s1"),
+      { ...USER("e1", "e2", "loop"), parentId: "e2" },
+      { ...USER("e2", "e1", "loop"), parentId: "e1" },
+    ]);
+    expect(readHistoryState(cyclic, { sessionPath: "/s", resolveModel: noModel })).toBeNull();
+    // get_entries never walks the chain — the window still serves
+    expect(readHistoryEntries(cyclic, {}).ok).toBe(true);
+  });
+
+  test("self-referencing leaf also degrades; an acyclic file is unaffected", () => {
+    const selfRef = snapshotOf([header("s1"), { ...USER("e1", null, "x"), parentId: "e1" }]);
+    expect(readHistoryState(selfRef, { sessionPath: "/s", resolveModel: noModel })).toBeNull();
+    const fine = snapshotOf([header("s1"), USER("e1", null, "ok")]);
+    expect(readHistoryState(fine, { sessionPath: "/s", resolveModel: noModel })).not.toBeNull();
   });
 });

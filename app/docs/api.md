@@ -60,7 +60,7 @@ spawn("pai-cli", [], {
 响应同 start。同一文件在本 hub 内已打开 → `success:false`（先 `thread/stop` 旧线程再 resume）。恢复后历史用 `get_entries`（首屏 `limit` 取尾部 + `before` 向前翻页；避免 `get_messages` 全量单帧）拉取渲染。
 撕裂写容忍（实测钉死，e2e-mock `torn-session-file` 场景回归）：末行截断（断电类）与中部坏行都能恢复——坏行被丢弃、**完好前缀逐条保留**；仅会话头的文件恢复为空对话；零字节文件恢复成功但 pi 会合成新 sessionId（已知 v1 边界：从未持久化的会话本就无历史可丢）。
 
-**`thread/register`** — 会话文件纳管为 parked 表项（v0.12，host 本地、零 worker、幂等）。字段：`sessionPath`（同 resume 的围栏与绝对路径要求）、`trusted?`（后续写命令唤醒时的信任态）。响应同 start 的 `{threadId, cwd, sessionPath}`（threadId = 会话头 id、cwd = 会话头 cwd）。裁决序：同路径 live 写者 → failure（already open）；既有同 id/同路径非 live 表项 → 幂等返回既有表项；否则建表。用途：冷启动 hub 表为空（客户端对账不 resume）时，读命令（get_entries/get_state 直读）按 threadId 寻址——未纳管会话回 `Unknown threadId`；只读浏览（Electron 侧栏点开历史会话）在水化前先 register。后续 resume/写命令照常唤醒替换表项。
+**`thread/register`** — 会话文件纳管为 parked 表项（v0.12，host 本地、零 worker、幂等）。字段：`sessionPath`（同 resume 的围栏与绝对路径要求）、`trusted?`（后续写命令唤醒时的信任态）。响应同 start 的 `{threadId, cwd, sessionPath}`（threadId = 会话头 id、cwd = 会话头 cwd）。legacy（<v3，需迁移重写）与超大（>64MiB）文件 register 硬失败（`Session file not readable`）——这类会话的读取回落 `thread/resume`（唤醒路径完成迁移后可直读）。裁决序：同路径 live 写者 → failure（already open）；既有同 id/同路径非 live 表项 → 幂等返回既有表项；否则建表。用途：冷启动 hub 表为空（客户端对账不 resume）时，读命令（get_entries/get_state 直读）按 threadId 寻址——未纳管会话回 `Unknown threadId`；只读浏览（Electron 侧栏点开历史会话）在水化前先 register。后续 resume/写命令照常唤醒替换表项。
 
 **`thread/stop`** — 释放对话（dispose，会话文件保留）。幂等：未知 id 也回 success。配合 resume 实现"闲置回收"。
 
