@@ -735,6 +735,39 @@ writeFileSync(
   );
 }
 
+// --- 11b. /compact via the prompt path (v0.11 hub interception) ----------------------
+// A line-start /compact must never reach the model: the hub runs the compact
+// operation instead, with compact timing (the response settles after the
+// compaction events, not at acceptance). Same two contract-correct outcomes.
+{
+  const since = allFrames.length;
+  const r = await send({
+    id: "e42b",
+    type: "prompt",
+    threadId: tid,
+    message: "/compact focus on the API journey",
+  });
+  assert(
+    (r.success && typeof r.data.summary === "string") || /too small/.test(r.error ?? ""),
+    `prompt /compact intercepted (${(r.error ?? "ok").slice(0, 60)})`,
+  );
+  const endAt = allFrames.findIndex(
+    (f, i) => i >= since && f.type === "event" && f.event?.type === "compaction_end",
+  );
+  if (endAt !== -1) {
+    assert(
+      allFrames
+        .slice(since)
+        .some((f) => f.type === "event" && f.event?.type === "compaction_start"),
+      "prompt /compact ran the manual compaction (compaction_start)",
+    );
+    const respAt = allFrames.findIndex(
+      (f, i) => i > endAt && f.type === "response" && f.id === "e42b",
+    );
+    assert(respAt !== -1, "prompt /compact response settled after compaction_end (compact timing)");
+  }
+}
+
 // --- 12. worker journeys (docs/migration/design.md §4/§5/§6) -----------------------
 
 // 12a. fork failure BEFORE teardown keeps the thread usable (v0.3 semantics;
