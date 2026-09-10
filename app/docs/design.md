@@ -375,3 +375,12 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 - **宿主心跳帧扩展**：恒带 `rssBytes`（`process.memoryUsage().rss`）与 `cpuPercent`（`process.cpuUsage` 1s 差分、单核归一、可>100）。
 - **worker 心跳帧扩展**（host↔worker 内部）：恒带 `rssBytes`，host 折叠进 WorkerHandle（未上报容错为 null）。
 - **不处理**：per-worker CPU（RSS 是资源主相）；keepalive 持久化；died/parked 合并帧；streaming worker 的 EOF 主动中止（有界强杀兜底）。
+
+### v0.13 对抗审查处置（2026-09-10 独立会话）
+
+- **retire × 在途唤醒**：wake 在飞时 retire 不再 success-lie——置后置收编（`entry.wake` 落地为 live 后即以 reason=manual 收编；对称 stop 的 stopRequested 语义）。
+- **未落盘会话**：`worker.sessionPath === null`（lazy-persist 首条消息前）的 live worker retire 回 failure `Session not persisted yet`——parking 会造成不可唤醒的幽灵表项（sweep 的同款守卫对齐）。
+- **fork 不继承 keepalive**：rekeyFork 迁移表项时显式清零（新会话新策略；客户端按需 re-assert）。
+- **垃圾输入**：`set_idle_retire_ms` 非有限数字、`thread/set_keepalive` 非布尔 → failure（命令族惯例，不静默折叠加默认）。
+- **cpuPercent 分母**：以实测 tick 间隔为分母（事件循环停顿拉长 tick 时不再系统性放大读数）。
+- **cap 驱逐不发帧**：settleClosedWorker 的非 live 容量驱逐命中本表项时跳过 thread_parked（不给已消失的表项发帧）。

@@ -11,6 +11,7 @@ import type { WorkerHandle } from "../src/worker-process.ts";
 function makeWorker(overrides: Partial<WorkerHandle> = {}): WorkerHandle {
   return {
     child: {} as WorkerHandle["child"],
+    uid: "w-test",
     stdin: { end: () => {}, write: () => true },
     threadId: "t1",
     trusted: true,
@@ -123,5 +124,16 @@ describe("retireWorker (shared entry point)", () => {
     retireWorker({ armTeardownDeadline: () => {} }, worker, "manual");
     expect(worker.retireIntent).toBe("stop");
     expect(worker.retireReason).toBeNull();
+  });
+});
+
+describe("fork does not inherit keepalive (P1-3 回归)", () => {
+  test("rekeyFork clears the flag on the migrated entry", () => {
+    const table = liveTable(makeWorker({ threadId: "a" }));
+    expect(table.setKeepalive("a", true)).toBe(true);
+    const worker = makeWorker({ threadId: "b" });
+    table.rekeyFork(worker, { threadId: "b", previousThreadId: "a", sessionPath: "/tmp/b.jsonl" });
+    expect(table.entry("a")).toBeUndefined();
+    expect(table.entry("b")?.keepalive).toBe(false);
   });
 });

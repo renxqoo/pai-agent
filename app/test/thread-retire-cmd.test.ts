@@ -11,6 +11,7 @@ import type { WorkerHandle } from "../src/worker-process.ts";
 function makeWorker(threadId: string): WorkerHandle {
   return {
     child: {} as WorkerHandle["child"],
+    uid: "w-test",
     stdin: {
       end: () => {
         workerEnded.push(threadId);
@@ -119,6 +120,45 @@ describe("thread/retire settlement", () => {
     retireThreadSettlement(ops, { threadId: "t2", id: "r4", cmdType: "thread/retire" });
     expect(worker.retireIntent).toBe("stop");
     expect(worker.retireReason).toBeNull();
+  });
+
+  test("P1-1 回归：wake 在飞时 retire 置后置收编（唤醒落地即收编，不 success-lie）", async () => {
+    const worker = makeWorker("t-wake");
+    const table = liveTable(worker);
+    // 构造 wake 在飞：表项 parked + wake promise 未决；落地后 liveWorker 可见
+    const entry = table.entry("t-wake");
+    if (entry === undefined) throw new Error("entry missing");
+    let landWake: (() => void) | undefined;
+    entry.state = "parked";
+    entry.wake = new Promise<void>((resolve) => {
+      landWake = resolve;
+    });
+    const { ops, frames } = makeOps(table, worker);
+    retireThreadSettlement(ops, { threadId: "t-wake", id: "rw1", cmdType: "thread/retire" });
+    // 先 ack；worker 尚未注册为 live，不收编
+    expect(frames[0]?.success).toBe(true);
+    expect(worker.retiring).toBe(false);
+    // 唤醒落地（registerLive 使 liveWorker 命中）→ 后置收编执行
+    entry.state = "live";
+    landWake?.();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    expect(worker.retiring).toBe(true);
+    expect(worker.retireReason).toBe("manual");
+  });
+
+  test("P1-2 回归：未落盘会话（sessionPath=null）retire 拒绝 failure", () => {
+    const worker = makeWorker("t-nofile");
+    const table = liveTable(worker);
+    // registerLive 的 reoccupy 会回写 sessionPath——置 null 必须在建表之后
+    worker.sessionPath = null;
+    const { ops, frames, armed } = makeOps(table, worker);
+    retireThreadSettlement(ops, { threadId: "t-nofile", id: "rn1", cmdType: "thread/retire" });
+    expect(frames[0]?.success).toBe(false);
+    expect(frames[0]?.error).toContain("not persisted");
+    expect(worker.retiring).toBe(false);
+    expect(armed).toEqual([]);
   });
 
   test("an in-flight idle retire upgrades its reason to manual", () => {

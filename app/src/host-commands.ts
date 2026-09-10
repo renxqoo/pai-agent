@@ -164,10 +164,12 @@ const handleRetire: HostHandler = async (deps, cmd, id) => {
 /** thread/set_keepalive (v0.13): host-local flag flip; unknown threads fail. */
 const handleSetKeepalive: HostHandler = async (deps, cmd, id) => {
   const setKeepalive = cmd as ThreadSetKeepaliveCmd;
-  if (deps.pool.setKeepalive(setKeepalive.threadId, setKeepalive.keepalive === true)) {
-    deps.emit(
-      responseSuccess(id, setKeepalive.type, { keepalive: setKeepalive.keepalive === true }),
-    );
+  if (typeof setKeepalive.keepalive !== "boolean") {
+    deps.emit(responseFailure(id, setKeepalive.type, "Invalid keepalive"));
+    return;
+  }
+  if (deps.pool.setKeepalive(setKeepalive.threadId, setKeepalive.keepalive)) {
+    deps.emit(responseSuccess(id, setKeepalive.type, { keepalive: setKeepalive.keepalive }));
     return;
   }
   deps.emit(responseFailure(id, setKeepalive.type, `Unknown threadId: ${setKeepalive.threadId}`));
@@ -177,6 +179,10 @@ const handleSetKeepalive: HostHandler = async (deps, cmd, id) => {
  * value is the response so the client never displays a stale policy. */
 const handleSetIdleRetireMs: HostHandler = async (deps, cmd, id) => {
   const setThreshold = cmd as SetIdleRetireMsCmd;
+  if (typeof setThreshold.ms !== "number" || !Number.isFinite(setThreshold.ms)) {
+    deps.emit(responseFailure(id, setThreshold.type, "Invalid ms"));
+    return;
+  }
   const applied = deps.pool.setIdleRetireMs(setThreshold.ms);
   deps.emit(responseSuccess(id, setThreshold.type, { idleRetireMs: applied }));
 };

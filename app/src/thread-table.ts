@@ -281,6 +281,9 @@ export class ThreadTable {
       this.entries.delete(fork.previousThreadId);
       entry.threadId = fork.threadId;
       entry.sessionPath = fork.sessionPath;
+      // A fork is a new conversation: keepalive is client-owned per thread and
+      // must not silently carry over (the client re-asserts if it wants it).
+      entry.keepalive = false;
       this.entries.set(fork.threadId, entry);
     }
     if (this.workers.get(fork.previousThreadId) === worker) {

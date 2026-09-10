@@ -132,12 +132,32 @@ export async function run({ assert }) {
           "wake round works",
         `cycle ${cycle}: wake round served the scripted reply`,
       );
-      const listAfter = await (async () => {
-        host.send({ id: `la${cycle}`, type: "thread/list" });
-        return host.waitResponse(`la${cycle}`, { ms: 15_000 });
-      })();
-      const entry = listAfter.data.threads.find((t) => t.threadId === tid);
-      assert(entry?.state === "live", `cycle ${cycle}: thread is live again after wake`);
+      // The respawned worker's observability fields are zeroed until its
+      // first heartbeat lands (~1s cadence) — poll for the fact, not a sleep.
+      let entry = null;
+      {
+        let seq = 0;
+        const liveDeadline = Date.now() + 8_000;
+        while (Date.now() < liveDeadline) {
+          seq += 1;
+          const pollId = `la${cycle}_${seq}`;
+          host.send({ id: pollId, type: "thread/list" });
+          const list = await host.waitResponse(pollId, { ms: 15_000 });
+          const row = list.data.threads.find((t) => t.threadId === tid);
+          if (row?.state === "live" && typeof row.rssBytes === "number" && row.rssBytes > 0) {
+            entry = row;
+            break;
+          }
+          await new Promise((done) => {
+            setTimeout(done, 300);
+          });
+        }
+      }
+      assert(entry !== null, `cycle ${cycle}: thread is live again after wake`);
+      assert(
+        entry !== null && entry.state === "live" && entry.rssBytes > 0,
+        `cycle ${cycle}: live row reports worker rssBytes`,
+      );
       assert(
         !host.frames.some((f) => f.type === "thread_died"),
         `cycle ${cycle}: no thread_died in a clean cycle`,

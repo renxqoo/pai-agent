@@ -22,7 +22,7 @@ host 按**每会话一个 worker 进程**spawn 你（`PAI_BACKEND` + `<agentDir>
 | `hello`                               | **必须且只能是第一条**（见 §3）                                                                                                     |
 | `response`                            | 命令应答；每个携带 `id` 的命令**恰好一个** response                                                                                 |
 | `event`                               | 会话事件（pai 事件词表，`message_update` 必须剥离累积快照：顶层 `message` 与 `assistantMessageEvent.partial`；帧大小按 delta 恒定） |
-| `heartbeat`                           | 1Hz；worker 侧真值 `{idleMs, streaming, sessionPath, subagents?}`——host 只信这里                                                    |
+| `heartbeat`                           | 1Hz；worker 侧真值 `{idleMs, streaming, sessionPath, subagents?, rssBytes}`——host 只信这里                                          |
 | `grant` / (host 回 `grant_result`)    | v0.6 全局孙进程配额仲裁（不实现 subagents 则永不发送）                                                                              |
 | `ui_request`                          | 对话框中继（requestId 由 worker 分配；host 透传 `ui_response` 回来）                                                                |
 | `hub_error`                           | worker 内未捕获异常上报（进程不退出）                                                                                               |

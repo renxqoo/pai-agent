@@ -116,11 +116,17 @@ function createEmitters(
  * the beat interval, normalized to one core — may exceed 100 on multi-core). */
 function startHeartbeat(emitters: HostEmitters, poolRef: { pool?: WorkerPool }): void {
   let lastCpu = process.cpuUsage();
+  let lastTickAt = Date.now();
   const heartbeat = setInterval(() => {
     const subagents = poolRef.pool?.inFlightSubagents() ?? 0;
+    const now = Date.now();
     const cpu = process.cpuUsage(lastCpu);
     lastCpu = process.cpuUsage();
-    const cpuPercent = ((cpu.user + cpu.system) / 1e6 / (HEARTBEAT_INTERVAL_MS / 1_000)) * 100;
+    // Measured interval as the denominator: an event-loop stall stretches the
+    // tick to N seconds and the nominal window would read N× too high.
+    const elapsedMs = Math.max(1, now - lastTickAt);
+    lastTickAt = now;
+    const cpuPercent = ((cpu.user + cpu.system) / 1e6 / (elapsedMs / 1_000)) * 100;
     emitters.emit({
       type: "heartbeat",
       ...(subagents > 0 ? { subagents } : {}),

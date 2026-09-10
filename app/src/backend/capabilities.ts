@@ -46,6 +46,12 @@ export const CORE_COMMANDS: ReadonlySet<string> = new Set([
   "thread/start",
   "thread/stop",
   "thread/list",
+  // v0.12/v0.13 host-local family (no worker interaction): register, retire,
+  // keepalive, and the idle-retire threshold.
+  "thread/register",
+  "thread/retire",
+  "thread/set_keepalive",
+  "set_idle_retire_ms",
   "prompt",
   "abort",
   "get_state",

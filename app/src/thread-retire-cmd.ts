@@ -6,12 +6,18 @@
  */
 
 import { retireWorker } from "./thread-retire.ts";
-import type { ThreadTable } from "./thread-table.ts";
+import type { ThreadEntry, ThreadTable } from "./thread-table.ts";
 import type { WorkerHandle } from "./worker-process.ts";
 
 export interface RetireOps {
   table: ThreadTable;
-  emitFrame: (frame: { type: "response"; id?: string; command: string; success: boolean }) => void;
+  emitFrame: (frame: {
+    type: "response";
+    id?: string;
+    command: string;
+    success: boolean;
+    error?: string;
+  }) => void;
   liveWorker(threadId: string): WorkerHandle | undefined;
   armTeardownDeadline(worker: WorkerHandle): void;
 }
@@ -22,9 +28,16 @@ export function retireThreadSettlement(
 ): void {
   const { threadId, id: cmdId, cmdType } = cmd;
   const entry = pool.table.entry(threadId);
-  // Idempotent (aligned with thread/stop): unknown and non-live threads ack —
-  // parked/dead already describe the post-retire state.
-  if (entry === undefined || entry.state !== "live") {
+  // Idempotent (aligned with thread/stop): unknown threads ack — parked/dead
+  // already describe the post-retire state. A wake in flight is NOT a stable
+  // state though: mark retireRequested so the revived worker is retired the
+  // moment the wake lands (the stop-raced-wake mirror, design §6).
+  if (entry === undefined) {
+    ackRetire(pool, cmdId, cmdType);
+    return;
+  }
+  if (entry.state !== "live") {
+    retireOnWakeLanding(pool, entry, threadId);
     ackRetire(pool, cmdId, cmdType);
     return;
   }
@@ -41,10 +54,35 @@ export function retireThreadSettlement(
     ackRetire(pool, cmdId, cmdType);
     return;
   }
+  if (worker.sessionPath === null) {
+    // Lazy-persist session (no file yet): parking it would wedge the entry
+    // forever — wake requires a sessionPath. Refuse; the client retries after
+    // the first message persists (or stops the thread instead).
+    pool.emitFrame({
+      type: "response",
+      id: cmdId,
+      command: cmdType,
+      success: false,
+      error: "Session not persisted yet",
+    });
+    return;
+  }
   retireWorker(pool, worker, "manual");
   ackRetire(pool, cmdId, cmdType);
 }
 
 function ackRetire(pool: RetireOps, cmdId: string | undefined, cmdType: string): void {
   pool.emitFrame({ type: "response", id: cmdId, command: cmdType, success: true });
+}
+
+/** A wake in flight is not a stable state: park it the moment the revived
+ * worker lands (the stop-raced-wake mirror, design §6). */
+function retireOnWakeLanding(pool: RetireOps, entry: ThreadEntry, threadId: string): void {
+  if (entry.wake === undefined) return;
+  void entry.wake
+    .catch(() => {})
+    .finally(() => {
+      const landed = pool.liveWorker(threadId);
+      if (landed !== undefined) retireWorker(pool, landed, "manual");
+    });
 }

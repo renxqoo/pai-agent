@@ -1418,6 +1418,23 @@ await expectResponse(
   "set_idle_retire_ms apply",
 );
 await expectResponse(
+  { id: "obs2b", type: "set_idle_retire_ms", ms: "600000" },
+  (r) => {
+    assert(!r.success && /Invalid ms/.test(r.error ?? ""), "set_idle_retire_ms garbage: failure");
+  },
+  "set_idle_retire_ms garbage",
+);
+await expectResponse(
+  { id: "obs3b", type: "thread/set_keepalive", threadId: "ghost-thread-3", keepalive: "yes" },
+  (r) => {
+    assert(
+      !r.success && /Invalid keepalive/.test(r.error ?? ""),
+      "set_keepalive non-boolean: failure",
+    );
+  },
+  "set_keepalive non-boolean",
+);
+await expectResponse(
   { id: "obs3", type: "thread/set_keepalive", threadId: "ghost-thread-3", keepalive: true },
   (r) => {
     assert(!r.success && /Unknown threadId/.test(r.error ?? ""), "set_keepalive ghost: failure");

@@ -28,24 +28,24 @@ spawn("pai-cli", [], {
 - 响应契约：**每个带 `id` 的命令恰好收到一个 `response` 帧，`id` 回显**。`prompt` 的 response 表示"已接受"，回复内容走事件流——**例外**：行首 `/compact` 命中拦截时响应时序同 `compact`（压缩完成才返回，见 §3 对话驱动）。
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
-- 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、thread/list、prompt、abort、get_state、get_commands、get_host_info、ui_response、get_permission_rules、set_permission_rules——共 11 个，任何后端恒可用）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
+- 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、thread/list、prompt、abort、get_state、get_commands、get_host_info、ui_response、get_permission_rules、set_permission_rules、thread/register、thread/retire、thread/set_keepalive、set_idle_retire_ms——共 15 个，任何后端恒可用）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
 
-## 3. 命令总览（42 个）
+## 3. 命令总览（43 个）
 
-| 组               | 命令                                                                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| 线程生命周期     | thread/start、thread/resume、thread/stop、thread/retire（v0.13）、thread/set_keepalive（v0.13）、thread/list、thread/list_saved |
-| 对话驱动         | prompt、steer、follow_up、abort、clear_queue、compact                                                                           |
-| 状态与历史       | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages            |
-| 会话树/分叉      | fork、clone、navigate_tree                                                                                                      |
-| 模型             | get_models、set_model、set_model_override（v0.9）、set_thinking_level、get_thinking_levels                                      |
-| 凭据             | auth/list、auth/set_api_key、auth/remove_key                                                                                    |
-| 直执行           | bash、abort_bash                                                                                                                |
-| 对话框           | ui_response                                                                                                                     |
-| 子 agent 通信    | subagent/steer                                                                                                                  |
-| 权限（v0.5）     | get_permission_rules、set_permission_rules                                                                                      |
-| agent（v0.5）    | agents/list                                                                                                                     |
-| 宿主信息（v0.6） | get_host_info、set_idle_retire_ms（v0.13）                                                                                      |
+| 组               | 命令                                                                                                                                                      |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 线程生命周期     | thread/start、thread/resume、thread/register（v0.12）、thread/stop、thread/retire（v0.13）、thread/set_keepalive（v0.13）、thread/list、thread/list_saved |
+| 对话驱动         | prompt、steer、follow_up、abort、clear_queue、compact                                                                                                     |
+| 状态与历史       | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages                                      |
+| 会话树/分叉      | fork、clone、navigate_tree                                                                                                                                |
+| 模型             | get_models、set_model、set_model_override（v0.9）、set_thinking_level、get_thinking_levels                                                                |
+| 凭据             | auth/list、auth/set_api_key、auth/remove_key                                                                                                              |
+| 直执行           | bash、abort_bash                                                                                                                                          |
+| 对话框           | ui_response                                                                                                                                               |
+| 子 agent 通信    | subagent/steer                                                                                                                                            |
+| 权限（v0.5）     | get_permission_rules、set_permission_rules                                                                                                                |
+| agent（v0.5）    | agents/list                                                                                                                                               |
+| 宿主信息（v0.6） | get_host_info、set_idle_retire_ms（v0.13）                                                                                                                |
 
 ## 4. 命令明细
 
@@ -64,9 +64,9 @@ spawn("pai-cli", [], {
 
 **`thread/stop`** — 释放对话（dispose，会话文件保留）。幂等：未知 id 也回 success。配合 resume 实现"闲置回收"。
 
-**`thread/retire`（v0.13）** — 手动闲置收编：worker 按 retire 同型路径关闭（stdin.end + `workerExitTimeoutMs` 有界强杀），表项转 `parked`（会话文件保留、写命令自动唤醒）——与 `thread/stop`（删表项）语义互补。幂等：未知/非 live 线程也回 success。streaming 线程允许 retire（在途命令由 close 对账合成 failure，恰好一响应不变）；与在途 stop 竞争时 stop 优先。收编完成发 `thread_parked`（reason=`manual`）。
+**`thread/retire`（v0.13）** — 手动闲置收编：worker 按 retire 同型路径关闭（stdin.end + `workerExitTimeoutMs` 有界强杀），表项转 `parked`（会话文件保留、写命令自动唤醒）——与 `thread/stop`（删表项）语义互补。幂等：未知线程回 success；**唤醒在飞**的表项回 success 并后置收编（唤醒落地即收编，reason=`manual`）；**未落盘会话**（`sessionPath` 尚为 null，首条消息前）回 failure `Session not persisted yet`。streaming 线程允许 retire（在途命令由 close 对账合成 failure，恰好一响应不变）；与在途 stop 竞争时 stop 优先。收编完成发 `thread_parked`（reason=`manual`）。
 
-**`thread/set_keepalive`（v0.13）** — `{threadId, keepalive: boolean}`：host 本地置表项「免闲置收编」标志（零 worker，parked 表项也可设，下次唤醒生效）。未知线程 failure。闲置 sweep 跳过 keepalive 线程；stale 心跳强杀照旧。标志不持久化（客户端注册表是持久真相，live 化时 re-assert）。
+**`thread/set_keepalive`（v0.13）** — `{threadId, keepalive: boolean}`：host 本地置表项「免闲置收编」标志（零 worker，parked 表项也可设，下次唤醒生效）。未知线程或非布尔 keepalive → failure。闲置 sweep 跳过 keepalive 线程；stale 心跳强杀照旧。标志不持久化（客户端注册表是持久真相，live 化时 re-assert）；**fork/clone 不继承**（新会话新策略）。
 
 **`thread/list`** — 会话表：`[{threadId, cwd, sessionPath, isStreaming, state, idleMs, subagents, rssBytes, keepalive}]`（v0.13 起 idleMs/subagents/rssBytes/keepalive 四字段；idleMs/subagents 非 live=0，rssBytes=worker 心跳上报内存、未上报 null，keepalive=表项标志）。`state`：`live`（有 worker 进程；`isStreaming` 来自最近心跳，陈旧度 ≤1s，精确值用 `get_state`）/ `parked`（已闲置收编；读命令 `get_entries`/`get_state` 本地直读会话文件，其余命令自动唤醒）/ `dead`（worker 异常死亡，见 `thread_died`；读命令同样直读，写命令自动重开）。崩溃恢复的注册表来源。
 
