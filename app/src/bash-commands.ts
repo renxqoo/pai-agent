@@ -112,17 +112,23 @@ async function confirmBashPermission(deps: {
   id: string | undefined;
 }): Promise<boolean> {
   const { ctx, bash, thread, id } = deps;
+  // v0.12 B: a command the OS sandbox will silently contain needs no
+  // advisory ask — the fallback ask auto-allows (allow/block rules above it
+  // still win). Degraded/inactive runtime ⇒ oracle false ⇒ ask as before.
+  const sandboxSilent = ctx.sessions.containmentOracle?.().silentBash() === true;
   const check = await ctx.checkPermission({
     tool: "bash",
     value: bash.command,
-    ask: async (title: string, value: string) => {
-      const response = await ctx.broker.ask(
-        thread.session.sessionId,
-        { method: "confirm", title, message: value },
-        { timeout: BASH_CONFIRM_TIMEOUT_MS },
-      );
-      return response?.["confirmed"] === true;
-    },
+    ask: sandboxSilent
+      ? async () => true
+      : async (title: string, value: string) => {
+          const response = await ctx.broker.ask(
+            thread.session.sessionId,
+            { method: "confirm", title, message: value },
+            { timeout: BASH_CONFIRM_TIMEOUT_MS },
+          );
+          return response?.["confirmed"] === true;
+        },
     threadId: thread.session.sessionId,
     injectedRules: ctx.sessions.getInjectedRules(),
   });

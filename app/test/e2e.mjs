@@ -163,30 +163,6 @@ function waitEvent(pred, label, ms = 120_000, since = allFrames.length) {
     }, 100);
   });
 }
-const nextRequestId = (() => {
-  const ids = new Set();
-  return () => {
-    const fr = allFrames.find(
-      (x) => x.type === "ui_request" && x.method === "confirm" && !ids.has(x.requestId),
-    );
-    if (fr) ids.add(fr.requestId);
-    return fr;
-  };
-})();
-const waitConfirm = (ms = 120_000) =>
-  new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const t = setInterval(() => {
-      const f = nextRequestId();
-      if (f) {
-        clearInterval(t);
-        resolve(f);
-      } else if (Date.now() - t0 > ms) {
-        clearInterval(t);
-        reject(new Error("timeout waiting for confirm dialog"));
-      }
-    }, 100);
-  });
 const assistantTexts = (msgs) =>
   msgs
     .filter((m) => m.role === "assistant")
@@ -485,27 +461,22 @@ const sessionFile = start.data.sessionPath;
       "Use the bash tool to run exactly this command: cat note.txt — then reply with its content.",
   });
   assert(r.success, "prompt(bash task) accepted");
-  const dialog = await waitConfirm();
-  assert(
-    dialog.threadId === tid &&
-      typeof dialog.message === "string" &&
-      dialog.message.includes("cat note.txt"),
-    "confirm dialog shows the command",
-  );
-  const ack = await send({
-    id: "e12",
-    type: "ui_response",
-    requestId: dialog.requestId,
-    payload: { confirmed: true },
-  });
-  assert(ack.success, "ui_response(allow) acked");
-  await waitEvent((e) => e.type === "agent_settled", "gated bash settled");
+  // v0.12 (plan §4.4 B): a bash command the OS sandbox will silently contain
+  // needs NO permission dialog — the fallback ask auto-allows (allow/block
+  // rules would still gate it). The journey asserts the silent path: no
+  // confirm frame appears and the command still executes.
+  const before = allFrames.length;
+  await waitEvent((e) => e.type === "agent_settled", "sandboxed bash settled");
   await waitIdle(tid);
+  const silent = !allFrames
+    .slice(before)
+    .some((f) => f.type === "ui_request" && f.method === "confirm");
+  assert(silent, "sandboxed bash runs without a permission dialog (v0.12 B)");
   const msgs = (await send({ id: "e13", type: "get_messages", threadId: tid })).data.messages;
   const toolResults = msgs.filter((m) => m.role === "toolResult" && m.toolName === "bash");
   assert(
     toolResults.some((m) => JSON.stringify(m.content).includes("e2e-secret-42")),
-    "allowed bash tool executed and returned file content",
+    "sandboxed bash tool executed and returned file content",
   );
 }
 
@@ -1078,6 +1049,13 @@ writeFileSync(
     "agents/list (no thread): project agent hidden",
   );
 
+  // v0.12: the dialog-relay leg below needs the grandchild's bash to hit
+  // the PERMISSION gate — with the sandbox active the containment oracle
+  // silently allows sandboxed bash (plan §4.4 B) and the relay would never
+  // fire. Disable the sandbox for THIS thread's snapshot only (config is
+  // snapshotted at session creation; the file is removed right after the
+  // start resolves so later threads are unaffected).
+  writeFileSync(join(agentDir, "sandbox.json"), JSON.stringify({ enabled: false }));
   const t3 = await send({
     id: "sa2",
     type: "thread/start",
@@ -1261,6 +1239,8 @@ writeFileSync(
   await assertNoGrandchildren(hub.pid, "abort cascaded: grandchild killed");
 
   await send({ id: "sa13", type: "thread/stop", threadId: tid3 });
+  // Restore the sandbox for every later thread's snapshot (see the sa2 note).
+  rmSync(join(agentDir, "sandbox.json"), { force: true });
 }
 
 function sessionTree(dir) {

@@ -21,6 +21,7 @@ import type {
   WorkerCommand,
   WorkerGrantFrame,
   WorkerHeartbeatFrame,
+  WorkerSandboxGrantFrame,
 } from "./protocol.ts";
 import { OBSERVER_COMMANDS, WORKER_PROTOCOL_VERSION } from "./protocol.ts";
 import { SubagentRegistry } from "./subagent-registry.ts";
@@ -89,11 +90,33 @@ function startHeartbeat(deps: {
   process.on("exit", () => clearInterval(heartbeat));
 }
 
+/** The single stdout frame writer: turn-boundary trigger + fail-shutdown. */
+function workerEmit(deps: {
+  writer: { write: (chunk: string) => Promise<void> };
+  writeStderr: (text: string) => void;
+  shutdown: (reason: string) => Promise<void> | void;
+  onSettled: () => void;
+}): (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame | WorkerSandboxGrantFrame) => void {
+  return (frame) => {
+    // Turn-boundary trigger (plan stage 3): the run that just settled may
+    // free the session for a queued subagent notification.
+    if (frame.type === "event" && frame.event.type === "agent_settled") deps.onSettled();
+    deps.writer.write(`${JSON.stringify(frame)}\n`).catch((error: unknown) => {
+      // stdout is gone (host closed the pipe): frames can no longer be
+      // delivered. Contract: report to stderr and exit via the normal path.
+      deps.writeStderr(`pai-cli worker stdout write failed: ${String(error)}\n`);
+      void deps.shutdown("stdout write failed");
+    });
+  };
+}
+
 function buildContext(deps: {
   backend: WorkerBackend;
   refs: WorkerRefs;
   registry: InflightRegistry;
-  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
+  emit: (
+    frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame | WorkerSandboxGrantFrame,
+  ) => void;
   triggerShutdown: (reason: string) => void;
   subagents: SubagentRegistry;
   resolveGrant: (grantId: string, granted: boolean) => void;
@@ -321,17 +344,12 @@ export async function runWorker(): Promise<void> {
   const lifecycle = createLifecycle({ writer, registry, refs, subagents, shutdownProbe });
   const { shutdown } = lifecycle;
 
-  const emit = (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame): void => {
-    // Turn-boundary trigger (plan stage 3): the run that just settled may
-    // free the session for a queued subagent notification.
-    if (frame.type === "event" && frame.event.type === "agent_settled") subagents.onTurnSettled();
-    writer.write(`${JSON.stringify(frame)}\n`).catch((error: unknown) => {
-      // stdout is gone (host closed the pipe): frames can no longer be
-      // delivered. Contract: report to stderr and exit via the normal path.
-      writeStderr(`pai-cli worker stdout write failed: ${String(error)}\n`);
-      void shutdown("stdout write failed");
-    });
-  };
+  const emit = workerEmit({
+    writer,
+    writeStderr,
+    shutdown,
+    onSettled: () => subagents.onTurnSettled(),
+  });
   grantClient.bind(emit);
   emitHello({ writer, backend, shutdown });
   startHeartbeat({ emit, refs, registry, status, subagents });
@@ -381,7 +399,9 @@ async function setupWorkerServices(deps: {
   backend: WorkerBackend;
   refs: WorkerRefs;
   registry: InflightRegistry;
-  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
+  emit: (
+    frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame | WorkerSandboxGrantFrame,
+  ) => void;
   shutdown: (reason: string) => Promise<void>;
   subagents: SubagentRegistry;
   grantClient: ReturnType<typeof createGrantClient>;

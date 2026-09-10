@@ -116,6 +116,8 @@ export interface ThreadStartCmd {
    * arbitrary code; untrusted threads load only the built-in permission
    * gate. Defaults to false. */
   trusted?: boolean;
+  /** v0.12 sandbox posture override (outranks sandbox.json). */
+  sandboxPosture?: "strict" | "balanced" | "open";
 }
 
 export interface ThreadResumeCmd {
@@ -124,6 +126,8 @@ export interface ThreadResumeCmd {
   sessionPath: string;
   cwd?: string;
   trusted?: boolean;
+  /** v0.12 posture override (see thread/start). */
+  sandboxPosture?: "strict" | "balanced" | "open";
 }
 
 /** v0.12 thread/register: admit a session file as a parked entry WITHOUT a
@@ -584,6 +588,17 @@ export const INTERNAL_ID_PREFIX = "pai-internal-";
  * the current session file path (null until first persist; the host needs
  * it to park a retired conversation), and — v0.5 — the number of live
  * subagent (grandchild) processes (observability; no host quota). */
+// The v0.6 grant-arbitration trio and the v0.12 grant-persist frame live in
+// protocol-internal.ts (file-size cap); re-exported here — protocol.ts
+// remains the single public truth for the wire vocabulary.
+import type {
+  WorkerGrantFrame,
+  WorkerSandboxGrantFrame,
+  WorkerGrantResultCmd,
+} from "./protocol-internal.ts";
+
+export type { WorkerGrantFrame, WorkerSandboxGrantFrame, WorkerGrantResultCmd };
+
 export interface WorkerHeartbeatFrame {
   type: "heartbeat";
   idleMs: number;
@@ -606,29 +621,6 @@ export interface WorkerHelloFrame {
   capabilities: string[];
 }
 
-/**
- * v0.6 INTERNAL worker→host grant arbitration (global running-grandchild
- * cap, PAI_MAX_SUBAGGENTS — design.md v0.6 / migration §3 addendum).
- * acquire: `{"type":"grant","id":"g-<seq>","n":1}` — host replies with an
- * internal `grant_result` command carrying the same id.
- * release: same frame with `"release":true` — no reply.
- */
-export interface WorkerGrantFrame {
-  type: "grant";
-  id: string;
-  n?: number;
-  release?: boolean;
-}
-
-/** v0.6 INTERNAL host→worker grant decision (id = the grant id). The worker
- * resolves its pending acquire and replies with an absorbed ack response;
- * `running` (denials only) feeds the retryable limit-error message. */
-export interface WorkerGrantResultCmd {
-  type: "grant_result";
-  granted: boolean;
-  running?: number;
-}
-
 /** INTERNAL thread/start: host injects the resolved model object. v0.5 adds
  * the subagent extension fields (used by the task tool's grandchild spawns):
  * systemPrompt/tools/thinkingLevel shape the grandchild session,
@@ -639,6 +631,9 @@ export interface WorkerGrantResultCmd {
  * subagent_message frames (advisory — the parent re-stamps), ephemeral runs
  * an in-memory session (the pi --no-session equivalent). */
 export interface WorkerThreadStartCmd extends Omit<ThreadStartCmd, "provider" | "modelId"> {
+  /** v0.12 lineage: parent's in-sandbox grants (no bashPrefixes — escape
+   * privileges never propagate into never-dialog processes, plan §4.6). */
+  sandboxGrants?: { writeDirs: string[]; writePatterns: string[]; domains: string[] };
   model?: SessionModel;
   systemPrompt?: string;
   tools?: string[];

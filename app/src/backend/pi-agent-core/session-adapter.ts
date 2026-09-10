@@ -23,13 +23,21 @@ const DISABLED_SANDBOX: PaiSandboxState = {
     config: {
       enabled: false,
       onViolation: "deny",
+      posture: "balanced",
       network: { allowedDomains: [], deniedDomains: [] },
       filesystem: {},
+      grants: { domains: [], writeDirs: [], bashPrefixes: [] },
+      credentials: { maskEnvVars: [] },
     },
     source: "global",
   },
   runtime: { active: false },
-  exemptions: { writePaths: new Set<string>(), bashCommands: new Set<string>() },
+  grants: {
+    writeDirs: new Set<string>(),
+    writePatterns: new Set<string>(),
+    domains: new Set<string>(),
+    bashPrefixes: new Set<string>(),
+  },
 };
 
 /** Lift one native AgentEvent into wire events (settled synthesized). */
@@ -79,6 +87,7 @@ export class AgentCoreSessionHost implements PaiSessionHost {
     trusted: boolean;
     model?: SessionModel;
     shaping?: SpawnShaping;
+    posture?: "strict" | "balanced" | "open";
   }): Promise<PaiThread> {
     if (this.thread !== undefined) {
       throw new Error("Worker already hosts a conversation; one session per worker process");

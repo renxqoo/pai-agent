@@ -20,7 +20,8 @@ import type { CapabilityBit } from "../capabilities.ts";
 import type { ReadHistoryResult } from "../ports/resources.ts";
 import type { HostBackend, WorkerBackend, WorkerSessionDeps } from "../ports/backend.ts";
 import { SessionHost } from "./session-adapter.ts";
-import { createTaskTool } from "../tools/task/subagent-tool.ts";
+import { createTaskTool, type TaskToolDeps } from "../tools/task/subagent-tool.ts";
+import { lineageSnapshot } from "../../sandbox/grants.ts";
 import { createSubagentCommunicationExtension } from "../tools/task/subagent-communication.ts";
 import { startGrandchildTask } from "./subagent-process.ts";
 import { checkPermission } from "./permission-gate.ts";
@@ -232,6 +233,7 @@ function builtinExtensions(deps: {
   subagents: WorkerSessionDeps["subagents"];
   writeStderr: (text: string) => void;
   getThreadId: () => string;
+  getLineage?: TaskToolDeps["getLineage"];
 }) {
   return (spawn: {
     trusted: boolean;
@@ -256,6 +258,7 @@ function builtinExtensions(deps: {
               registry: deps.subagents,
               writeStderr: deps.writeStderr,
               getThreadId: deps.getThreadId,
+              ...(deps.getLineage !== undefined ? { getLineage: deps.getLineage } : {}),
             },
             spawn.trusted,
           ),
@@ -276,12 +279,27 @@ export function createCodingAgentWorkerBackend(): WorkerBackend {
         createUi: (threadId) => createUiContext(threadId, deps.broker, deps.emit),
         onThreadDisposed: (threadId) => deps.broker.settleThread(threadId),
         writeStderr: deps.writeStderr,
+        persistGrant: {
+          persist: (grant) => {
+            deps.emit({
+              type: "sandbox_grant_persist",
+              grant: { kind: grant.kind, value: grant.value },
+            });
+          },
+        },
         createExtensions: builtinExtensions({
           emit: deps.emit,
           modelRuntime,
           subagents: deps.subagents,
           writeStderr: deps.writeStderr,
           getThreadId: () => sessions.threadId(),
+          getLineage: () => {
+            const controller = sessions.getSandboxState();
+            return {
+              posture: controller.snapshot.config.posture,
+              ...lineageSnapshot(controller.grants),
+            };
+          },
         }),
       });
       return sessions;

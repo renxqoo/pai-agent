@@ -10,6 +10,7 @@ import type {
   HubFrame,
   UiResponseCmd,
   WorkerGrantFrame,
+  WorkerSandboxGrantFrame,
   WorkerHeartbeatFrame,
   WorkerHelloFrame,
 } from "./protocol.ts";
@@ -57,6 +58,8 @@ export interface FrameRelayDeps {
   killWorker: (worker: WorkerHandle, intent: RetireIntent) => Promise<void>;
   /** v0.6 global subagent cap arbitration (migration §3 addendum). */
   onGrant: (worker: WorkerHandle, frame: WorkerGrantFrame) => void;
+  /** v0.12 Always-grant persistence sink (optional: tests omit it). */
+  onSandboxGrant?: (worker: WorkerHandle, frame: WorkerSandboxGrantFrame) => void;
   /** Lease renewal on heartbeats that still report subagents. */
   renewGrants: (worker: WorkerHandle) => void;
   /** Worker-scoped internal-id registry key (see WorkerPool.internalKey). */
@@ -83,6 +86,10 @@ export function onWorkerLine(deps: FrameRelayDeps, worker: WorkerHandle, line: s
   }
   if (line.startsWith('{"type":"grant"')) {
     deps.onGrant(worker, JSON.parse(line) as WorkerGrantFrame);
+    return;
+  }
+  if (line.startsWith('{"type":"sandbox_grant_persist"')) {
+    deps.onSandboxGrant?.(worker, JSON.parse(line) as WorkerSandboxGrantFrame);
     return;
   }
   if (

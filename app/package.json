@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "start": "bun src/cli.ts",
-    "check": "oxlint && oxfmt --check . && tsc --noEmit",
+    "check": "oxlint && oxfmt --check . && tsc --noEmit && node scripts/check-import-boundary.mjs",
     "fmt": "oxfmt .",
     "build": "bun build src/cli.ts --minify --production --outdir dist --target=bun --tsconfig-override \"$PWD/tsconfig.build.json\"",
     "test": "bun test && bun test/smoke.mjs && bun test/e2e-mock/run.mjs && bun test/conformance/run.mjs",

@@ -8,7 +8,12 @@
 
 import type { CapabilityBit } from "../capabilities.ts";
 import type { DialogBroker } from "../../dialogs.ts";
-import type { HubFrame, WorkerGrantFrame, WorkerHeartbeatFrame } from "../../protocol.ts";
+import type {
+  HubFrame,
+  WorkerGrantFrame,
+  WorkerHeartbeatFrame,
+  WorkerSandboxGrantFrame,
+} from "../../protocol.ts";
 import type { CheckPermission } from "./interception.ts";
 import type { PaiAuthFace, PaiModelRuntime } from "./model-auth.ts";
 import type { PaiResources } from "./resources.ts";
@@ -28,7 +33,9 @@ export interface HostBackend {
 
 /** Worker-side session wiring deps (dialog broker stays composition). */
 export interface WorkerSessionDeps {
-  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
+  emit: (
+    frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame | WorkerSandboxGrantFrame,
+  ) => void;
   broker: DialogBroker;
   writeStderr: (text: string) => void;
   subagents: SubagentRegistryFace;

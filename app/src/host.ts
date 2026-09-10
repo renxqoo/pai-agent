@@ -303,6 +303,7 @@ async function setupHostServices(deps: {
     emitFrame: deps.emitters.emit,
     emitRaw: deps.emitters.emitRaw,
     writeStderr,
+    agentDir: backend.resources.agentDir(),
     backendId: selection.backendId,
     ...(selection.spawn.kind === "spec"
       ? {

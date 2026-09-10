@@ -112,15 +112,19 @@ export interface PaiThread {
   sessionPath: string | undefined;
 }
 
-/** Sandbox observability snapshot (v0.7 get_sandbox_state payload face;
- * onViolation + exemptions are the v0.10 additions — serialized list form). */
+/** Sandbox observability snapshot (v0.7 get_sandbox_state payload face; v2
+ * plan 2026-09-10-sandbox-v2.md: coarse session grants replace the v0.10
+ * exact-key exemptions). */
 export interface PaiSandboxState {
   snapshot: {
     config: {
       enabled: boolean;
       onViolation: "ask" | "deny";
+      posture: "strict" | "balanced" | "open";
       network: unknown;
       filesystem: unknown;
+      grants: unknown;
+      credentials: { maskEnvVars: string[] };
     };
     source: string;
   };
@@ -131,9 +135,11 @@ export interface PaiSandboxState {
   /** Session-scoped "don't ask again" grants (empty on backends without the
    * confirm escalation, e.g. the probe). In-process Sets; the wire face
    * (get_sandbox_state) serializes them to lists. */
-  exemptions: {
-    writePaths: Set<string>;
-    bashCommands: Set<string>;
+  grants: {
+    writeDirs: Set<string>;
+    writePatterns: Set<string>;
+    domains: Set<string>;
+    bashPrefixes: Set<string>;
   };
 }
 
@@ -145,6 +151,13 @@ export interface SpawnShaping {
   /** Parent conversation id: the gate re-reads ITS ruleset on every decision. */
   permissionThreadId?: string;
   parentProtectedPaths?: string[];
+  /** v0.12 lineage: parent posture + in-sandbox grants (plan §4.6). */
+  lineage?: {
+    posture: "strict" | "balanced" | "open";
+    writeDirs: string[];
+    writePatterns: string[];
+    domains: string[];
+  };
   /** Depth 1: the task tool is not registered inside this session. */
   subagent?: boolean;
   /** Labels for the grandchild's subagent_message frames (advisory). */
@@ -161,6 +174,12 @@ export function startShaping(cmd: {
   thinkingLevel?: SetThinkingLevelCmd["level"];
   permissionThreadId?: string;
   parentProtectedPaths?: string[];
+  sandboxPosture?: "strict" | "balanced" | "open";
+  sandboxGrants?: {
+    writeDirs: string[];
+    writePatterns: string[];
+    domains: string[];
+  };
   subagent?: boolean;
   subagentId?: string;
   agentName?: string;
@@ -173,6 +192,16 @@ export function startShaping(cmd: {
     ...(cmd.permissionThreadId !== undefined ? { permissionThreadId: cmd.permissionThreadId } : {}),
     ...(cmd.parentProtectedPaths !== undefined
       ? { parentProtectedPaths: cmd.parentProtectedPaths }
+      : {}),
+    ...(cmd.sandboxPosture !== undefined && cmd.sandboxGrants !== undefined
+      ? {
+          lineage: {
+            posture: cmd.sandboxPosture,
+            writeDirs: cmd.sandboxGrants.writeDirs,
+            writePatterns: cmd.sandboxGrants.writePatterns,
+            domains: cmd.sandboxGrants.domains,
+          },
+        }
       : {}),
     ...(cmd.subagent === true ? { subagent: true } : {}),
     ...(cmd.subagentId !== undefined ? { subagentId: cmd.subagentId } : {}),
@@ -202,16 +231,25 @@ export interface PaiSessionHost {
   getInjectedRules(): PermissionRules | undefined;
   /** Sandbox observability (v0.7). */
   getSandboxState(): PaiSandboxState;
+  /** Containment oracle (v0.12 plan §4.4 B): the permission gate's fallback
+   * ask is skipped for commands the sandbox will silently contain. Absent
+   * on backends without a sandbox (probe) — callers then always ask. */
+  containmentOracle?(): {
+    silentBash(): boolean;
+    classifyWrite(resolvedPath: string): "clean" | "violation";
+  };
   start(options: {
     cwd: string;
     trusted: boolean;
     model?: SessionModel;
     shaping?: SpawnShaping;
+    posture?: "strict" | "balanced" | "open";
   }): Promise<PaiThread>;
   resume(options: {
     cwd: string | undefined;
     trusted: boolean;
     sessionPath: string;
+    posture?: "strict" | "balanced" | "open";
   }): Promise<PaiThread>;
   fork(
     expectedThreadId: string,

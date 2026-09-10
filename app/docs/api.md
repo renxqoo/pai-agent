@@ -151,40 +151,31 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 **`get_host_info`** — 无字段，host 本地应答（不唤醒任何 worker）。生产排障的单点入口：`{version, piVersion, bunVersion, pid, uptimeMs, rssBytes, threads:{live,parked,dead}, subagents:{running}, limits:{maxThreads, idleRetireMs, workerStaleMs, workerExitTimeoutMs, maxSubagents, bashTimeoutMs}, backend:{id, capabilities:[...]}}`（v0.8 增 `backend`）。版本为 host 启动期一次性读取（pai-cli / pi SDK / bun）；`subagents.running` 是全局**正在运行**的孙进程数（grant 账本口径，非心跳的在飞口径）；`limits` 回显当前生效的全部环境旋钮值。不含任何路径、env 或凭据信息。
 
-### 沙箱（v0.7，agent 执行沙箱）
+### 沙箱（v0.12 重构：姿态档位 + 事前问询 + 粗粒度授予；方案 docs/plans/2026-09-10-sandbox-v2.md）
 
-**配置**（文件即真相，**会话创建时快照**——改动需 thread/stop+resume 或 host 重启，与权限规则的热读不同）：
+**配置**（文件即真相，**会话创建时快照**；分节合并、数组整体替换；坏文件降级默认永不抛错）：
 
-- 全局 `<agentDir>/sandbox.json`；项目级 `<cwd>/.pi/sandbox.json` **仅 `trusted:true` 线程合并**（防恶意仓库自我松绑）；坏文件降级默认永不抛错；分节合并、数组整体替换。
-- **默认 `enabled:true`**（用户裁决：默认开启可关）。默认策略：网络白名单 = 回环 + npm/pypi/github 系域名；`denyRead: ["~/.ssh","~/.aws","~/.gnupg"]`；`allowWrite: [".","/tmp"]`（"." = 会话 cwd）；`denyWrite: [".env",".env.*","*.pem","*.key"]`。两份 sandbox.json 自身恒为 write 工具的 denyWrite（防篡改未来会话快照）。
-- **`onViolation:"ask"|"deny"`（v0.10，缺省 `"ask"`）**：可确认违规（下表）的处理姿态。`"ask"` = 三选弹框（§6 select）；`"deny"` = v0.7 直接拦截行为。坏值按未设置（回落缺省）。
+- 全局 `<agentDir>/sandbox.json`；项目级 `<cwd>/.pi/sandbox.json` **仅 `trusted:true` 线程合并**（防恶意仓库自我松绑）。
+- schema v0.12：`{enabled, onViolation:"ask"|"deny", posture, network:{allowedDomains,deniedDomains}, filesystem:{denyRead,allowWrite,denyWrite}, grants:{domains,writeDirs,bashPrefixes}, credentials:{maskEnvVars}}`。旧文件（无新字段）完全兼容。
+- **posture（`"strict"|"balanced"|"open"`）**决定缺省策略宽度（显式 network/filesystem 数组仍整体替换缺省）：balanced（trusted 缺省）= v0.10 策略（cwd+/tmp 可写、12 域白名单）；strict（untrusted 缺省，**有意收紧**）= 仅 /tmp 可写、空白名单（每主机连接前问询）；open = `~`+cwd+/tmp 可写、网络 `["*"]` 全放（`*.pem/*.key` 仍恒拦，`.env` 首问后会话模式豁免）。来源优先级：`thread.start/resume` 的 `sandboxPosture` 参数 > 项目文件（仅 trusted）> 全局文件 > trusted 推断。host 把 posture 持久化进线程表，parked 唤醒不丢。
+- `onViolation:"ask"|"deny"` 保留正交（`"deny"` = 一切档位下可确认违规直接拦截）。
+- `grants` 节 = **全局叠加放宽**（"Always allow" 由 host 单写者落盘于此；绝不改写 posture 相关系组——跨档位污染是审查 P1 红线）；仍受 deniedDomains/denyWrite/denyRead/保护路径恒压。
+- `credentials.maskEnvVars`（glob，缺省 `["*_API_KEY","*_TOKEN","*_SECRET","*_PASSWORD","*_KEY","*_CREDENTIALS"]`）：沙箱内 bash 子进程的匹配变量值替换为哨兵 `pai-sandboxed`（变量保留、真值不出进程）；出沙箱重跑（用户已批准）不掩蔽。
 - 机器级逃生舱：`PAI_SANDBOX=off|0|false` 强制全局关闭。
 
-**语义**（两层强制，一道防线在权限门之后）：
+**语义**（沙箱内免打扰，出沙箱才问，问一次就学会）：
 
-- **bash（agent 工具 + 直执行）**：OS 级包裹（macOS sandbox-exec / Linux bubblewrap，需 bwrap）。被拒表现为命令自身的非零退出与 stderr（模型可见自适应）。平台不支持或初始化失败 → bash 不包裹（fail-open）+ `degraded` 可见 + stderr 警告一次；write/edit/read 检查不受影响。
-- **write/edit**：`allowWrite` 目录包含之外的路径、或命中 `denyWrite` → 直接 block（不弹窗）。路径按 pi 工具语义解析（`~`/`file://`/`@`/unicode 空格归一）+ realpath 效应空间；比较 NFC 归一、大小写折叠（darwin/win32）。
-- **read**：`denyRead` 命中 → block。
-- 权限门先裁决（弹窗展示原始命令），沙箱后强制；权限门 block 的调用到不了沙箱。
+- **bash**：OS 级包裹（sandbox-exec/bwrap）。域外连接 → **连接前**四选弹框（runtime 代理回调，命令不失败）；文件写越界 → 失败后分类弹框 → 批准后**仍在沙箱内**重跑（单次授予走 per-invocation 策略覆写；会话/永久走运行时热更新）；不可分类拒绝 → 兜底「出沙箱重跑」四选（前缀粒度）。denyRead 四通道地板恒维持失败。降级（fail-open）时权限门回退逐命令弹框——绝不「静默+裸奔」叠加。
+- **write/edit**：JS 硬检查 + 四选弹框（目录级 / basename 模式级授予）；read：denyRead 恒拦。
+- **权限门联动（B）**：将入沙箱的 bash 与分类干净的 write/edit 在权限门 fallback「ask」处静默放行（deny/block/ask 显式规则仍先生效）。
+- **预声明升级**：sandboxed bash 工具输入新增 `escalate?:boolean` + `escalateReason?:string`——模型预判需沙箱外能力时执行前四选弹框，批准直接出沙箱执行（避免半执行失败副作用翻倍）。
+- **血缘传播**：孙进程继承父会话 posture + 域名/目录/模式授予快照；**bashPrefixes（出沙箱特权）永不传播**；孙进程自身永不弹框。
 
-**违规确认流程（v0.10，`onViolation:"ask"` 时的可确认面）**：
+**四选弹框**（ui_request select，超时 300s，取消/未知/异常 = Deny）：`Allow once` / `Allow for this session` / `Always allow`（弹框展示将写入的规则原文）/ `Deny`。授予粒度：域名（网络）、父目录（越界写）、denyWrite 条目（模式，仅会话）、命令前缀（每复合段首两 token，≤5 段）。会话授予上限 64/16/64/32；同键在途去重（一次弹框全体继承）；fork/clone **保留**授予（会话连续体）。bash 沙箱内重跑标记 `[pai] rerunning with sandbox exception (user-approved)`；出沙箱重跑标记 `[pai] rerunning without sandbox (user-approved)`；拒绝标记 `[pai] sandbox denied; rerun declined`。
 
-| 违规                                                                  | `"ask"`（缺省）                      | `"deny"`     |
-| --------------------------------------------------------------------- | ------------------------------------ | ------------ |
-| write/edit：`allowWrite` 越界或 `denyWrite` 命中                      | 三选弹框                             | 直接 block   |
-| write/edit：sandbox.json 保护路径命中（效应空间比较，含符号链接形态） | **恒直接 block**                     | 直接 block   |
-| write/edit：`denyRead` 命中**且另有写违规**                           | **恒直接 block**（凭据目录不进弹框） | 直接 block   |
-| write/edit：仅 `denyRead` 命中、分类干净（denyRead∩allowWrite 配置）  | 放行（v0.7 判定不变）                | 放行（v0.7） |
-| read 工具：`denyRead` 命中                                            | 恒直接 block                         | 直接 block   |
-| bash：OS 拒绝且非零退出且该命令有 file-write/network-outbound 违规行  | 三选弹框（拒绝 = 维持命令失败现状）  | 维持失败     |
-| bash：违规行含 denyRead 根的 file-read 拒绝                           | 恒维持失败                           | 维持失败     |
-| 子 agent（孙进程）/ 无 UI 客户端 / 弹框超时、取消或通道异常           | fail-closed（不弹框，维持拦截/失败） | 同左         |
+**不变量**（任何档位恒成立）：denyRead（凭据目录）与两份 sandbox.json 保护路径恒硬拦、永不进弹框；孙进程/无 UI/弹框异常 fail-closed；deniedDomains/denyWrite 恒压过一切授予。
 
-- 三选 = `Allow once` / `Allow for this session` / `Deny`（select 帧，§6）；超时 300s、abort、取消、未知值、对话框异常一律 Deny。
-- 「本会话不再问」豁免：write/edit 按效应空间精确路径（不折叠）、bash 按精确命令串；上限 64 / 32 条，满后继续弹框；会话快照重建（fork/clone/rebind）即清空，不落盘。
-- bash 确认后**重跑一次**（无沙箱包裹）：输出流先注入 `[pai] rerunning without sandbox (user-approved)`；两次运行的输出先后拼接进工具结果；拒绝、中止（abort/超时后确认）或弹框失败则注入 `[pai] sandbox denied; rerun declined` 并维持原失败结果。命令可能已部分执行——副作用可能重复（用户裁决接受）；重跑沿用原超时值，总时长可达约 2×超时 + 弹窗等待；普通失败命令的检测附加 ≤300ms、EPERM 形态失败 ≤15s。`enabled:false` / `PAI_SANDBOX=off` 时 `onViolation` 回报 `"deny"`（惰性姿态——无强制即无可确认违规）。
-
-**`get_sandbox_state`** — 字段 `threadId`。→ `{enabled, platform, degraded?, network, filesystem, source:"global"|"global+project", bashSandboxed:boolean, onViolation:"ask"|"deny", sessionExemptions:{writePaths:string[], bashCommands:string[]}}`（bashSandboxed = OS 层实际生效；enabled:true 但 bashSandboxed:false 即降级态；onViolation + sessionExemptions 为 v0.10 增——后者回应当前会话豁免清单）。
+**`get_sandbox_state`** — 字段 `threadId`。→ `{enabled, posture, platform, degraded?, network, filesystem, grants, credentials:{maskEnvVars}, source:"global"|"global+project", bashSandboxed:boolean, onViolation:"ask"|"deny", sessionGrants:{writeDirs,writePatterns,domains,bashPrefixes}}`（v0.12 破坏性：移除 `sessionExemptions`，Electron 需同步）。
 
 ### 子 agent 通信（v0.5 stage 7）
 

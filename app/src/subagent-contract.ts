@@ -48,6 +48,8 @@ export interface GrandchildTaskSpec {
    * cwd may be a subdirectory — the project sandbox.json protection would
    * otherwise drift). */
   parentProtectedPaths?: string[];
+  /** v0.12 lineage (plan §4.6). */
+  lineage?: SandboxLineage;
   /** Stage 8: agent definition came from the project directory — messages
    * from this task are enveloped as unverified data (trust guardrail). */
   projectSourced?: boolean;
@@ -158,3 +160,17 @@ export interface DriverState {
 export function newSubagentId(): string {
   return `sub_${randomBytes(4).toString("hex")}`;
 }
+
+/** v0.12 lineage: the parent's posture and IN-SANDBOX grant snapshot
+ * propagate to grandchild spawns; bashPrefixes (sandbox-escape privileges)
+ * NEVER do — a never-dialog process must not inherit unattended
+ * escalation (plan §4.6, review P4). */
+export interface SandboxLineage {
+  posture: "strict" | "balanced" | "open";
+  writeDirs: string[];
+  writePatterns: string[];
+  domains: string[];
+}
+
+/** One relayed inter-agent message (stage 8/9): report (no `to`) or a
+ * sibling-routing request (`to` names another sibling of the father). */

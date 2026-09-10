@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   DEFAULT_SANDBOX_CONFIG,
+  appendGlobalGrant,
   classifyWriteViolation,
   denyReadRootVariants,
   loadSandboxConfig,
@@ -11,7 +12,7 @@ import {
   resolveToolPath,
   sandboxDisabledByEnv,
   writeViolation,
-} from "../src/sandbox-config.ts";
+} from "../../src/sandbox/config.ts";
 
 /**
  * Sandbox config table tests (docs/plans/2026-09-09-sandbox.md §7), extended
@@ -38,23 +39,61 @@ afterAll(() => {
 
 describe("sandbox config loading", () => {
   test("defaults when no files exist (fresh copy, not the shared default)", () => {
+    // v2: untrusted infers strict — the balanced baseline needs trust (or an
+    // explicit posture), the plan's P2 acceptance口径.
     const { config, source } = loadSandboxConfig({
       agentDir: "/agent",
       cwd: PROJ,
-      trusted: false,
+      trusted: true,
       readJson: () => null,
     });
     expect(source).toBe("global");
     expect(config).toEqual(DEFAULT_SANDBOX_CONFIG);
     expect(config).not.toBe(DEFAULT_SANDBOX_CONFIG);
     expect(config.filesystem).not.toBe(DEFAULT_SANDBOX_CONFIG.filesystem);
+    expect(config.posture).toBe("balanced");
+  });
+
+  test("untrusted with no files infers the STRICT baseline (v2 plan §4.1)", () => {
+    const { config } = loadSandboxConfig({
+      agentDir: "/agent",
+      cwd: PROJ,
+      trusted: false,
+      readJson: () => null,
+    });
+    expect(config.posture).toBe("strict");
+    expect(config.filesystem.allowWrite).toEqual(["/tmp"]);
+    expect(config.network.allowedDomains).toEqual([]);
+  });
+
+  test("thread posture outranks files; file posture outranks inference", () => {
+    const globalJson = join("/agent", "sandbox.json");
+    const readJson = (path: string): Record<string, unknown> | null =>
+      path === globalJson ? { posture: "strict" } : null;
+    const explicit = loadSandboxConfig({
+      agentDir: "/agent",
+      cwd: PROJ,
+      trusted: true,
+      posture: "open",
+      readJson,
+    });
+    expect(explicit.config.posture).toBe("open");
+    const fromFile = loadSandboxConfig({
+      agentDir: "/agent",
+      cwd: PROJ,
+      trusted: true,
+      readJson,
+    });
+    expect(fromFile.config.posture).toBe("strict");
+    // The strict FILE posture shapes the unset sections (allowWrite /tmp)…
+    expect(fromFile.config.filesystem.allowWrite).toEqual(["/tmp"]);
   });
 
   test("global override replaces arrays wholesale and flips enabled", () => {
     const { config } = loadSandboxConfig({
       agentDir: "/agent",
       cwd: PROJ,
-      trusted: false,
+      trusted: true,
       readJson: (path) =>
         path === "/agent/sandbox.json"
           ? { enabled: false, network: { allowedDomains: ["internal.example"] } }
@@ -78,9 +117,10 @@ describe("sandbox config loading", () => {
     });
     const trusted = loadSandboxConfig({ agentDir: "/agent", cwd: PROJ, trusted: true, readJson });
     expect(untrusted.source).toBe("global");
-    expect(untrusted.config.filesystem.allowWrite).toEqual(
-      DEFAULT_SANDBOX_CONFIG.filesystem.allowWrite,
-    );
+    // v2: untrusted infers strict — its baseline allowWrite is /tmp only
+    // (the project file never reaches it either way).
+    expect(untrusted.config.filesystem.allowWrite).toEqual(["/tmp"]);
+    expect(untrusted.config.posture).toBe("strict");
     expect(trusted.source).toBe("global+project");
     expect(trusted.config.filesystem.allowWrite).toEqual(["/nowhere"]);
   });
@@ -323,5 +363,28 @@ describe("denyReadRootVariants (v0.10 bash floor — both observable path forms)
     const policy = { ...DEFAULT_SANDBOX_CONFIG.filesystem, denyRead: ["secrets"] };
     const variants = denyReadRootVariants(policy, PROJ);
     expect(variants).toContain(join(PROJ, "secrets"));
+  });
+});
+
+describe("appendGlobalGrant (host single-writer, review R1/R4)", () => {
+  test("appends into the grants section, dedupes, preserves other keys", () => {
+    const raw = JSON.stringify({ enabled: true, filesystem: { allowWrite: [".", "/tmp"] } });
+    const once = appendGlobalGrant(raw, { kind: "writeDir", value: "/etc/extra" });
+    const parsed = JSON.parse(once ?? "");
+    expect(parsed.grants.writeDirs).toEqual(["/etc/extra"]);
+    expect(parsed.filesystem.allowWrite).toEqual([".", "/tmp"]); // untouched (R1)
+    const twice = appendGlobalGrant(once ?? "", { kind: "writeDir", value: "/etc/extra" });
+    expect(twice).toBe(once); // dedupe no-op returns input unchanged
+    const other = appendGlobalGrant(once ?? "", { kind: "domain", value: "crates.io" });
+    expect(JSON.parse(other ?? "").grants).toEqual({
+      writeDirs: ["/etc/extra"],
+      domains: ["crates.io"],
+    });
+  });
+
+  test("malformed JSON returns null; a missing file starts from {}", () => {
+    expect(appendGlobalGrant("{not json", { kind: "domain", value: "x" })).toBeNull();
+    const fresh = appendGlobalGrant("{}\n", { kind: "bashPrefix", value: "npm install" });
+    expect(JSON.parse(fresh ?? "").grants.bashPrefixes).toEqual(["npm install"]);
   });
 });

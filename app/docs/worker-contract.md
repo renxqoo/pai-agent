@@ -78,3 +78,8 @@ containment 自声明。pai 的权限确认与执行沙箱对默认后端以外�
 bun test/conformance/run.mjs            # reference worker 全场景 + 畸变拒载
 bun test/conformance/run.mjs --list
 ```
+
+## v0.12 增补：沙箱授予帧与血缘字段
+
+- **worker→host `sandbox_grant_persist`**（无 id，fire-and-forget）：`{type, grant:{kind:"domain"|"writeDir"|"bashPrefix", value}}`。worker 在用户选择 "Always allow" 时发出（会话侧已即时生效）；host 是全局 `sandbox.json` grants 节的唯一写者（read-merge-atomic-write，host 事件循环天然串行）。外部后端可不实现（缺帧 = 该后端的 Always 仅会话内生效）。
+- **host→worker `thread/start` 增列**（内部）：`sandboxPosture?`（v0.12 档位，缺省按 trusted 推断）与孙进程专属 `sandboxGrants?: {writeDirs, writePatterns, domains}`（血缘快照；bashPrefixes 永不传播）。worker 必须容忍未知增列（既有契约）。

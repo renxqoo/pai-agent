@@ -21,6 +21,7 @@ import {
 import { resolveMatchPath } from "../../gate-path.ts";
 import { decide, type GatedTool, loadRules, type PermissionRules } from "../../rules.ts";
 import { readSidecarRules } from "../../sidecar-rules.ts";
+import type { ContainmentOracle } from "../../sandbox/ports.ts";
 
 const CONFIRM_TIMEOUT_MS = 300_000;
 
@@ -92,11 +93,53 @@ export async function checkPermission(deps: {
  * parent conversation's ruleset on every call). write/edit match values are
  * resolved to effect-space absolute paths against the session cwd.
  */
+/** The dialog ask (with the turn's abort signal wired so an `abort`
+ * command settles it immediately instead of waiting out the timeout). */
+function confirmAsk(ctx: {
+  hasUI: boolean;
+  signal?: AbortSignal;
+  ui: {
+    confirm: (
+      title: string,
+      message: string,
+      opts?: { timeout?: number; signal?: AbortSignal },
+    ) => Promise<boolean>;
+  };
+}) {
+  return async (title: string, value: string) =>
+    ctx.ui.confirm(title, value, {
+      timeout: CONFIRM_TIMEOUT_MS,
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
+}
+
+/** The containment oracle decides the fallback-ask stage only: sandboxed
+ * bash is silent; writes the sandbox would pass need no advisory ask. */
+function containedByOracle(
+  getOracle: (() => ContainmentOracle | undefined) | undefined,
+  tool: GatedTool,
+  value: string,
+): boolean {
+  const oracle = getOracle?.();
+  if (oracle === undefined) return false;
+  if (tool === "bash") return oracle.silentBash();
+  return oracle.classifyWrite(value) === "clean";
+}
+
+export interface PermissionGateDeps {
+  cwd?: string;
+  /** v0.12 B: when the sandbox will silently contain the call, the fallback
+   * ask auto-allows (explicit allow/block/ask rules still win — this only
+   * replaces the ask stage). Absent oracle ⇒ ask as before. */
+  getOracle?: () => ContainmentOracle | undefined;
+}
+
 export function createPermissionGate(
   getThreadId: () => string,
   getInjectedRules?: () => PermissionRules | undefined,
-  cwd: string = process.cwd(),
+  deps: PermissionGateDeps = {},
 ): InlineExtension {
+  const cwd = deps.cwd ?? process.cwd();
   return (pi: ExtensionAPI): void => {
     pi.on("tool_call", async (event, ctx) => {
       const tool = event.toolName as GatedTool;
@@ -107,13 +150,16 @@ export function createPermissionGate(
       const rawValue = String(input[valueKey] ?? "");
       const value = tool === "bash" ? rawValue : resolveMatchPath(cwd, rawValue);
 
+      const contained = containedByOracle(deps.getOracle, tool, value);
+
       if (!ctx.hasUI) {
         // Fail closed only at the ask stage: allow-all/allowPatterns still
-        // pass (decide() first), unmatched commands block without a dialog.
+        // pass (decide() first); a contained call passes too (the sandbox is
+        // the gate); everything else blocks without a dialog.
         const check = await checkPermission({
           tool,
           value,
-          ask: async () => false,
+          ask: async () => contained,
           threadId: getThreadId(),
           injectedRules: getInjectedRules?.(),
         });
@@ -123,15 +169,7 @@ export function createPermissionGate(
       const check = await checkPermission({
         tool,
         value,
-        ask: async (title, value2) => {
-          // Wire the turn's abort signal so an `abort` command settles the
-          // dialog immediately instead of waiting out the timeout.
-          const allowed = await ctx.ui.confirm(title, value2, {
-            timeout: CONFIRM_TIMEOUT_MS,
-            ...(ctx.signal ? { signal: ctx.signal } : {}),
-          });
-          return allowed;
-        },
+        ask: contained ? async () => true : confirmAsk(ctx),
         threadId: getThreadId(),
         injectedRules: getInjectedRules?.(),
       });

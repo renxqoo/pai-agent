@@ -14,7 +14,7 @@ import type { ThreadTable } from "./thread-table.ts";
 export interface AdmissionOps {
   table: ThreadTable;
   workers(): WorkerHandle[];
-  spawnWorker(trusted: boolean): WorkerHandle;
+  spawnWorker(trusted: boolean, posture: "strict" | "balanced" | "open" | undefined): WorkerHandle;
   killWorker(worker: WorkerHandle, intent: RetireIntent): Promise<void>;
   deliverCommand(command: {
     worker: WorkerHandle;
@@ -28,13 +28,29 @@ export interface AdmissionOps {
 }
 
 /** thread/start: spawn a worker and send the internal start (model resolved by the host). */
+/** v0.12 posture param validation: bad enums fail honestly (review R6 —
+ * a typo'd posture must not silently fall back to balanced and bypass the
+ * untrusted→strict inference). */
+function validPosture(value: unknown): value is "strict" | "balanced" | "open" {
+  return value === "strict" || value === "balanced" || value === "open";
+}
+
 export async function startThreadAdmission(
   pool: AdmissionOps,
-  cmd: { id?: string; cwd?: string; trusted?: boolean },
+  cmd: {
+    id?: string;
+    cwd?: string;
+    trusted?: boolean;
+    sandboxPosture?: "strict" | "balanced" | "open";
+  },
   model?: SessionModel,
 ): Promise<void> {
+  if (cmd.sandboxPosture !== undefined && !validPosture(cmd.sandboxPosture)) {
+    pool.failure(cmd.id, "thread/start", "sandboxPosture must be one of strict|balanced|open");
+    return;
+  }
   if (pool.rejectOverBudget(cmd.id, "thread/start")) return;
-  const worker = pool.spawnWorker(cmd.trusted === true);
+  const worker = pool.spawnWorker(cmd.trusted === true, cmd.sandboxPosture);
   if (pool.overBudget()) {
     // A concurrent start took the last slot while this worker spawned
     // (this spawn now counts itself). Exactly maxThreads survive.
@@ -46,6 +62,7 @@ export async function startThreadAdmission(
     type: "thread/start",
     cwd: cmd.cwd ?? process.cwd(),
     trusted: cmd.trusted === true,
+    ...(cmd.sandboxPosture !== undefined ? { sandboxPosture: cmd.sandboxPosture } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(cmd.id !== undefined ? { id: cmd.id } : {}),
   });
@@ -55,7 +72,13 @@ export async function startThreadAdmission(
 /** thread/resume: claim the session path (spawning counts as occupied), then spawn. */
 export async function resumeThreadAdmission(
   pool: AdmissionOps,
-  cmd: { id?: string; sessionPath: string; cwd?: string; trusted?: boolean },
+  cmd: {
+    id?: string;
+    sessionPath: string;
+    cwd?: string;
+    trusted?: boolean;
+    sandboxPosture?: "strict" | "balanced" | "open";
+  },
 ): Promise<void> {
   const sessionPath = resolvePath(cmd.sessionPath);
   const holder = await settledHolderOf(pool, sessionPath);
@@ -67,9 +90,13 @@ export async function resumeThreadAdmission(
     );
     return;
   }
+  if (cmd.sandboxPosture !== undefined && !validPosture(cmd.sandboxPosture)) {
+    pool.failure(cmd.id, "thread/resume", "sandboxPosture must be one of strict|balanced|open");
+    return;
+  }
   if (pool.rejectOverBudget(cmd.id, "thread/resume")) return;
   pool.table.deleteNonLiveByPath(sessionPath);
-  const worker = pool.spawnWorker(cmd.trusted === true);
+  const worker = pool.spawnWorker(cmd.trusted === true, cmd.sandboxPosture);
   if (pool.table.holder(sessionPath, pool.workers()) !== undefined || pool.overBudget()) {
     await pool.killWorker(worker, "stop");
     pool.failure(
@@ -85,6 +112,7 @@ export async function resumeThreadAdmission(
     sessionPath,
     ...(cmd.cwd !== undefined ? { cwd: cmd.cwd } : {}),
     trusted: cmd.trusted === true,
+    ...(cmd.sandboxPosture !== undefined ? { sandboxPosture: cmd.sandboxPosture } : {}),
     ...(cmd.id !== undefined ? { id: cmd.id } : {}),
   });
   await pool.deliverCommand({ worker, id: cmd.id, command: "thread/resume", line });

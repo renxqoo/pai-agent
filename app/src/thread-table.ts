@@ -17,6 +17,8 @@ export interface ThreadEntry {
   cwd: string;
   sessionPath: string | null;
   trusted: boolean;
+  /** v0.12 sandbox posture from the admitting command (undefined = infer). */
+  posture: "strict" | "balanced" | "open" | undefined;
   state: "live" | "parked" | "dead";
   /** In-progress respawn (parked/dead -> live); concurrent senders share it. */
   wake: Promise<void> | undefined;
@@ -125,6 +127,7 @@ export class ThreadTable {
       cwd: spec.cwd,
       sessionPath: spec.sessionPath,
       trusted: spec.trusted,
+      posture: undefined,
       state: "parked",
       wake: undefined,
       stopRequested: false,
@@ -201,6 +204,7 @@ export class ThreadTable {
       cwd: data.cwd,
       sessionPath: data.sessionPath,
       trusted: worker.trusted,
+      posture: worker.posture,
       state: "live",
       wake: undefined,
       stopRequested: false,
@@ -209,6 +213,7 @@ export class ThreadTable {
     entry.cwd = data.cwd;
     entry.sessionPath = data.sessionPath;
     entry.trusted = worker.trusted;
+    entry.posture = worker.posture;
     entry.state = "live";
     entry.wake = undefined;
     // stopRequested survives reuse: a thread/stop racing this wake lands on

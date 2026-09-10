@@ -104,6 +104,7 @@ const handleStart: Handler = async (ctx, cmd, id) => {
   const thread = await ctx.sessions.start({
     cwd: start.cwd ?? process.cwd(),
     trusted: start.trusted === true,
+    ...(start.sandboxPosture !== undefined ? { posture: start.sandboxPosture } : {}),
     ...(start.model !== undefined ? { model: start.model } : {}),
     ...(shaping !== undefined ? { shaping } : {}),
   });
@@ -116,6 +117,7 @@ const handleResume: Handler = async (ctx, cmd, id) => {
     cwd: resume.cwd,
     trusted: resume.trusted === true,
     sessionPath: resume.sessionPath,
+    ...(resume.sandboxPosture !== undefined ? { posture: resume.sandboxPosture } : {}),
   });
   emitThreadOpened({ ctx, id, command: "thread/resume", thread });
 };
@@ -479,7 +481,8 @@ const handleUiResponse: Handler = (ctx, cmd, id) => {
 };
 
 /** Registry the worker dispatches through; keys are the command `type`s. */
-/** v0.7: the session's sandbox snapshot + OS-runtime state. */
+/** v2 (plan 2026-09-10-sandbox-v2.md §4.6): the conversation's sandbox
+ * snapshot + OS-runtime state + coarse session grants. */
 const handleGetSandboxState: Handler = async (ctx, cmd, id) => {
   const query = cmd as GetSandboxStateCmd;
   const thread = ctx.requireThread(query.threadId, "get_sandbox_state", id);
@@ -487,18 +490,21 @@ const handleGetSandboxState: Handler = async (ctx, cmd, id) => {
   const state = ctx.sessions.getSandboxState();
   ctx.success(id, "get_sandbox_state", {
     enabled: state.snapshot.config.enabled,
+    posture: state.snapshot.config.posture,
     platform: process.platform,
     ...(state.runtime.degraded !== undefined ? { degraded: state.runtime.degraded } : {}),
     network: state.snapshot.config.network,
     filesystem: state.snapshot.config.filesystem,
+    grants: state.snapshot.config.grants,
+    credentials: { maskEnvVars: state.snapshot.config.credentials.maskEnvVars },
     source: state.snapshot.source,
     ...(state.runtime.active ? { bashSandboxed: true } : { bashSandboxed: false }),
-    // v0.10: confirm posture + live session exemptions (list form; caps and
-    // lifecycle live in the gate — api.md §sandbox).
     onViolation: state.snapshot.config.onViolation,
-    sessionExemptions: {
-      writePaths: [...state.exemptions.writePaths],
-      bashCommands: [...state.exemptions.bashCommands],
+    sessionGrants: {
+      writeDirs: [...state.grants.writeDirs],
+      writePatterns: [...state.grants.writePatterns],
+      domains: [...state.grants.domains],
+      bashPrefixes: [...state.grants.bashPrefixes],
     },
   });
 };

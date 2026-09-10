@@ -30,6 +30,9 @@ export interface WorkerHandle {
   /** Current session id; changes on fork/clone. Empty before first response. */
   threadId: string;
   trusted: boolean;
+  /** v0.12 sandbox posture from the admitting command (undefined = infer);
+   * rides the handle so the thread table can persist it for wakes. */
+  posture: "strict" | "balanced" | "open" | undefined;
   writeLine: (line: string) => Promise<void>;
   closed: Promise<void>;
   retireIntent: RetireIntent;
@@ -101,6 +104,7 @@ function makeFailedSpawnHandle(child: ChildProcess, reason: string): WorkerHandl
     },
     threadId: "",
     trusted: false,
+    posture: undefined,
     writeLine: () => Promise.reject(new Error(reason)),
     closed: Promise.resolve(),
     retireIntent: "shutdown",
@@ -185,6 +189,8 @@ export interface SpawnWorkerDeps {
   /** Pool-assigned unique worker tag (WorkerHandle.uid). */
   uid: string;
   trusted: boolean;
+  /** v0.12 sandbox posture (bookkeeping: rides the handle for the table). */
+  posture: "strict" | "balanced" | "open" | undefined;
   /** Spawn-to-first-response budget; the pool kills past it (design §8). */
   spawnTimeoutMs: number;
   onLine: (line: string) => void;
@@ -220,6 +226,7 @@ export function spawnWorkerProcess(deps: SpawnWorkerDeps): WorkerHandle {
     stdin,
     uid: deps.uid,
     trusted: deps.trusted,
+    posture: deps.posture,
     spawnTimeoutMs: deps.spawnTimeoutMs,
     onClosed: deps.onClosed,
   });
@@ -241,6 +248,7 @@ function makeWorkerHandle(deps: {
   stdin: WorkerStdin;
   uid: string;
   trusted: boolean;
+  posture: "strict" | "balanced" | "open" | undefined;
   spawnTimeoutMs: number;
   onClosed: (code: number | null, signal: string | null) => void;
 }): WorkerHandle {
@@ -250,6 +258,7 @@ function makeWorkerHandle(deps: {
     uid: deps.uid,
     threadId: "",
     trusted: deps.trusted,
+    posture: deps.posture,
     writeLine: createLineWriter(deps.stdin),
     closed: Promise.resolve(),
     retireIntent: "none",

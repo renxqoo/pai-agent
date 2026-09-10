@@ -19,6 +19,7 @@ import type {
   ThreadListEntry,
   UiResponseCmd,
   WorkerGrantFrame,
+  WorkerSandboxGrantFrame,
 } from "./protocol.ts";
 import { INTERNAL_ID_PREFIX } from "./protocol.ts";
 import { type RetireIntent, type WorkerHandle, spawnWorkerProcess } from "./worker-process.ts";
@@ -35,6 +36,8 @@ import { registerParkedAdmission, type RegisterOutcome } from "./thread-register
 import { armTeardownDeadline, sweepWorkers, type SweepOps } from "./thread-retire.ts";
 import { type ThreadEntry, ThreadTable } from "./thread-table.ts";
 import { readIntEnv } from "./int-env.ts";
+import { resumeAndWait } from "./resume-wait.ts";
+import { persistSandboxGrant } from "./sandbox-grant-writer.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
 import { sleep } from "./subagent-wire.ts";
 import {
@@ -52,6 +55,8 @@ const STALE_SIGKILL_GRACE_MS = 2_000;
 const SWEEP_INTERVAL_MS = 1_000;
 
 export interface WorkerPoolOptions {
+  /** v0.12: backend agent dir — the global sandbox.json grants writer. */
+  agentDir?: string;
   /** Emit a synthesized frame (host serializes it). */
   emitFrame: (frame: HubFrame) => void;
   /** Forward a worker line verbatim (no re-serialization). */
@@ -75,53 +80,6 @@ export interface WorkerPoolOptions {
 /** Internal resume exchange: settle when the absorbed response lands, the
  * worker dies, or the write fails; onFailedResume runs the occupancy/death
  * cleanup exactly once. */
-async function resumeAndWait(deps: {
-  worker: WorkerHandle;
-  entry: ThreadEntry;
-  sessionPath: string;
-  registerInternal: (waiter: InternalWaiter) => string;
-  internalIds: Map<string, InternalWaiter>;
-  onFailedResume: () => Promise<void>;
-}): Promise<void> {
-  const { worker, entry } = deps;
-  const forget = (id: string): void => {
-    deps.internalIds.delete(`${worker.uid}:${id}`);
-    worker.internalIds.delete(id);
-  };
-  try {
-    await new Promise<void>((done, refuse) => {
-      const id = deps.registerInternal({
-        onResponse: (frame) => {
-          forget(id);
-          if (frame["success"] === true) done();
-          else refuse(new Error(String(frame["error"] ?? "resume failed")));
-        },
-        onClosed: () => {
-          forget(id);
-          refuse(new Error("worker died while resuming"));
-        },
-      });
-      void worker
-        .writeLine(
-          JSON.stringify({
-            type: "thread/resume",
-            sessionPath: deps.sessionPath,
-            cwd: entry.cwd,
-            trusted: entry.trusted,
-            id,
-          }),
-        )
-        .catch((error: unknown) => {
-          forget(id);
-          refuse(error instanceof Error ? error : new Error(String(error)));
-        });
-    });
-  } catch (error) {
-    await deps.onFailedResume();
-    throw error instanceof Error ? error : new Error(String(error));
-  }
-}
-
 export class WorkerPool {
   private readonly table = new ThreadTable();
   private readonly internalIds = new Map<string, InternalWaiter>();
@@ -135,6 +93,7 @@ export class WorkerPool {
   private readonly maxSubagents: number;
   private readonly grantLedger: GrantLedger;
   private readonly emitFrame: (frame: HubFrame) => void;
+  private readonly agentDir: string | undefined;
   private readonly emitRaw: (line: string) => void;
   private readonly writeStderr: (text: string) => void;
   private readonly spawnWorkerFn: typeof spawnWorkerProcess;
@@ -145,6 +104,7 @@ export class WorkerPool {
 
   constructor(options: WorkerPoolOptions) {
     this.emitFrame = options.emitFrame;
+    this.agentDir = options.agentDir;
     this.emitRaw = options.emitRaw;
     this.writeStderr = options.writeStderr;
     this.maxThreads = options.maxThreads ?? readIntEnv("PAI_MAX_THREADS", MAX_THREADS_DEFAULT);
@@ -240,7 +200,12 @@ export class WorkerPool {
 
   /** thread/start / thread/resume: admission lives in thread-admission.ts. */
   async startThread(
-    cmd: { id?: string; cwd?: string; trusted?: boolean },
+    cmd: {
+      id?: string;
+      cwd?: string;
+      trusted?: boolean;
+      sandboxPosture?: "strict" | "balanced" | "open";
+    },
     model?: SessionModel,
   ): Promise<void> {
     await startThreadAdmission(this.admissionOps(), cmd, model);
@@ -251,6 +216,7 @@ export class WorkerPool {
     sessionPath: string;
     cwd?: string;
     trusted?: boolean;
+    sandboxPosture?: "strict" | "balanced" | "open";
   }): Promise<void> {
     await resumeThreadAdmission(this.admissionOps(), cmd);
   }
@@ -456,7 +422,7 @@ export class WorkerPool {
         `Session already open (threadId: ${holder.threadId}); two writers would corrupt the session file`,
       );
     }
-    const worker = this.spawnWorker(entry.trusted);
+    const worker = this.spawnWorker(entry.trusted, entry.posture);
     const held = this.table.holder(sessionPath, this.allWorkers) !== undefined;
     if (held || this.overBudget()) {
       await this.killWorker(worker, "stop");
@@ -489,6 +455,30 @@ export class WorkerPool {
 
   /** Internal resume: settle on the absorbed response, death, or write
    * failure; cleanup (occupancy + dead mark + kill) runs exactly once. */
+  /** v0.12: host-side single writer for Always-grants (plan §4.3). The
+   * boundary VALIDATES — external backends speak the same frame protocol,
+   * and the writer must never persist arbitrary strings (review R4). */
+  private persistSandboxGrant(grant: WorkerSandboxGrantFrame["grant"]): void {
+    const validKind =
+      grant.kind === "domain" || grant.kind === "writeDir" || grant.kind === "bashPrefix";
+    const hasControlChar = [...grant.value].some((ch) => ch.charCodeAt(0) < 32);
+    if (
+      !validKind ||
+      typeof grant.value !== "string" ||
+      grant.value.length > 512 ||
+      hasControlChar
+    ) {
+      this.writeStderr("pai-cli sandbox grant frame rejected (invalid shape)\n");
+      return;
+    }
+    if (this.agentDir === undefined) {
+      this.writeStderr("pai-cli sandbox grant not persisted (no agent dir)\n");
+      return;
+    }
+    const error = persistSandboxGrant(this.agentDir, grant);
+    if (error !== undefined) this.writeStderr(`pai-cli ${error}\n`);
+  }
+
   private async internalResume(
     worker: WorkerHandle,
     entry: ThreadEntry,
@@ -524,7 +514,7 @@ export class WorkerPool {
     return {
       table: this.table,
       workers: () => [...this.allWorkers],
-      spawnWorker: (trusted) => this.spawnWorker(trusted),
+      spawnWorker: (trusted, posture) => this.spawnWorker(trusted, posture),
       killWorker: (worker, intent) => this.killWorker(worker, intent),
       deliverCommand: (command) => this.deliverCommand(command),
       rejectOverBudget: (id, command) => this.rejectOverBudget(id, command),
@@ -540,7 +530,10 @@ export class WorkerPool {
     await worker.closed.finally(() => clearTimeout(grace));
   }
 
-  private spawnWorker(trusted: boolean): WorkerHandle {
+  private spawnWorker(
+    trusted: boolean,
+    posture: "strict" | "balanced" | "open" | undefined = undefined,
+  ): WorkerHandle {
     const relay: FrameRelayDeps = {
       table: this.table,
       internalIds: this.internalIds,
@@ -549,6 +542,7 @@ export class WorkerPool {
       writeStderr: this.writeStderr,
       killWorker: (worker, intent) => this.killWorker(worker, intent),
       onGrant: (worker, frame) => this.handleGrantFrame(worker, frame),
+      onSandboxGrant: (_worker, frame) => this.persistSandboxGrant(frame.grant),
       renewGrants: (worker) => this.grantLedger.renew(worker),
       internalKey: (worker, id) => WorkerPool.internalKey(worker, id),
       expectedBackendId: this.backendId,
@@ -557,6 +551,7 @@ export class WorkerPool {
     const worker = this.spawnWorkerFn({
       uid: `w${this.workerSeq}`,
       trusted,
+      posture,
       spawnTimeoutMs: this.workerExitTimeoutMs,
       onLine: (line) => onWorkerLine(relay, worker, line),
       onViolation: () => void this.killWorker(worker, "none"),

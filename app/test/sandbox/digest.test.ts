@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  digestFailure,
-  digestViolationLines,
-  shouldOfferRerun,
-} from "../src/backend/pi-coding-agent/sandbox-bash.ts";
+import { digestFailure, digestViolationLines, shouldOfferRerun } from "../../src/sandbox/digest.ts";
 
 /**
  * Pure decision tables for the v0.10 bash confirm-rerun (plan

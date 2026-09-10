@@ -17,6 +17,7 @@ import type { HubFrame, SessionModel } from "../../../protocol.ts";
 import { stripCumulativeSnapshot } from "../../ports/event-strip.ts";
 import type { PaiEvent } from "../../../protocol.ts";
 import {
+  type SandboxLineage,
   type GrandchildHooks,
   type GrandchildResult,
   type GrandchildTaskSpec,
@@ -39,6 +40,8 @@ export interface TaskToolDeps {
   registry: SubagentRegistryFace;
   writeStderr: (text: string) => void;
   getThreadId: () => string;
+  /** v0.12 lineage source (plan §4.6): parent posture + in-sandbox grants. */
+  getLineage?: () => SandboxLineage | undefined;
 }
 
 interface TaskItemInput {
@@ -266,6 +269,7 @@ async function buildSpecs(deps: {
       ...(def.source === "project" ? { projectSourced: true } : {}),
       permissionThreadId: tool.getThreadId(),
       parentProtectedPaths: [joinPath(ctx.cwd, ".pi", "sandbox.json")],
+      ...(tool.getLineage !== undefined ? { lineage: tool.getLineage() } : {}),
     });
   }
   return { specs, notes };

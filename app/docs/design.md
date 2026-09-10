@@ -360,3 +360,19 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 - **大小上限**：直读超过 64 MiB 的会话文件判 invalid → 唤醒路径（防同步大解析阻塞 host 心跳）。
 - **stop 竞态语义**（接受）：直读在途时 `thread/stop` 删除表项，直读仍以旧 sessionPath 应答停机前的一致历史快照（旧路径此时答 `Unknown threadId`）——恰好一响应保持，读到的是无副作用的历史数据。
 - 测试口径修正：等价性不再用「直读 vs `SessionManager.open` 同函数对比」（循环验证）；改为 e2e-mock 真值对齐（同会话 parked 直读响应 vs 唤醒成 live 后透传响应逐字段对比）+ 差异面单测（model null 链、legacy invalid、大小上限）。
+
+## 契约 v0.12 增补（二）：沙箱 v0.12——姿态档位 + 事前问询 + 粗粒度授予（已实施；方案 docs/plans/2026-09-10-sandbox-v2.md，对抗审查 20 项处置见 §十二）
+
+v0.10 的确认流程在默认配置下弹框过密（精确路径/精确命令串豁免、不持久化、网络白名单外即失败重跑）。v0.12 重构为「沙箱内免打扰，出沙箱才问，问一次就学会」：
+
+- **组件化（用户裁决）**：沙箱逻辑迁入 `src/sandbox/` 组件包（config/policy/grants/digest/ports/controller/runtime/bash-exec），零 host/worker/协议依赖（`scripts/check-import-boundary.mjs` 进 check 门强制）；backend 只剩 `sandbox-binding.ts` 粘合层。
+- **posture 档位**：`sandbox.json` + `thread.start/resume` 的 `sandboxPosture` 参数（host 持久化进线程表，唤醒不丢）；strict（untrusted 缺省，有意收紧）/ balanced（trusted 缺省 = v0.10 策略）/ open（诚实全允许，硬底除外）。
+- **沙箱内静默（B）**：权限门 fallback「ask」对「将入沙箱的 bash / 分类干净的 write/edit」自动放行（deny/block/显式 ask 规则仍先生效；runtime 降级时回退逐命令弹框，绝不 fail-open+静默叠加）。
+- **事前问询（E，微复现实测）**：runtime 网络代理的 ask 回调在**连接建立前**触发——命令不失败、零重跑；`updateConfig` 对代理即时生效（会话/永久授予秒级生效）。
+- **四选弹框 + 粗粒度授予（C+D）**：once / session / always / deny；域名/父目录/模式/前缀粒度（前缀 = 每复合段首两 token，rules.ts 分段器单一真相）；同键在途去重；fork/clone 保留授予（会话连续体，推翻 v0.10 快照清空裁决）；"Always" 由 host 单写者落盘全局 `grants` 节（worker→host `sandbox_grant_persist` 内部帧；**绝不改写 posture 相关系组**——跨档位污染是审查 P1 红线）。
+- **沙箱内重跑**：分类违规（域名/目录）批准后经 per-invocation 策略覆写**仍在沙箱内**重跑（customConfig 整段合并，绝不丢 denyRead/denyWrite）；仅不可分类拒绝走 v0.10 出沙箱重跑兜底。
+- **env 凭证过滤**：沙箱内 bash 匹配变量值 → 哨兵 `pai-sandboxed`（堵 env 外带洞；自研，不用 runtime credentials 的出口回填语义）。
+- **预声明升级**：sandboxed bash 输入 `escalate+escalateReason`——执行前弹框，批准直接出沙箱（模型可教的半执行失败消除）。
+- **血缘传播**：孙进程继承 posture + 域名/目录/模式授予快照；bashPrefixes（出沙箱特权）**永不传播**（审查 P4）。
+- **get_sandbox_state v2（破坏性）**：见 api.md §沙箱（移除 `sessionExemptions`）。
+- **不变量延续**：denyRead/保护路径恒硬拦、孙进程 fail-closed、deniedDomains/denyWrite 恒压一切授予、`PAI_SANDBOX=off` kill switch、`onViolation` 正交保留。

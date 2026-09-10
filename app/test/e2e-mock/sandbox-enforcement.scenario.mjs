@@ -19,6 +19,10 @@ export const name = "sandbox-enforcement";
 export const timeoutMs = 300_000;
 
 const OUTSIDE = mkdtempSync(join(tmpdir(), "sbx-e2e-out-"));
+// v2: the ask-world session leg grants OUTSIDE dir-wide; the agent bash
+// legs need a FRESH directory so they still violate.
+const OUTSIDE_ASK = mkdtempSync(join(tmpdir(), "sbx-e2e-ask2-"));
+const OUTSIDE_ALWAYS = mkdtempSync(join(tmpdir(), "sbx-e2e-alw-"));
 // Outside allowWrite but NOT denyRead-listed: the write-tool confirm leg must
 // be confirmable (a denyRead-listed target hits the hard floor — no dialog).
 const OUTSIDE_WRITE = mkdtempSync(join(tmpdir(), "sbx-e2e-wr-"));
@@ -86,9 +90,11 @@ export async function run({ assert }) {
     assert(state.success, "get_sandbox_state succeeds");
     assert(state.data.onViolation === "deny", "deny posture echoed (v0.7 world)");
     assert(
-      Array.isArray(state.data.sessionExemptions?.writePaths) &&
-        Array.isArray(state.data.sessionExemptions?.bashCommands),
-      "sessionExemptions shape present",
+      Array.isArray(state.data.sessionGrants?.writeDirs) &&
+        Array.isArray(state.data.sessionGrants?.writePatterns) &&
+        Array.isArray(state.data.sessionGrants?.domains) &&
+        Array.isArray(state.data.sessionGrants?.bashPrefixes),
+      "sessionGrants shape present",
     );
     if (process.platform === "darwin") {
       assert(state.data.enabled === true, "sandbox enabled by default");
@@ -204,8 +210,11 @@ export async function run({ assert }) {
 
     const r2 = await round("p2", "try the write tool outside");
     const writeText = toolResultText(r2.window);
+    // v2 (review R5): writes into a denyRead root report the denyRead
+    // floor — OUTSIDE is denyRead-listed in this world; either hard-block
+    // reason is correct, both are v0.7-style blocks.
     assert(
-      /Sandbox policy: write outside allowed paths/.test(writeText),
+      /Sandbox policy: (write outside allowed paths|denyRead match)/.test(writeText),
       "write tool: outside path hard-blocked",
     );
 
@@ -325,13 +334,13 @@ export async function run({ assert }) {
         {
           kind: "tool",
           name: "bash",
-          args: { command: `echo agent-rerun | tee ${OUTSIDE}/agent-rerun.txt` },
+          args: { command: `echo agent-rerun | tee ${OUTSIDE_ASK}/agent-rerun.txt` },
         },
         { kind: "text", text: "bash-rerun-done" },
         {
           kind: "tool",
           name: "bash",
-          args: { command: `echo denied-agent | tee ${OUTSIDE}/agent-denied.txt` },
+          args: { command: `echo denied-agent | tee ${OUTSIDE_ASK}/agent-denied.txt` },
         },
         { kind: "text", text: "bash-deny-done" },
         { kind: "tool", name: "write", args: { path: ".env", content: "CONFIRMED=1" } },
@@ -379,9 +388,11 @@ export async function run({ assert }) {
     const askState = await hostAsk.waitResponse("aq1", { ms: 20_000 });
     assert(askState.success && askState.data.onViolation === "ask", "ask posture is the default");
     assert(
-      askState.data.sessionExemptions.writePaths.length === 0 &&
-        askState.data.sessionExemptions.bashCommands.length === 0,
-      "ask world: fresh session has no exemptions",
+      askState.data.sessionGrants.writeDirs.length === 0 &&
+        askState.data.sessionGrants.writePatterns.length === 0 &&
+        askState.data.sessionGrants.domains.length === 0 &&
+        askState.data.sessionGrants.bashPrefixes.length === 0,
+      "ask world: fresh session has no grants",
     );
 
     const directAsk = async (id, command) => {
@@ -424,13 +435,20 @@ export async function run({ assert }) {
       const onceCmd = `echo pwned | tee ${OUTSIDE}/ask-once.txt`;
       const onceCursor = hostAsk.frames.length;
       const oncePromise = directAsk("ab1", onceCmd);
-      const onceDialog = await answerSelect("Allow once", "rerun dialog (allow once)", onceCursor);
-      assert(/re-run without sandbox/.test(onceDialog.title), "dialog title explains the rerun");
+      const onceDialog = await answerSelect(
+        "Allow once",
+        "write-dir dialog (allow once)",
+        onceCursor,
+      );
+      assert(
+        /allow writes under .*\? \(command /.test(onceDialog.title),
+        "dialog title explains the write-dir grant (v2 in-sandbox rerun)",
+      );
       const onceResp = await oncePromise;
       assert(onceResp.success && onceResp.data.exitCode === 0, "allow once: rerun exits zero");
       assert(
-        /rerunning without sandbox/.test(onceResp.data.output ?? ""),
-        "allow once: rerun marker in output",
+        /rerunning with sandbox exception/.test(onceResp.data.output ?? ""),
+        "allow once: in-sandbox rerun marker in output",
       );
       const { existsSync } = await import("node:fs");
       assert(
@@ -439,11 +457,11 @@ export async function run({ assert }) {
       );
 
       // Deny on a fresh command: stays failed with the declined marker
-      // (allow-once granted nothing — no exemption was minted).
+      // (allow-once granted nothing — no grant was minted).
       const denyCmd = `echo denied | tee ${OUTSIDE}/ask-deny.txt`;
       const denyCursor = hostAsk.frames.length;
       const denyPromise = directAsk("ab2", denyCmd);
-      await answerSelect("Deny", "rerun dialog (deny)", denyCursor);
+      await answerSelect("Deny", "write-dir dialog (deny)", denyCursor);
       const denyResp = await denyPromise;
       assert(
         denyResp.success && denyResp.data.exitCode !== 0,
@@ -451,18 +469,20 @@ export async function run({ assert }) {
       );
       assert(/rerun declined/.test(denyResp.data.output ?? ""), "deny: declined marker in output");
 
-      // Session grant: exempted command skips the dialog on repeat.
+      // Session grant: the write-dir grant lands in get_sandbox_state and the
+      // repeat runs clean (the live-swapped runtime config carries it — no
+      // violation, no dialog at all).
       const sessionCmd = `echo again | tee ${OUTSIDE}/ask-session.txt`;
       const sessionCursor = hostAsk.frames.length;
       const sessionPromise = directAsk("ab3", sessionCmd);
-      await answerSelect("Allow for this session", "rerun dialog (session)", sessionCursor);
+      await answerSelect("Allow for this session", "write-dir dialog (session)", sessionCursor);
       const sessionResp = await sessionPromise;
       assert(sessionResp.success && sessionResp.data.exitCode === 0, "session: rerun exits zero");
       hostAsk.send({ id: "aq2", type: "get_sandbox_state", threadId: askTid });
       const exemptState = await hostAsk.waitResponse("aq2", { ms: 20_000 });
       assert(
-        exemptState.data.sessionExemptions.bashCommands.includes(sessionCmd),
-        "session exemption visible in get_sandbox_state",
+        exemptState.data.sessionGrants.writeDirs.some((d) => d.includes("sbx-e2e-out-")),
+        "session writeDir grant visible in get_sandbox_state",
       );
       const exemptWindow = hostAsk.frames.length;
       const exemptResp = await directAsk("ab4", sessionCmd);
@@ -475,6 +495,28 @@ export async function run({ assert }) {
           .slice(exemptWindow)
           .some((f) => f.type === "ui_request" && f.method === "select"),
         "exempt repeat: no dialog offered",
+      );
+
+      // Always allow: the grant persists to the GLOBAL sandbox.json grants
+      // section (host single-writer) — visible in the file for future
+      // sessions, never in the posture-scoped arrays.
+      const alwaysCmd = `echo forever | tee ${OUTSIDE_ALWAYS}/ask-always.txt`;
+      const alwaysCursor = hostAsk.frames.length;
+      const alwaysPromise = directAsk("ab6", alwaysCmd);
+      await answerSelect("Always allow", "write-dir dialog (always)", alwaysCursor);
+      const alwaysResp = await alwaysPromise;
+      assert(alwaysResp.success && alwaysResp.data.exitCode === 0, "always: rerun exits zero");
+      const { readFileSync: readSync } = await import("node:fs");
+      const { join: joinPath } = await import("node:path");
+      const globalFile = JSON.parse(readSync(joinPath(worldAsk.agentDir, "sandbox.json"), "utf8"));
+      assert(
+        Array.isArray(globalFile.grants?.writeDirs) &&
+          globalFile.grants.writeDirs.some((d) => d.includes("sbx-e2e-alw-")),
+        "always: grant persisted to the global grants section",
+      );
+      assert(
+        JSON.stringify(globalFile.filesystem?.allowWrite) === JSON.stringify([".", "/tmp"]),
+        "always: the posture-scoped allowWrite array is untouched (review P1)",
       );
 
       // denyRead floor: a denied read never offers the rerun.
@@ -506,8 +548,8 @@ export async function run({ assert }) {
         { label: "write confirm dialog", ms: 20_000, since: window },
       );
       assert(
-        /outside allowed paths/.test(dialog.title),
-        "write dialog title carries the violation",
+        /allow writes under .*\? \(target /.test(dialog.title),
+        "write dialog title carries the violation and the grant (v2)",
       );
       hostAsk.send({
         id: "aur2",
@@ -543,8 +585,8 @@ export async function run({ assert }) {
         { label: "agent bash rerun dialog", ms: 20_000, since: window },
       );
       assert(
-        /re-run without sandbox/.test(dialog.title),
-        "agent bash dialog title explains the rerun",
+        /allow writes under .*\? \(command /.test(dialog.title),
+        "agent bash dialog title explains the write-dir grant (v2)",
       );
       hostAsk.send({
         id: "aur3",
@@ -562,9 +604,12 @@ export async function run({ assert }) {
           .slice(window)
           .filter((f) => f.type === "event" && f.event?.type === "tool_execution_end"),
       );
-      assert(/rerunning without sandbox/.test(ends), "agent bash: rerun marker in tool result");
+      assert(
+        /rerunning with sandbox exception/.test(ends),
+        "agent bash: in-sandbox rerun marker in tool result",
+      );
       const { existsSync } = await import("node:fs");
-      assert(existsSync(`${OUTSIDE}/agent-rerun.txt`), "agent bash: the rerun wrote the file");
+      assert(existsSync(`${OUTSIDE_ASK}/agent-rerun.txt`), "agent bash: the rerun wrote the file");
     }
 
     const askExit = await hostAsk.endGracefully();

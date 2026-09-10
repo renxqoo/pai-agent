@@ -246,6 +246,16 @@ class GrandchildRunner {
       ...(spec.parentProtectedPaths !== undefined
         ? { parentProtectedPaths: spec.parentProtectedPaths }
         : {}),
+      ...(spec.lineage !== undefined
+        ? {
+            sandboxPosture: spec.lineage.posture,
+            sandboxGrants: {
+              writeDirs: spec.lineage.writeDirs,
+              writePatterns: spec.lineage.writePatterns,
+              domains: spec.lineage.domains,
+            },
+          }
+        : {}),
     });
   }
 
@@ -253,6 +263,7 @@ class GrandchildRunner {
     return this.spawnWorker({
       uid: `sub-${this.spec.subagentId}`,
       trusted: false,
+      posture: undefined,
       spawnTimeoutMs: this.startTimeoutMs,
       onLine: (line) => this.onLine(line),
       onViolation: (reason) => this.noteFatal(`grandchild protocol violation (${reason})`),

@@ -8,7 +8,12 @@
 import type { WorkerCommand } from "./protocol.ts";
 import type { DialogBroker } from "./dialogs.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
-import type { HubFrame, WorkerGrantFrame, WorkerHeartbeatFrame } from "./protocol.ts";
+import type {
+  HubFrame,
+  WorkerGrantFrame,
+  WorkerHeartbeatFrame,
+  WorkerSandboxGrantFrame,
+} from "./protocol.ts";
 import type { CapabilityBit } from "./backend/capabilities.ts";
 import type { CheckPermission } from "./backend/ports/interception.ts";
 import type { PaiSessionHost, PaiThread } from "./backend/ports/session.ts";
@@ -16,7 +21,9 @@ import type { PaiSessionHost, PaiThread } from "./backend/ports/session.ts";
 export interface WorkerContext {
   sessions: PaiSessionHost;
   broker: DialogBroker;
-  emit: (frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame) => void;
+  emit: (
+    frame: HubFrame | WorkerHeartbeatFrame | WorkerGrantFrame | WorkerSandboxGrantFrame,
+  ) => void;
   /** v0.11: the backend's capability set (hello-frame mirror, assembled
    * from the backend bundle) — drives the prompt-path /compact interception
    * and the builtin get_commands gating. */

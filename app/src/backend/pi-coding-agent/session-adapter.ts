@@ -15,7 +15,6 @@ import {
   type AgentSession,
   type AgentSessionRuntime,
   type AgentSessionEvent,
-  type CreateAgentSessionFromServicesOptions,
   type CreateAgentSessionRuntimeFactory,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -27,12 +26,11 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createPermissionGate, effectiveRules } from "./permission-gate.ts";
-import {
-  type SandboxGateState,
-  createSandboxGate,
-  freshExemptions,
-  snapshotSandboxConfig,
-} from "./sandbox-gate.ts";
+import { inheritableSessionOptions, resourceOptionsFor, shapingOptions } from "./spawn-shaping.ts";
+import { createSandboxBinding } from "./sandbox-binding.ts";
+import { SandboxController } from "../../sandbox/controller.ts";
+import { buildSnapshot } from "../../sandbox/config.ts";
+import { type SandboxGrantPersister, noopPersister } from "../../sandbox/ports.ts";
 import { stripCumulativeSnapshot } from "../ports/event-strip.ts";
 import type { PaiEvent } from "../../protocol.ts";
 import type { SpawnShaping } from "../ports/session.ts";
@@ -59,6 +57,9 @@ export interface SessionHostOptions {
   onThreadDisposed?: (threadId: string) => void;
   /** Diagnostics sink (worker stderr); used for best-effort degradation notes. */
   writeStderr?: (text: string) => void;
+  /** v0.12 "Always allow" sink (defaults to session-only noop; the worker
+   * backend wires the sandbox_grant_persist frame). */
+  persistGrant?: SandboxGrantPersister;
   /**
    * Extra built-in extensions, called per spawn with the spawn's trust flag
    * and — for grandchild spawns — the subagent shaping (stages 8/9: the
@@ -83,28 +84,6 @@ export interface SessionHostOptions {
  * replies amplify to quadratic wire traffic. Top-level usage is kept.
  */
 
-/** Session-shaping extras (tool allowlist, thinking level). */
-function shapingOptions(shaping: SpawnShaping | undefined): Record<string, unknown> {
-  if (shaping === undefined) return {};
-  return {
-    ...(shaping.tools !== undefined ? { tools: shaping.tools } : {}),
-    ...(shaping.thinkingLevel !== undefined ? { thinkingLevel: shaping.thinkingLevel } : {}),
-  };
-}
-
-/** Loader options shared by every spawn of this factory (trust + shaping). */
-function resourceOptionsFor(
-  deps: { trusted: boolean; shaping: SpawnShaping | undefined },
-  base: { cwd: string; extensionFactories: InlineExtension[] },
-) {
-  const { trusted, shaping } = deps;
-  return {
-    ...(trusted ? {} : { noExtensions: true }),
-    extensionFactories: base.extensionFactories,
-    ...(shaping?.systemPrompt !== undefined ? { systemPrompt: shaping.systemPrompt } : {}),
-  };
-}
-
 /** Official two-stage factory: services (resource loader, settings, shared
  * model runtime) then the session bound to the passed manager — the runtime
  * calls this again on fork/switch with a fresh manager. Subagent shaping
@@ -118,35 +97,14 @@ type CreateExtensionsFn = (spawn: {
   agentName?: string;
 }) => InlineExtension[];
 
-/** Session-creation inputs from a runtime factory call: replacement
- * inheritance (fork) outranks the spawn-time model — a resumed worker has no
- * spawn-time snapshot, and a forked branch may be too early (no messages) for
- * session-data restoration. */
-function inheritableSessionOptions(
-  factoryOptions: Parameters<CreateAgentSessionRuntimeFactory>[0],
-  spawnModel: SessionModel | undefined,
-): Partial<
-  Pick<CreateAgentSessionFromServicesOptions, "model" | "thinkingLevel" | "sessionStartEvent">
-> {
-  const inheritedModel = factoryOptions.model ?? spawnModel;
-  return {
-    ...(factoryOptions.sessionStartEvent !== undefined
-      ? { sessionStartEvent: factoryOptions.sessionStartEvent }
-      : {}),
-    ...(inheritedModel !== undefined ? { model: inheritedModel } : {}),
-    ...(factoryOptions.thinkingLevel !== undefined
-      ? { thinkingLevel: factoryOptions.thinkingLevel }
-      : {}),
-  };
-}
-
 function makeRuntimeFactory(deps: {
   modelRuntime: ModelRuntime;
   trusted: boolean;
   model: SessionModel | undefined;
   threadIdRef: ThreadIdRef;
   shaping: SpawnShaping | undefined;
-  sandboxState: SandboxGateState;
+  posture: "strict" | "balanced" | "open" | undefined;
+  sandbox: SandboxController;
   writeStderr: (text: string) => void;
   createExtensions: CreateExtensionsFn | undefined;
 }): CreateAgentSessionRuntimeFactory {
@@ -166,7 +124,8 @@ function makeRuntimeFactory(deps: {
           threadIdRef,
           shaping,
           cwd: factoryOptions.cwd,
-          sandboxState: deps.sandboxState,
+          posture: deps.posture,
+          sandbox: deps.sandbox,
           writeStderr: deps.writeStderr,
           createExtensions,
         }),
@@ -184,22 +143,25 @@ function makeRuntimeFactory(deps: {
   };
 }
 
-/** Sandbox gate wiring: grandchildren additionally protect the parent
+/** Sandbox binding wiring: grandchildren additionally protect the parent
  * conversation's project sandbox file (batch-2 review P3) and never
  * escalate confirmable violations to dialogs (v0.10 fail-closed). */
-function sandboxGateDeps(factory: {
+function sandboxBindingDeps(factory: {
   trusted: boolean;
   cwd: string;
-  sandboxState: SandboxGateState;
+  posture: "strict" | "balanced" | "open" | undefined;
+  sandbox: SandboxController;
   writeStderr: (text: string) => void;
   shaping: SpawnShaping | undefined;
 }) {
-  const { trusted, cwd, sandboxState, writeStderr, shaping } = factory;
+  const { trusted, cwd, posture, sandbox, writeStderr, shaping } = factory;
   return {
     trusted,
     cwd,
-    state: sandboxState,
+    controller: sandbox,
     writeStderr,
+    ...(posture !== undefined ? { posture } : {}),
+    ...(shaping?.lineage !== undefined ? { lineage: shaping.lineage } : {}),
     ...(shaping?.subagent === true ? { subagent: true } : {}),
     ...(shaping?.parentProtectedPaths !== undefined
       ? { parentProtectedPaths: shaping.parentProtectedPaths }
@@ -215,7 +177,8 @@ function spawnExtensions(factory: {
   threadIdRef: ThreadIdRef;
   shaping: SpawnShaping | undefined;
   cwd: string;
-  sandboxState: SandboxGateState;
+  posture: "strict" | "balanced" | "open" | undefined;
+  sandbox: SandboxController;
   writeStderr: (text: string) => void;
   createExtensions:
     | ((spawn: {
@@ -226,7 +189,7 @@ function spawnExtensions(factory: {
       }) => InlineExtension[])
     | undefined;
 }): InlineExtension[] {
-  const { trusted, threadIdRef, shaping, cwd, sandboxState, writeStderr, createExtensions } =
+  const { trusted, threadIdRef, shaping, cwd, posture, sandbox, writeStderr, createExtensions } =
     factory;
   const permissionThreadId = shaping?.permissionThreadId;
   const extensions: InlineExtension[] = [
@@ -235,11 +198,13 @@ function spawnExtensions(factory: {
       // Grandchild gate: re-read the parent conversation's ruleset on
       // every decision (review B-P2-5) — never a frozen snapshot.
       permissionThreadId === undefined ? undefined : () => effectiveRules(permissionThreadId),
-      cwd,
+      { cwd, getOracle: () => sandbox.oracle() },
     ),
     // Second defense line, layered AFTER the advisory gate (physical/hard
     // policy). Inline for every thread incl. grandchildren (restrict-only).
-    createSandboxGate(sandboxGateDeps({ trusted, cwd, sandboxState, writeStderr, shaping })),
+    createSandboxBinding(
+      sandboxBindingDeps({ trusted, cwd, posture, sandbox, writeStderr, shaping }),
+    ),
   ];
   if (createExtensions !== undefined) {
     extensions.push(
@@ -335,14 +300,9 @@ export class SessionHost {
   private readonly options: SessionHostOptions;
   /** Current session id for the permission gate (set on bind/rebind). */
   private readonly threadIdRef: ThreadIdRef = { id: "" };
-  /** Sandbox snapshot + runtime state for the current session (read by
-   * get_sandbox_state; mutated by the sandbox gate at factory time and
-   * session_start). */
-  private readonly sandboxState: SandboxGateState = {
-    snapshot: snapshotSandboxConfig({ trusted: false, cwd: process.cwd(), env: {} }),
-    runtime: { active: false },
-    exemptions: freshExemptions(),
-  };
+  /** Sandbox state machine for the current conversation (read by
+   * get_sandbox_state; the binding mounts it per spawn). */
+  private readonly sandbox: SandboxController;
   /** Grandchild gate anchor: the parent conversation whose ruleset is
    * re-read on every decision. */
   private permissionThreadId: string | undefined;
@@ -355,6 +315,19 @@ export class SessionHost {
 
   constructor(options: SessionHostOptions) {
     this.options = options;
+    // Field order matters: the controller reads options (persistGrant) and
+    // must be constructed after the options assignment above.
+    this.sandbox = new SandboxController({
+      cwd: process.cwd(),
+      snapshot: buildSnapshot({
+        agentDir: getAgentDir(),
+        trusted: false,
+        cwd: process.cwd(),
+        env: {},
+      }),
+      subagent: false,
+      persist: options.persistGrant ?? noopPersister,
+    });
   }
 
   get(): Thread | undefined {
@@ -368,9 +341,13 @@ export class SessionHost {
 
   /** Grandchild gate ruleset (parent's live rules; undefined for normal
    * conversations — the caller then falls back to its own threadId). */
-  /** Sandbox observability: the gate keeps this current (session-scoped). */
-  getSandboxState(): SandboxGateState {
-    return this.sandboxState;
+  /** Sandbox observability: the controller keeps this current (conversation-scoped). */
+  getSandboxState(): SandboxController {
+    return this.sandbox;
+  }
+
+  containmentOracle(): ReturnType<SandboxController["oracle"]> {
+    return this.sandbox.oracle();
   }
 
   getInjectedRules(): PermissionRules | undefined {
@@ -384,6 +361,7 @@ export class SessionHost {
     trusted: boolean;
     model?: SessionModel;
     shaping?: SpawnShaping;
+    posture?: "strict" | "balanced" | "open";
   }): Promise<Thread> {
     if (this.thread !== undefined || this.spawning) {
       throw this.oneSessionError();
@@ -395,6 +373,7 @@ export class SessionHost {
         trusted: options.trusted,
         model: options.model,
         shaping: options.shaping,
+        posture: options.posture,
         sessionManager:
           options.shaping?.ephemeral === true
             ? SessionManager.inMemory(options.cwd)
@@ -408,6 +387,7 @@ export class SessionHost {
     cwd: string | undefined;
     trusted: boolean;
     sessionPath: string;
+    posture?: "strict" | "balanced" | "open";
   }): Promise<Thread> {
     if (this.thread !== undefined || this.spawning) {
       throw this.oneSessionError();
@@ -418,7 +398,13 @@ export class SessionHost {
       // Default cwd comes from the session header, not the worker cwd:
       // resumed tools must operate where the conversation started.
       const cwd = options.cwd ?? sessionManager.getCwd();
-      return this.spawn({ cwd, trusted: options.trusted, sessionManager, spawnPath: sessionPath });
+      return this.spawn({
+        cwd,
+        trusted: options.trusted,
+        sessionManager,
+        spawnPath: sessionPath,
+        posture: options.posture,
+      });
     });
   }
 
@@ -567,25 +553,37 @@ export class SessionHost {
     }
   }
 
+  private runtimeFactoryArgs(options: {
+    cwd: string;
+    trusted: boolean;
+    model?: SessionModel;
+    shaping?: SpawnShaping;
+    posture: "strict" | "balanced" | "open" | undefined;
+  }): Parameters<typeof makeRuntimeFactory>[0] {
+    return {
+      modelRuntime: this.options.modelRuntime,
+      trusted: options.trusted,
+      model: options.model,
+      threadIdRef: this.threadIdRef,
+      shaping: options.shaping,
+      posture: options.posture,
+      sandbox: this.sandbox,
+      writeStderr: this.options.writeStderr ?? (() => {}),
+      createExtensions: this.options.createExtensions,
+    };
+  }
+
   private async spawn(options: {
     cwd: string;
     trusted: boolean;
     model?: SessionModel;
     shaping?: SpawnShaping;
+    posture: "strict" | "balanced" | "open" | undefined;
     sessionManager: SessionManager;
     spawnPath: string | undefined;
   }): Promise<Thread> {
     const runtime = await createAgentSessionRuntime(
-      makeRuntimeFactory({
-        modelRuntime: this.options.modelRuntime,
-        trusted: options.trusted,
-        model: options.model,
-        threadIdRef: this.threadIdRef,
-        shaping: options.shaping,
-        sandboxState: this.sandboxState,
-        writeStderr: this.options.writeStderr ?? (() => {}),
-        createExtensions: this.options.createExtensions,
-      }),
+      makeRuntimeFactory(this.runtimeFactoryArgs(options)),
       {
         cwd: options.cwd,
         agentDir: getAgentDir(),

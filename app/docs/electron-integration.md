@@ -95,3 +95,9 @@ hub: ModelRuntime.login(provider, type, 桥接 AuthInteraction)
 ## 顺带记录：hub 现有 spawn 的 cwd 语义
 
 `thread/start` 的 `cwd` 决定项目上下文（AGENTS.md、项目级 `.pi`、bash 工作区）；项目级资源属项目不属于 app（与 D2 的用户级目录独立），`trusted` 门已在 v0.1 生效。
+
+## v0.12 沙箱对接变化
+
+- **档位选择器**：`thread.start`/`thread/resume` 增可选 `sandboxPosture:"strict"|"balanced"|"open"`（缺省按 trusted 推断：trusted→balanced、untrusted→strict）。一个旋钮同时管权限门与沙箱（沙箱内静默语义见 api.md §沙箱）；host 持久化进线程表，唤醒保留。
+- **弹框**：沙箱问询统一四选（`Allow once` / `Allow for this session` / `Always allow` / `Deny`），复用既有 select 帧渲染（options 数据驱动，标题携带规则原文——Always 的标题即「将写入的规则」）。标题样式：`Sandbox: allow writes under <dir>? (command <cmd>)`、`Sandbox: allow network access to <host>? (<host>)`、`Sandbox denied this command — re-run without sandbox? (<cmd>)`。
+- **`get_sandbox_state` 破坏性变更**：移除 `sessionExemptions`，新增 `posture`、`grants`（全局持久授予）、`credentials`、`sessionGrants:{writeDirs,writePatterns,domains,bashPrefixes}`（会话授予）。设置面板可据 `sessionGrants` 渲染「本会话已授予」清单。
