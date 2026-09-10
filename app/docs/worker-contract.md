@@ -58,6 +58,11 @@ conformance 不过）：`thread/start`、`thread/stop`、`prompt`、`abort`、`g
 worker 不会收到它们；你的 hello.capabilities 应如实声明。会话文件格式是你自己的实现细节
 （**会话出生即绑定你的后端**，不跨后端 resume）。
 
+`get_commands` 的第四源 `builtin`（v0.11，`compact` 条目）与 prompt 通路的行首 `/compact`
+拦截是 **pai 默认 worker（共享 handler 代码）的行为**，不在本契约面内：外部 worker 自行决定
+`get_commands` 的返回与 prompt 消息的处理；`session.compact` 能力位只如实声明 compact 命令
+可用性，不隐含上述目录条目或拦截。
+
 ## 6. 安全与信任
 
 注册表（backends.json）是**用户机器级信任**：指向你的可执行文件 = 用户显式信任你的

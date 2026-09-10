@@ -8,6 +8,7 @@ import { toImages, validateImages } from "./images.ts";
 import { handleAbortBash, handleBash } from "./bash-commands.ts";
 import { selectEntriesWindow } from "./entries-window.ts";
 import { toSkillPointer } from "./skill-pointer.ts";
+import { tryCompactInvocation } from "./compact-invocation.ts";
 import type {
   ClearQueueCmd,
   CloneCmd,
@@ -139,6 +140,16 @@ const handlePrompt: Handler = (ctx, cmd, id) => {
   });
   if (!thread) return Promise.resolve();
   if (emitStreamingBehaviorError(ctx, prompt.streamingBehavior, id)) return Promise.resolve();
+  // v0.11: a line-start /compact never reaches the model — the hub runs the
+  // compact operation instead (compact-invocation.ts; capability-gated).
+  const intercepted = tryCompactInvocation({
+    ctx,
+    thread,
+    message: prompt.message,
+    images: prompt.images,
+    id,
+  });
+  if (intercepted !== undefined) return intercepted;
   // Fire-and-accept via the SDK's preflight hook (same strategy as pi's RPC
   // mode): exactly one response at acceptance time; failures before
   // acceptance become the failure response, failures after acceptance ride
@@ -430,7 +441,7 @@ const handleGetCommands: Handler = (ctx, cmd, id) => {
   const commands = cmd as GetCommandsCmd & { id?: string };
   const thread = ctx.requireThread(commands.threadId, "get_commands", id);
   if (!thread) return Promise.resolve();
-  ctx.success(id, "get_commands", { commands: collectCommands(thread) });
+  ctx.success(id, "get_commands", { commands: collectCommands(thread, ctx.capabilities) });
   return Promise.resolve();
 };
 

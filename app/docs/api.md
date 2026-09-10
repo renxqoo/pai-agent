@@ -25,7 +25,7 @@ spawn("pai-cli", [], {
 ## 2. 协议基础
 
 - 请求：一行一个 JSON 对象，`type` 必填，`id` 可选（建议始终带，用于关联响应）。
-- 响应契约：**每个带 `id` 的命令恰好收到一个 `response` 帧，`id` 回显**。`prompt` 的 response 表示"已接受"，回复内容走事件流。
+- 响应契约：**每个带 `id` 的命令恰好收到一个 `response` 帧，`id` 回显**。`prompt` 的 response 表示"已接受"，回复内容走事件流——**例外**：行首 `/compact` 命中拦截时响应时序同 `compact`（压缩完成才返回，见 §3 对话驱动）。
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
 - 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、thread/list、prompt、abort、get_state、get_commands、get_host_info、ui_response、get_permission_rules、set_permission_rules——共 11 个，任何后端恒可用）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
@@ -70,13 +70,14 @@ spawn("pai-cli", [], {
 
 **`prompt`** — 发用户消息。字段：`threadId`、`message`、`images?`（`[{type:"image",data:base64,mimeType}]`）、`streamingBehavior?`。
 关键语义：**agent 正在流式中再发 prompt 必须带 `streamingBehavior`**，`"steer"`（当前轮工具执行完、下次调模型前插入）或 `"followUp"`（本轮完全结束后投递），否则被拒。回复内容不在 response 里，看 `event` 帧（§5）。
+`/compact` 拦截（v0.11）：`message` **严格行首**且大小写敏感的 `/compact`（裸命令，或后随空白分隔的附加指示文字）不作为消息发送，而是等价 `compact` 命令执行——`customInstructions` = 后随文本去首尾空白（空串视为未给）；响应时序同 `compact`（**完成才回包**，响应 command 为 `prompt`，成功带 summary/tokens）。携非空 `images` → failure；压缩中 → failure `Compaction already in progress`；后端无 `session.compact` 能力位时**不拦截**（原样作为消息发送，与未知 `/xxx` 一致）。不命中形态（`/compactfoo`、前导空白、`/COMPACT`）原样作为消息发送。
 
 **`steer` / `follow_up`** — 显式排队（字段：`threadId`、`message`、`images?`）。队列变化会推 `queue_update` 事件。
 
 **`abort`** — 停止当前轮（也会 settle 该线程挂起的确认框）。
 **`clear_queue`** — 清空排队消息并返回文本：`{steering:[], followUp:[]}`。Esc 键语义 = `clear_queue` + `abort`。
 
-**`compact`** — 压缩上下文（LLM 总结历史）。字段：`customInstructions?`。响应含 summary/tokens；上下文太小会被 pi 拒（"too small"，属正常响应）。**长操作：响应在压缩完成时才返回**（可能远超普通命令的秒级），客户端应设长超时或无超时；中断用 `abort`。
+**`compact`** — 压缩上下文（LLM 总结历史）。字段：`customInstructions?`。响应含 summary/tokens；上下文太小会被 pi 拒（"too small"，属正常响应）。**长操作：响应在压缩完成时才返回**（可能远超普通命令的秒级），客户端应设长超时或无超时；中断用 `abort`。等效入口：经 `prompt` 发送行首 `/compact`（可带附加指示，v0.11）——目录 `get_commands` 以 `source:"builtin"` 条目下发该入口（按 `session.compact` 能力位门控，不支持的后端没有该条目）。
 
 ### 状态与历史
 
@@ -97,7 +98,7 @@ spawn("pai-cli", [], {
 **`get_session_stats`** — `{userMessages, assistantMessages, toolCalls, toolResults, tokens:{...,total}, cost, contextUsage?}`（状态栏用量显示）。
 
 **`set_session_name`** — 会话显示名（窗口标题/会话列表）。空串被拒。
-**`get_commands`** — 斜杠命令/技能枚举（输入框 `/` 补全）：`[{name, description?, source: extension|prompt|skill}]`。
+**`get_commands`** — 斜杠命令/技能枚举（输入框 `/` 补全）：`[{name, description?, source: extension|prompt|skill|builtin}]`。`builtin` 条目由 hub 下发（v0.11 起含 `compact`），按 `session.compact` 能力位门控——不支持的后端目录里没有。
 **`get_fork_messages`** — 可作为分叉点的用户消息列表（`[{entryId, text}]`，分叉选择器 UI）。
 
 ### 会话树 / 分叉
