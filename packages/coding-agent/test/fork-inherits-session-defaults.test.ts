@@ -83,13 +83,9 @@ describe("fork inherits session defaults", () => {
 				...(await createAgentSessionFromServices({
 					services,
 					sessionManager: options.sessionManager,
-					...(options.sessionStartEvent !== undefined
-						? { sessionStartEvent: options.sessionStartEvent }
-						: {}),
+					...(options.sessionStartEvent !== undefined ? { sessionStartEvent: options.sessionStartEvent } : {}),
 					...(options.model !== undefined ? { model: options.model } : {}),
-					...(options.thinkingLevel !== undefined
-						? { thinkingLevel: options.thinkingLevel }
-						: {}),
+					...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
 				})),
 				services,
 				diagnostics: services.diagnostics,
