@@ -116,6 +116,38 @@ export async function run({ assert }) {
     });
     assert(host.workerPids().length === 1, "thread is live again after the write command");
 
+    // Field-by-field truth alignment (worker restore chain vs direct read):
+    // the direct-read snapshot must be a prefix of the live transcript —
+    // append-only parity; declared divergences (default-level materialization,
+    // wake-round appends) only ever extend it.
+    host.send({ id: "ge_live2", type: "get_entries", threadId: tid });
+    const liveEntries2 = await host.waitResponse("ge_live2", { ms: 15_000 });
+    assert(liveEntries2.success, "live get_entries after wake succeeds");
+    const directIds = (entries.data.entries ?? []).map((e) => e.id);
+    const liveIds = (liveEntries2.data.entries ?? []).map((e) => e.id);
+    const directLeafIndex = liveIds.indexOf(entries.data.leafId);
+    assert(
+      directLeafIndex !== -1 && directIds.every((id, i) => liveIds[i] === id),
+      "direct-read entries form a prefix of the live transcript",
+    );
+    assert(
+      directIds.length <= directLeafIndex + 1 && directIds.at(-1) === liveIds[directLeafIndex],
+      "direct-read leaf is the last direct-read entry",
+    );
+    host.send({ id: "gs_live2", type: "get_state", threadId: tid });
+    const liveState2 = await host.waitResponse("gs_live2", { ms: 15_000 });
+    assert(liveState2.success, "live get_state after wake succeeds");
+    assert(liveState2.data.sessionId === state.data.sessionId, "session id agrees across paths");
+    assert(
+      liveState2.data.model?.provider === state.data.model?.provider &&
+        liveState2.data.model?.id === state.data.model?.id,
+      "model provider/modelId agree across paths (rich resolution parity)",
+    );
+    assert(
+      liveState2.data.messageCount >= state.data.messageCount,
+      "live message count only grows past the direct-read snapshot",
+    );
+
     const exitCode = await host.endGracefully();
     assert(exitCode === 0, `stdin EOF graceful exit 0 (got ${exitCode})`);
   } finally {

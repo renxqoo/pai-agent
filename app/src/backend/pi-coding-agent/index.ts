@@ -6,9 +6,10 @@
  * grandchild communication) exactly as the previous inline assembly did.
  */
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join as joinPath, resolve as resolvePath } from "node:path";
 import {
+  CURRENT_SESSION_VERSION,
   ModelRuntime,
   SessionManager,
   VERSION,
@@ -88,12 +89,20 @@ export function resumePathError(sessionPath: string): string | undefined {
   return undefined;
 }
 
+/** Direct-read size ceiling: a session file beyond this is handed to the
+ * wake path instead of blocking the host loop with a giant synchronous
+ * parse (the hub's own 16 MiB line-limit discipline applies to the wire,
+ * not to files it did not write this second). */
+const MAX_READ_HISTORY_BYTES = 64 * 1024 * 1024;
+
 /** Parked read history (v0.12): the same admission fence as thread/resume,
  * then a side-effect-free parse (parseSessionEntries skips malformed lines;
  * unlike SessionManager.open/loadEntriesFromFile it never migrates or
- * repairs the file). An empty or header-less file is invalid — the host
+ * repairs the file — a pre-v3 file is therefore invalid here and falls
+ * back to the wake path, whose open() performs the migration rewrite).
+ * An empty, header-less, oversized, or legacy file is invalid — the host
  * falls back to the wake path, which owns the failure wording. */
-function readHistory(sessionPath: string): Promise<ReadHistoryResult> {
+export function readHistory(sessionPath: string): Promise<ReadHistoryResult> {
   return Promise.resolve(readHistorySync(sessionPath));
 }
 
@@ -101,9 +110,17 @@ function readHistorySync(sessionPath: string): ReadHistoryResult {
   if (resumePathError(sessionPath) !== undefined) {
     return { ok: false, reason: "not_found" };
   }
+  const resolved = resolvePath(sessionPath);
+  try {
+    if (statSync(resolved).size > MAX_READ_HISTORY_BYTES) {
+      return { ok: false, reason: "invalid_file" };
+    }
+  } catch {
+    return { ok: false, reason: "not_found" };
+  }
   let entries;
   try {
-    entries = parseSessionEntries(readFileSync(resolvePath(sessionPath), "utf8"));
+    entries = parseSessionEntries(readFileSync(resolved, "utf8"));
   } catch {
     return { ok: false, reason: "invalid_file" };
   }
@@ -111,7 +128,8 @@ function readHistorySync(sessionPath: string): ReadHistoryResult {
   if (
     header === undefined ||
     header.type !== "session" ||
-    typeof (header as { id?: unknown }).id !== "string"
+    typeof (header as { id?: unknown }).id !== "string" ||
+    (header.version ?? 1) < CURRENT_SESSION_VERSION
   ) {
     return { ok: false, reason: "invalid_file" };
   }

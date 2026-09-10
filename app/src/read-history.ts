@@ -65,16 +65,17 @@ export function readHistoryEntries(
   };
 }
 
-/** A resolved model is the rich SessionModel (identical to the live
- * get_state via the host's fresh snapshot); unresolved session-data models
- * fall back to the thin shape rather than null — the client only keys on
- * provider/modelId. */
-export type ReadHistoryModel = SessionModel | { provider: string; modelId: string };
-
 /** get_state over a snapshot. isStreaming/isCompacting are false by
  * definition: the thread has no worker while the host answers directly.
  * model/thinkingLevel follow buildSessionContext: the last model_change or
- * assistant message on the leaf path wins (path order, either kind). */
+ * assistant message on the leaf path wins (path order, either kind).
+ *
+ * Declared divergences from the live get_state (design.md v0.12): the
+ * direct read reports the session-recorded model as a rich SessionModel or
+ * null — it does not replicate the worker restore chain (auth check,
+ * initial-model fallback), does not apply the settings default thinking
+ * level or model clamping (no change entry means "off"), and a wake
+ * materializes a default-level entry that shifts leafId once. */
 export function readHistoryState(
   snapshot: HistorySnapshot,
   options: {
@@ -82,7 +83,7 @@ export function readHistoryState(
     resolveModel: (provider: string, modelId: string) => SessionModel | undefined;
   },
 ): {
-  model: ReadHistoryModel | null;
+  model: SessionModel | null;
   thinkingLevel: string;
   isStreaming: false;
   isCompacting: false;
@@ -92,9 +93,9 @@ export function readHistoryState(
   messageCount: number;
 } {
   const context = buildSessionContext(snapshot.entries, snapshot.leafId);
-  const model: ReadHistoryModel | null =
-    context.model !== null
-      ? (options.resolveModel(context.model.provider, context.model.modelId) ?? context.model)
+  const model: SessionModel | null =
+    context.model !== null && context.messages.length > 0
+      ? (options.resolveModel(context.model.provider, context.model.modelId) ?? null)
       : null;
   return {
     model,

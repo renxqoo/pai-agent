@@ -38,7 +38,10 @@ export interface PaiResources {
   /** thread/list_saved payload (backend session store enumeration). */
   listSaved(cwd: string): Promise<{ sessions: unknown[] }>;
   /** Parked read history (v0.12): side-effect-free parse of one session
-   * file for host-local get_entries/get_state. Never mutates the file. */
+   * file for host-local get_entries/get_state. Never mutates the file.
+   * `not_found` covers every admission-fence rejection (non-absolute,
+   * outside the sessions dir, missing) as well as IO absence; callers
+   * treat all reasons identically (fall back to the wake path). */
   readHistory(sessionPath: string): Promise<ReadHistoryResult>;
   /** agents/list discovery (trust gate applies inside the backend). */
   discoverAgents(options: { cwd: string; trusted: boolean }): ReadonlyArray<PaiAgentDefinition>;

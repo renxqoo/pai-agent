@@ -346,3 +346,14 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 - **能力协商**：`resources.readHistory` 是 backend 资源端口方法而非能力位——核心必选命令的可用性不受后端影响；无文件概念的后端（pi-agent-core/external）报 unsupported，读命令退回唤醒路径。
 - **`thread/list` state 描述修订**：`parked` = 已闲置收编（读命令本地直读，其余命令自动唤醒）；`dead` = worker 异常死亡（读命令本地直读，写命令自动重开）。「下条命令自动唤醒」语义收窄为「写命令自动唤醒」。
 - **测试口径**：直读 ≡ SessionManager 重放（临时文件黄金对齐）；短路路由单测（live/未知/无路径/unsupported/invalid/not_found/IO 错误→未处理；游标错误→真失败）；e2e-mock `parked-read-history` 场景（retire → 直读零 worker → 写命令透明唤醒）。
+
+### v0.12 对抗审查处置（直读与 worker 恢复链的已声明差异）
+
+审查实证 worker 的 `get_state` 真值经 `createAgentSession` 恢复链五道加工（messages 门控、`getModel`+`hasConfiguredAuth`、`findInitialModel` 回落、settings 默认 thinkingLevel、`clampThinkingLevel` 钳制），直读不全部复刻——**对齐承诺从「逐字段相同」修正为「文件记录值或 null」**，差异面全部声明：
+
+- **model**：直读 = 条目流推导（路径序最后 model_change 或 assistant message）经 host 快照富解析，解析不到 → `null`；**不**做 auth 检查、**不**回落初始/默认模型、无消息上下文 → `null`（与 worker 的 messages 门控一致）。浏览态显示「会话记录的模型」而非唤醒后的回落结果，语义上更符合只读浏览。
+- **thinkingLevel**：直读 = 路径序最后 `thinking_level_change`，无条目恒 `"off"`；不复刻 settings 默认档与模型钳制（hub resources 端口无 settings 面；pi-ai 的 clamp 不跨包引入）。唤醒时 worker 物化默认档条目会使 `leafId` 变化一次——客户端游标失配由既有「失效全量重拉」兜底。
+- **legacy 文件（version < 3）**：直读判 invalid → fail-open 唤醒，由 `SessionManager.open` 迁移重写后（文件变 v3）直读自然接管——直读永不迁移文件（无副作用不变量优先）。
+- **大小上限**：直读超过 64 MiB 的会话文件判 invalid → 唤醒路径（防同步大解析阻塞 host 心跳）。
+- **stop 竞态语义**（接受）：直读在途时 `thread/stop` 删除表项，直读仍以旧 sessionPath 应答停机前的一致历史快照（旧路径此时答 `Unknown threadId`）——恰好一响应保持，读到的是无副作用的历史数据。
+- 测试口径修正：等价性不再用「直读 vs `SessionManager.open` 同函数对比」（循环验证）；改为 e2e-mock 真值对齐（同会话 parked 直读响应 vs 唤醒成 live 后透传响应逐字段对比）+ 差异面单测（model null 链、legacy invalid、大小上限）。

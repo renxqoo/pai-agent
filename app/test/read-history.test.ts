@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -131,7 +131,7 @@ describe("readHistoryState (derivation)", () => {
 
     const withModel = snapshotOf([
       header("s1"),
-      ASSISTANT("e1", null, "old", "p1", "m1"),
+      ASSISTANT("e1", null, { provider: "p1", model: "m1" }),
       entry("e2", "e1", { type: "model_change", provider: "p2", modelId: "m2" }),
       ASSISTANT("e3", "e2", { provider: "p1", model: "m1" }),
       entry("e4", "e3", { type: "thinking_level_change", thinkingLevel: "high" }),
@@ -145,30 +145,46 @@ describe("readHistoryState (derivation)", () => {
       sessionPath: "/sessions/s1.jsonl",
       resolveModel: noModel,
     });
-    expect(state.model).toEqual({ provider: "p1", modelId: "m1" });
+    // Declared divergence (v0.12 review): unresolved session-data models are
+    // null — no thin shape, no initial-model/auth fallback replication.
+    expect(state.model).toBeNull();
     expect(state.thinkingLevel).toBe("high");
 
     const changeLast = snapshotOf([
       header("s1"),
-      ASSISTANT("e1", null, "old", "p1", "m1"),
+      ASSISTANT("e1", null, { provider: "p1", model: "m1" }),
       entry("e2", "e1", { type: "model_change", provider: "p2", modelId: "m2" }),
     ]);
     expect(
       readHistoryState(changeLast, { sessionPath: "/s", resolveModel: noModel }).model,
-    ).toEqual({ provider: "p2", modelId: "m2" });
+    ).toBeNull();
   });
 
-  test("resolveModel lifts the thin shape to the host snapshot model", () => {
-    const rich = { provider: "p2", modelId: "m2", contextWindow: 128_000 };
+  test("resolveModel lifts the session-recorded model to the host snapshot shape", () => {
+    const rich = { provider: "p2", id: "m2", contextWindow: 128_000 };
     const snapshot = snapshotOf([
       header("s1"),
-      entry("e1", null, { type: "model_change", provider: "p2", modelId: "m2" }),
+      ASSISTANT("e1", null, { provider: "p2", model: "m2" }),
     ]);
     const state = readHistoryState(snapshot, {
       sessionPath: "/s.jsonl",
       resolveModel: (p, m) => (p === "p2" && m === "m2" ? rich : undefined),
     });
     expect(state.model).toBe(rich);
+  });
+
+  test("messages gate: a model_change on an empty context is null (worker restore-chain parity)", () => {
+    const snapshot = snapshotOf([
+      header("s1"),
+      entry("e1", null, { type: "model_change", provider: "p", modelId: "m" }),
+      entry("e2", "e1", { type: "label", targetId: "e1", label: "x" }),
+    ]);
+    expect(
+      readHistoryState(snapshot, {
+        sessionPath: "/s",
+        resolveModel: (p, m) => ({ provider: p, id: m }),
+      }).model,
+    ).toBeNull();
   });
 
   test("compaction-aware messageCount: summary + kept tail (linear chain e1..e6, firstKept e3)", () => {
@@ -256,10 +272,7 @@ describe("tryHandleReadHistory (host shortcut routing)", () => {
       target: { state: "dead", sessionPath: "/sessions/s1.jsonl" },
       history: {
         ok: true,
-        fileEntries: [
-          header("s1"),
-          entry("e1", null, { type: "model_change", provider: "p", modelId: "m" }),
-        ],
+        fileEntries: [header("s1"), ASSISTANT("e1", null, { provider: "p", model: "m" })],
       },
       models: [rich],
     });
@@ -271,7 +284,7 @@ describe("tryHandleReadHistory (host shortcut routing)", () => {
     expect(handled).toBe(true);
     const response = frames[0] as { data?: { model?: unknown; messageCount?: number } };
     expect(response.data?.model).toBe(rich);
-    expect(response.data?.messageCount).toBe(0);
+    expect(response.data?.messageCount).toBe(1);
   });
 
   test("live / unknown / no path / unsupported / invalid / missing file: not handled (wake path)", async () => {
@@ -350,7 +363,12 @@ describe("tryHandleReadHistory (host shortcut routing)", () => {
   });
 });
 
-describe("golden alignment: direct read equals SessionManager replay", () => {
+describe("parser alignment: direct read equals SessionManager replay", () => {
+  // Scope note (v0.12 review): this locks the parse-layer identity only —
+  // the direct read and SessionManager.open run the same SDK pure functions.
+  // Worker-restore-chain parity (auth fallback, default level) is covered by
+  // the declared-divergence tests above and the e2e-mock field-by-field
+  // comparison; it cannot be asserted here without circular validation.
   test("leafId / entries / context settings agree on a branched, compacted file", () => {
     // Linear chain e1..e4 with a sibling branch: e5 (parent e1) appended
     // after e4, then a compaction whose kept tail starts at e5.
@@ -388,5 +406,48 @@ describe("golden alignment: direct read equals SessionManager replay", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("readHistory admission (fence / legacy version / size ceiling)", () => {
+  const agentDir = mkdtempSync(join(tmpdir(), "pai-read-history-admission-"));
+  const sessionsDir = join(agentDir, "sessions");
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  mkdirSync(sessionsDir, { recursive: true });
+
+  test("a v3 session inside the fence parses", async () => {
+    const path = join(sessionsDir, "ok.jsonl");
+    writeFileSync(
+      path,
+      `${JSON.stringify(header("s1"))}\n${JSON.stringify(USER("e1", null, "hi"))}\n`,
+    );
+    const { readHistory } = await import("../src/backend/pi-coding-agent/index.ts");
+    expect(await readHistory(path)).toEqual({
+      ok: true,
+      fileEntries: [header("s1"), USER("e1", null, "hi")],
+    });
+  });
+
+  test("legacy pre-v3 files are invalid (wake path owns the migration rewrite)", async () => {
+    const { readHistory } = await import("../src/backend/pi-coding-agent/index.ts");
+    const legacy = join(sessionsDir, "legacy.jsonl");
+    writeFileSync(
+      legacy,
+      `${JSON.stringify({ type: "session", version: 2, id: "s2", timestamp: "t", cwd: "/w" })}\n`,
+    );
+    expect(await readHistory(legacy)).toEqual({ ok: false, reason: "invalid_file" });
+    const headerless = join(sessionsDir, "v1.jsonl");
+    writeFileSync(
+      headerless,
+      `${JSON.stringify({ type: "session", id: "s3", timestamp: "t", cwd: "/w" })}\n`,
+    );
+    expect(await readHistory(headerless)).toEqual({ ok: false, reason: "invalid_file" });
+  });
+
+  test("outside-the-fence paths report not_found", async () => {
+    const { readHistory } = await import("../src/backend/pi-coding-agent/index.ts");
+    const outside = join(agentDir, "outside.jsonl");
+    writeFileSync(outside, `${JSON.stringify(header("s1"))}\n`);
+    expect(await readHistory(outside)).toEqual({ ok: false, reason: "not_found" });
   });
 });
