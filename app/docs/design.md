@@ -15,6 +15,8 @@
 | `thread/resume`                              | `sessionPath` `cwd?` `trusted?`                     | 恢复；本 hub 内已打开同一文件 → failure                                |
 | `thread/register`                            | `sessionPath` `trusted?`                            | 会话文件按 parked 表项纳管（v0.12，host 本地零 worker；幂等）          |
 | `thread/stop`                                | `threadId`                                          | dispose；幂等（未知 id 也 success）                                    |
+| `thread/retire` / `thread/set_keepalive`     | `threadId` / `threadId`+`keepalive`                 | 手动闲置收编（v0.13，park 保留表项）/ 表项免闲置收编标志（v0.13）      |
+| `set_idle_retire_ms`                         | `ms`                                                | 运行期调整闲置回收阈值（v0.13，钳制 1s..24h，host 本地）               |
 | `thread/list` / `thread/list_saved`          | `threadId` 无 / `cwd?`                              | 活跃线程 / 落盘会话列表                                                |
 | `prompt`                                     | `threadId` `message` `streamingBehavior?` `images?` | fire-and-accept；行首 `/compact` 例外（v0.11，见「恰好一次」）         |
 | `steer` / `follow_up`                        | `threadId` `message` `images?`                      | 入队                                                                   |
@@ -360,3 +362,16 @@ v0.7 沙箱的实现形态是 worker 内的内联扩展（经后端扩展基座�
 - **大小上限**：直读超过 64 MiB 的会话文件判 invalid → 唤醒路径（防同步大解析阻塞 host 心跳）。
 - **stop 竞态语义**（接受）：直读在途时 `thread/stop` 删除表项，直读仍以旧 sessionPath 应答停机前的一致历史快照（旧路径此时答 `Unknown threadId`）——恰好一响应保持，读到的是无副作用的历史数据。
 - 测试口径修正：等价性不再用「直读 vs `SessionManager.open` 同函数对比」（循环验证）；改为 e2e-mock 真值对齐（同会话 parked 直读响应 vs 唤醒成 live 后透传响应逐字段对比）+ 差异面单测（model null 链、legacy invalid、大小上限）。
+
+## 契约 v0.13 增补：运行时可观测性与手动回收（2026-09-10，已实施；方案 docs/plans/2026-09-10-runtime-observability.md）
+
+对外零破坏增量：命令 40→43、帧 8→9，既有字段只增不改。动机：Electron 运行状态监控页（外部仓库 T29）——闲置回收对客户端静默（retire→parked 无帧，客户端视图滞留 live）、无手动回收命令（`thread/stop` 是删表项不是 park）、无 per-thread 观测与内存计量、闲置阈值运行期不可调。
+
+- **`thread/retire`（新命令）**：`{threadId}` → 手动触发闲置回收同型路径（`retireIntent='retire'` + stdin.end + `workerExitTimeoutMs` 有界强杀），close 结算表项转 `parked`（会话文件保留、写命令自动唤醒）。幂等对齐 `thread/stop`：未知/非 live 线程 ack success 零副作用。streaming 线程允许 retire（在途命令由 close 对账合成 failure，恰好一响应不变）；与在途 stop 竞争时 stop（删表项）优先。
+- **`thread/set_keepalive`（新命令）**：`{threadId, keepalive}` → host 本地置路由表项标志（零 worker）。未知线程 failure。sweep 对 keepalive live worker **跳过闲置收编**；stale 心跳强杀与 spawn 超时照旧（不是免死金牌）。标志不持久化——客户端注册表是持久真相，会话 live 化时 re-assert。
+- **`set_idle_retire_ms`（新命令）**：`{ms}` → 运行期改闲置阈值（钳制 `[1_000, 86_400_000]`，响应回生效值；垃圾输入按钳制降级不崩）；`get_host_info.limits.idleRetireMs` 同步反映。替代「改档位需重启 hub 杀全部 worker」。
+- **`thread/list` 行扩展**：`idleMs`（live=worker 心跳值/非 live=0）、`subagents`（live=最近心跳计数/非 live=0）、`rssBytes`（worker 心跳上报，未上报=null）、`keepalive`。
+- **`thread_parked`（新帧）**：`{threadId, reason: "idle"|"manual"}`——settleClosedWorker 的 retire 分支（表项已转 parked 后）发射，恰好一次（以 close 结算为准）；stop/shutdown 不发。与 `thread_died` 互补：died=异常死亡，parked=正常收编。
+- **宿主心跳帧扩展**：恒带 `rssBytes`（`process.memoryUsage().rss`）与 `cpuPercent`（`process.cpuUsage` 1s 差分、单核归一、可>100）。
+- **worker 心跳帧扩展**（host↔worker 内部）：恒带 `rssBytes`，host 折叠进 WorkerHandle（未上报容错为 null）。
+- **不处理**：per-worker CPU（RSS 是资源主相）；keepalive 持久化；died/parked 合并帧；streaming worker 的 EOF 主动中止（有界强杀兜底）。

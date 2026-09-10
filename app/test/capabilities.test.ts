@@ -5,7 +5,7 @@ import {
   COMMAND_CAPABILITIES,
   CORE_COMMANDS,
 } from "../src/backend/capabilities.ts";
-import { THREAD_SCOPED_COMMANDS } from "../src/protocol.ts";
+import { THREAD_SCOPED_COMMANDS } from "../src/protocol-internal.ts";
 
 /** The full external command set (api.md §3: 39 commands). */
 const ALL_COMMANDS = [

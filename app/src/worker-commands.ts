@@ -33,10 +33,12 @@ import type {
   ImagePayload,
   ThreadResumeCmd,
   UiResponseCmd,
+} from "./protocol.ts";
+import type {
   WorkerGrantResultCmd,
   WorkerSetModelCmd,
   WorkerThreadStartCmd,
-} from "./protocol.ts";
+} from "./protocol-internal.ts";
 import type { PaiThread } from "./backend/ports/session.ts";
 import { startShaping } from "./backend/ports/session.ts";
 import { collectCommands } from "./command-listing.ts";

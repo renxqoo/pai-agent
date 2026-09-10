@@ -63,6 +63,9 @@ export async function run({ assert }) {
     assert(rssBaseline > 0, "host RSS baseline sampled");
 
     for (let cycle = 1; cycle <= CYCLES; cycle++) {
+      // Frame window for this cycle's retirement assertions (frames accumulate
+      // across cycles; each cycle parks exactly once).
+      const cycleStart = host.frames.length;
       // Park: poll thread/list (host-local, never wakes the worker) until the
       // idle retire moves the thread to parked.
       let parked = false;
@@ -82,6 +85,28 @@ export async function run({ assert }) {
       }
       assert(parked, `cycle ${cycle}: thread parks within ${IDLE_RETIRE_MS}ms + margin`);
       assert(host.workerPids().length === 0, `cycle ${cycle}: parked means zero worker processes`);
+      // v0.13: the retirement is observable — exactly one thread_parked frame
+      // with the idle origin, and the parked row carries the zeroed facts.
+      const parkedFrames = host.frames
+        .slice(cycleStart)
+        .filter((f) => f.type === "thread_parked" && f.threadId === tid);
+      assert(
+        parkedFrames.length === 1 && parkedFrames[0].reason === "idle",
+        `cycle ${cycle}: exactly one thread_parked(reason idle)`,
+      );
+      {
+        const row = host.frames.length; // marker: facts asserted via a fresh list below
+        host.send({ id: `lf${cycle}_${row}`, type: "thread/list" });
+        const facts = await host.waitResponse(`lf${cycle}_${row}`, { ms: 15_000 });
+        const entry = facts.data.threads.find((t) => t.threadId === tid);
+        assert(entry?.state === "parked", `cycle ${cycle}: list row parked`);
+        assert(
+          entry?.idleMs === 0 && entry?.subagents === 0,
+          `cycle ${cycle}: parked facts zeroed`,
+        );
+        assert(entry?.rssBytes === null, `cycle ${cycle}: parked rssBytes null`);
+        assert(entry?.keepalive === false, `cycle ${cycle}: parked keepalive false`);
+      }
 
       // Wake: an ordinary command transparently revives the same threadId.
       const ww = host.frames.length;

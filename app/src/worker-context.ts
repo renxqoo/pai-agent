@@ -5,10 +5,11 @@
  * worker.ts after the backend bundle is ready.
  */
 
-import type { WorkerCommand } from "./protocol.ts";
+import type { WorkerCommand } from "./protocol-internal.ts";
 import type { DialogBroker } from "./dialogs.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
-import type { HubFrame, WorkerGrantFrame, WorkerHeartbeatFrame } from "./protocol.ts";
+import type { HubFrame } from "./protocol.ts";
+import type { WorkerGrantFrame, WorkerHeartbeatFrame } from "./protocol-internal.ts";
 import type { CapabilityBit } from "./backend/capabilities.ts";
 import type { CheckPermission } from "./backend/ports/interception.ts";
 import type { PaiSessionHost, PaiThread } from "./backend/ports/session.ts";

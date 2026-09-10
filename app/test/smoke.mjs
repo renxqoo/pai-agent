@@ -123,6 +123,13 @@ await expectResponse(
   { id: "4", type: "thread/list" },
   (r) => {
     assert(r.success && r.data.threads.length === 2, "thread/list: two live threads");
+    // v0.13 observability fields on every row.
+    for (const row of r.data.threads) {
+      assert(typeof row.idleMs === "number", "thread/list: idleMs number");
+      assert(typeof row.subagents === "number", "thread/list: subagents number");
+      assert(row.rssBytes === null || typeof row.rssBytes === "number", "thread/list: rssBytes");
+      assert(typeof row.keepalive === "boolean", "thread/list: keepalive boolean");
+    }
   },
   "thread/list happy",
 );
@@ -1380,6 +1387,50 @@ await new Promise((r) => {
   setTimeout(r, 1500);
 });
 assert(seenFrames.includes("heartbeat"), "heartbeat: at least one frame");
+// v0.13: every host heartbeat carries its own resource numbers.
+{
+  const beats = allFrames.filter((f) => f.type === "heartbeat");
+  assert(beats.length > 0, "heartbeat frames captured with payloads");
+  for (const beat of beats.slice(0, 5)) {
+    assert(typeof beat.rssBytes === "number" && beat.rssBytes > 0, "heartbeat: rssBytes present");
+    assert(
+      typeof beat.cpuPercent === "number" && beat.cpuPercent >= 0,
+      "heartbeat: cpuPercent present",
+    );
+  }
+}
+// v0.13 host-local policy commands.
+await expectResponse(
+  { id: "obs1", type: "set_idle_retire_ms", ms: 500 },
+  (r) => {
+    assert(r.success && r.data.idleRetireMs === 1000, "set_idle_retire_ms: clamps to 1s floor");
+  },
+  "set_idle_retire_ms clamp",
+);
+await expectResponse(
+  { id: "obs2", type: "set_idle_retire_ms", ms: 600_000 },
+  (r) => {
+    assert(
+      r.success && r.data.idleRetireMs === 600_000,
+      "set_idle_retire_ms: applies in-range value",
+    );
+  },
+  "set_idle_retire_ms apply",
+);
+await expectResponse(
+  { id: "obs3", type: "thread/set_keepalive", threadId: "ghost-thread-3", keepalive: true },
+  (r) => {
+    assert(!r.success && /Unknown threadId/.test(r.error ?? ""), "set_keepalive ghost: failure");
+  },
+  "set_keepalive ghost",
+);
+await expectResponse(
+  { id: "obs4", type: "thread/retire", threadId: "ghost-thread-4" },
+  (r) => {
+    assert(r.success, "thread/retire ghost: idempotent success (aligned with stop)");
+  },
+  "thread/retire ghost",
+);
 // Event-stream assertion runs only where a provider is configured; on a
 // keyless machine prompt is rejected at preflight and pi emits no events.
 if (promptAccepted) {

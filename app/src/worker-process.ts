@@ -8,7 +8,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createJsonlSplitter, WORKER_LINE_BYTES } from "./jsonl.ts";
-import { WORKER_FLAG } from "./protocol.ts";
+import { WORKER_FLAG } from "./protocol-internal.ts";
 
 /** The spawn seam shared with the grandchild driver (tests inject a fake). */
 export type SpawnWorkerFn = typeof spawnWorkerProcess;
@@ -44,6 +44,11 @@ export interface WorkerHandle {
   sessionPath: string | null;
   /** Live grandchild processes of this worker (last heartbeat, v0.5). */
   subagents: number;
+  /** Worker RSS as reported by its heartbeat (v0.13); null until first report. */
+  rssBytes: number | null;
+  /** Who asked for the retirement (v0.13): feeds the thread_parked frame
+   * reason. Null unless retireIntent is "retire". */
+  retireReason: "idle" | "manual" | null;
   /** Routed command ids awaiting a response (id -> command), reconciled at close. */
   readonly pendingIds: Map<string, string>;
   /** Internal ids issued to this worker (broadcast acks, wake resumes). */
@@ -113,6 +118,8 @@ function makeFailedSpawnHandle(child: ChildProcess, reason: string): WorkerHandl
     streaming: false,
     sessionPath: null,
     subagents: 0,
+    rssBytes: null,
+    retireReason: null,
     pendingIds: new Map<string, string>(),
     internalIds: new Set<string>(),
     greeted: false,
@@ -262,6 +269,8 @@ function makeWorkerHandle(deps: {
     streaming: false,
     sessionPath: null,
     subagents: 0,
+    rssBytes: null,
+    retireReason: null,
     pendingIds: new Map<string, string>(),
     internalIds: new Set<string>(),
     greeted: false,

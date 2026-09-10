@@ -33,18 +33,35 @@ export function sweepWorkers(pool: SweepOps): void {
       void pool.killWorker(worker, "none");
       continue;
     }
-    if (!worker.retiring && worker.idleMs >= pool.idleRetireMs && worker.sessionPath !== null) {
-      retire(pool, worker);
+    if (
+      !worker.retiring &&
+      pool.table.entry(worker.threadId)?.keepalive !== true && // v0.13 keepalive skips idle retire
+      worker.idleMs >= pool.idleRetireMs &&
+      worker.sessionPath !== null
+    ) {
+      retireWorker(
+        { armTeardownDeadline: (target) => armTeardownDeadline(pool, target) },
+        worker,
+        "idle",
+      );
     }
   }
 }
 
-function retire(pool: SweepOps, worker: WorkerHandle): void {
+/** Shared retire entry point (idle sweep and thread/retire, v0.13): close the
+ * worker's stdin and arm the bounded tear-down; close settlement parks the
+ * entry and emits thread_parked with this reason. */
+export function retireWorker(
+  pool: { armTeardownDeadline(worker: WorkerHandle): void },
+  worker: WorkerHandle,
+  reason: "idle" | "manual",
+): void {
   if (worker.retireIntent !== "none" || worker.retiring) return;
   worker.retiring = true;
   worker.retireIntent = "retire";
+  worker.retireReason = reason;
   worker.stdin.end();
-  armTeardownDeadline(pool, worker);
+  pool.armTeardownDeadline(worker);
 }
 
 /** Bounded tear-down (design §6): a wedged-but-heartbeating worker would

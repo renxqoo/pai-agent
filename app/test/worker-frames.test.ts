@@ -45,11 +45,35 @@ function makeWorker(): WorkerHandle {
     streaming: false,
     sessionPath: null,
     subagents: 0,
+    rssBytes: null,
+    retireReason: null,
     pendingIds: new Map(),
     internalIds: new Set(),
     greeted: true,
   };
 }
+
+describe("heartbeat fold (v0.13 worker RSS)", () => {
+  test("rssBytes lands on the handle; a missing value tolerates as null", () => {
+    const { deps } = makeDeps();
+    const withRss = makeWorker();
+    onWorkerLine(
+      deps,
+      withRss,
+      '{"type":"heartbeat","idleMs":7,"streaming":false,"sessionPath":null,"rssBytes":123456}',
+    );
+    expect(withRss.rssBytes).toBe(123456);
+    expect(withRss.idleMs).toBe(7);
+
+    const withoutRss = makeWorker();
+    onWorkerLine(
+      deps,
+      withoutRss,
+      '{"type":"heartbeat","idleMs":7,"streaming":false,"sessionPath":null}',
+    );
+    expect(withoutRss.rssBytes).toBeNull();
+  });
+});
 
 describe("worker contract v1 hello handshake", () => {
   test("valid hello greets the worker; a duplicate is ignored", () => {

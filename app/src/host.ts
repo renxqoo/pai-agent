@@ -111,13 +111,21 @@ function createEmitters(
 
 /** Parse + dispatch one stdin line; parse failures become parse responses. */
 /** Contract: heartbeat runs for the whole process lifetime, so it starts
- * before the (potentially slow) model runtime setup. */
+ * before the (potentially slow) model runtime setup. v0.13: each beat carries
+ * the host's own rssBytes and cpuPercent (process.cpuUsage differential over
+ * the beat interval, normalized to one core — may exceed 100 on multi-core). */
 function startHeartbeat(emitters: HostEmitters, poolRef: { pool?: WorkerPool }): void {
+  let lastCpu = process.cpuUsage();
   const heartbeat = setInterval(() => {
     const subagents = poolRef.pool?.inFlightSubagents() ?? 0;
+    const cpu = process.cpuUsage(lastCpu);
+    lastCpu = process.cpuUsage();
+    const cpuPercent = ((cpu.user + cpu.system) / 1e6 / (HEARTBEAT_INTERVAL_MS / 1_000)) * 100;
     emitters.emit({
       type: "heartbeat",
       ...(subagents > 0 ? { subagents } : {}),
+      rssBytes: process.memoryUsage().rss,
+      cpuPercent: Math.round(cpuPercent * 10) / 10,
     });
   }, HEARTBEAT_INTERVAL_MS);
   process.on("exit", () => clearInterval(heartbeat));

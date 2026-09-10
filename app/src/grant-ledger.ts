@@ -6,7 +6,7 @@
  * after the TTL (leak self-healing), and are freed on worker close.
  */
 
-import type { WorkerGrantFrame } from "./protocol.ts";
+import type { WorkerGrantFrame } from "./protocol-internal.ts";
 import type { WorkerHandle } from "./worker-process.ts";
 import type { InternalWaiter } from "./worker-frames.ts";
 
