@@ -9,9 +9,12 @@ import {
  * Pure decision tables for the v0.10 bash confirm-rerun (plan
  * 2026-09-10-sandbox-escalation.md §2/§probe-record): violation-line
  * classification (probe-validated grammar: file-write and network-outbound
- * denies = rerun candidates, file-read denies touching a denyRead root =
- * hard floor, sysctl and mach = noise) and the offer gate (non-zero exit +
- * candidate + no floor + someone to ask).
+ * denies = rerun candidates; ANY file-read deny = denyRead hard floor —
+ * denyRead is the only read policy, so attribution-free flooring is the
+ * glob/relative-echo-proof rule from the full review P1; sysctl and mach =
+ * noise) and the offer gate (non-zero exit + positive write/network
+ * evidence + no floor + someone to ask — the streamed-text EPERM signature
+ * alone NEVER flips the candidate, review P1/P3).
  * The OS-level exec flow itself is covered by the e2e-mock real-process
  * scenario (repo precedent: process-level paths stay out of bun unit tests).
  */
@@ -26,36 +29,49 @@ const NOISE_LINES = [
 
 describe("digestViolationLines", () => {
   test("file-write and network-outbound denies are rerun candidates", () => {
-    const digest = digestViolationLines([WRITE_LINE, NET_LINE], []);
+    const digest = digestViolationLines([WRITE_LINE, NET_LINE], [], "/proj");
     expect(digest.rerunCandidate).toBe(true);
     expect(digest.denyReadHit).toBe(false);
   });
 
   test("noise lines (sysctl/mach) classify to nothing", () => {
-    const digest = digestViolationLines(NOISE_LINES, []);
+    const digest = digestViolationLines(NOISE_LINES, [], "/proj");
     expect(digest.rerunCandidate).toBe(false);
     expect(digest.denyReadHit).toBe(false);
   });
 
-  test("file-read deny under a denyRead root hits the hard floor (folded substring)", () => {
+  test("ANY file-read deny floors, attribution-free (review P1: globs and relative echoes defeat root matching)", () => {
+    // denyRead is the ONLY read policy: a read deny IS a denyRead hit, no
+    // matter whether the logged literal path matches the entry's shape.
     const digest = digestViolationLines(
       [READ_LINE, ...NOISE_LINES],
-      ["/Users/WRR/.SSH".toLowerCase()], // folded matching must unify case
+      ["~/.config/*.secret"],
+      "/proj",
     );
+    expect(digest.denyReadHit).toBe(true);
+    expect(digest.rerunCandidate).toBe(false);
+  });
+
+  test("write deny whose target matches a denyRead ENTRY floors (glob-aware, review P1)", () => {
+    // Realistic entry form: "~" expands to the actual home (a nonexistent
+    // fake root would distort the entry's effect-space resolution).
+    const home = process.env.HOME ?? "";
+    const line = `tee(1) deny(1) file-write-create ${home}/.config/api.secret`;
+    const digest = digestViolationLines([line], ["~/.config/*.secret"], "/proj");
     expect(digest.denyReadHit).toBe(true);
   });
 
-  test("file-read deny outside denyRead roots is neither candidate nor floor", () => {
-    const digest = digestViolationLines(
-      ["cat(1) deny(1) file-read-data /etc/hosts"],
-      ["/Users/x/.ssh"],
-    );
-    expect(digest.rerunCandidate).toBe(false);
+  test("write deny outside every denyRead entry stays a plain candidate", () => {
+    const digest = digestViolationLines([WRITE_LINE], ["~/.ssh"], "/proj");
+    expect(digest.rerunCandidate).toBe(true);
     expect(digest.denyReadHit).toBe(false);
   });
 
   test("empty lines digest to nothing", () => {
-    expect(digestViolationLines([], [])).toEqual({ rerunCandidate: false, denyReadHit: false });
+    expect(digestViolationLines([], [], "/proj")).toEqual({
+      rerunCandidate: false,
+      denyReadHit: false,
+    });
   });
 });
 
@@ -130,27 +146,34 @@ describe("shouldOfferRerun (table)", () => {
   }
 });
 
+/** digestFailure with table defaults (module scope — captures nothing). */
+const digestWithDefaults = (overrides: Partial<Parameters<typeof digestFailure>[0]>) =>
+  digestFailure({
+    lines: [],
+    failureText: "",
+    commandText: "",
+    denyReadEntries: [],
+    denyReadRoots: [],
+    cwd: "/proj",
+    ...overrides,
+  });
+
 describe("digestFailure (dual evidence: store lines + streamed text)", () => {
   const DUAL_WRITE_LINE = "bash(1) deny(1) file-write-create /private/var/folders/x.txt";
   const DUAL_READ_LINE = "cat(1) deny(1) file-read-data /Users/wrr/.ssh/config";
 
-  test("EPERM signature in the failure text makes a candidate even with no lines (kernel log lag)", () => {
-    const digest = digestFailure({
-      lines: [],
+  test("EPERM signature alone is a candidate (kernel lines lag/drop; the floor triad compensates)", () => {
+    const result = digestWithDefaults({
       failureText: "tee: /var/folders/x.txt: Operation not permitted\n",
-      denyReadRoots: [],
     });
-    expect(digest.rerunCandidate).toBe(true);
-    expect(digest.denyReadHit).toBe(false);
+    expect(result.rerunCandidate).toBe(true);
+    expect(result.denyReadHit).toBe(false);
   });
 
   test("ordinary failure text is not a candidate", () => {
-    const digest = digestFailure({
-      lines: [],
-      failureText: "grep: no such file or directory\n",
-      denyReadRoots: [],
-    });
-    expect(digest.rerunCandidate).toBe(false);
+    expect(
+      digestWithDefaults({ failureText: "grep: no such file or directory\n" }).rerunCandidate,
+    ).toBe(false);
   });
 
   test("failure text naming a denyRead root hits the floor in BOTH path forms", () => {
@@ -158,15 +181,13 @@ describe("digestFailure (dual evidence: store lines + streamed text)", () => {
     // realpath + lexical expansion) — mirror that input here.
     const roots = ["/private/var/folders/rd", "/var/folders/rd"];
     expect(
-      digestFailure({
-        lines: [],
+      digestWithDefaults({
         failureText: "cat: /var/folders/rd/secret: Operation not permitted\n",
         denyReadRoots: roots,
       }).denyReadHit,
     ).toBe(true);
     expect(
-      digestFailure({
-        lines: [],
+      digestWithDefaults({
         failureText: "cat: /private/var/folders/rd/secret: Operation not permitted\n",
         denyReadRoots: roots,
       }).denyReadHit,
@@ -174,26 +195,29 @@ describe("digestFailure (dual evidence: store lines + streamed text)", () => {
   });
 
   test("line evidence still works alone (no signature in text)", () => {
+    expect(digestWithDefaults({ lines: [DUAL_WRITE_LINE] }).rerunCandidate).toBe(true);
     expect(
-      digestFailure({ lines: [DUAL_WRITE_LINE], failureText: "", denyReadRoots: [] })
-        .rerunCandidate,
-    ).toBe(true);
-    expect(
-      digestFailure({
-        lines: [DUAL_READ_LINE],
-        failureText: "",
-        denyReadRoots: ["/Users/wrr/.ssh"],
-      }).denyReadHit,
+      digestWithDefaults({ lines: [DUAL_READ_LINE], denyReadEntries: ["~/.ssh"] }).denyReadHit,
     ).toBe(true);
   });
 
-  test("floor wins over the signature (read of a credential root)", () => {
-    const digest = digestFailure({
-      lines: [],
+  test("text floor wins even without any line (read of a credential root)", () => {
+    const result = digestWithDefaults({
       failureText: "cat: /Users/wrr/.ssh/id_rsa: Operation not permitted\n",
       denyReadRoots: ["/Users/wrr/.ssh"],
     });
-    expect(digest.rerunCandidate).toBe(true);
-    expect(digest.denyReadHit).toBe(true); // shouldOfferRerun stays false
+    expect(result.rerunCandidate).toBe(true); // the signature fired…
+    expect(result.denyReadHit).toBe(true); // …but the floor suppresses the offer
+  });
+
+  test("COMMAND text naming a denyRead root floors relative-echo shapes (review P1 channel 4)", () => {
+    const result = digestWithDefaults({
+      failureText: "cat: id_rsa: Operation not permitted\n", // relative echo: no root in output
+      commandText: "cd ~/.ssh && cat id_rsa",
+      denyReadEntries: ["~/.ssh"], // the gate passes entries AND root variants
+      denyReadRoots: [`${process.env.HOME}/.ssh`],
+    });
+    expect(result.rerunCandidate).toBe(true);
+    expect(result.denyReadHit).toBe(true);
   });
 });

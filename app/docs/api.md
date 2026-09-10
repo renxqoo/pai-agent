@@ -178,7 +178,7 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 - 三选 = `Allow once` / `Allow for this session` / `Deny`（select 帧，§6）；超时 300s、abort、取消、未知值、对话框异常一律 Deny。
 - 「本会话不再问」豁免：write/edit 按效应空间精确路径（不折叠）、bash 按精确命令串；上限 64 / 32 条，满后继续弹框；会话快照重建（fork/clone/rebind）即清空，不落盘。
-- bash 确认后**重跑一次**（无沙箱包裹）：输出流先注入 `[pai] rerunning without sandbox (user-approved)`；两次运行的输出先后拼接进工具结果；拒绝则注入 `[pai] sandbox denied; rerun declined` 并维持原失败结果。命令可能已部分执行——副作用可能重复（用户裁决接受）。
+- bash 确认后**重跑一次**（无沙箱包裹）：输出流先注入 `[pai] rerunning without sandbox (user-approved)`；两次运行的输出先后拼接进工具结果；拒绝、中止（abort/超时后确认）或弹框失败则注入 `[pai] sandbox denied; rerun declined` 并维持原失败结果。命令可能已部分执行——副作用可能重复（用户裁决接受）；重跑沿用原超时值，总时长可达约 2×超时 + 弹窗等待；普通失败命令的检测附加 ≤300ms、EPERM 形态失败 ≤15s。`enabled:false` / `PAI_SANDBOX=off` 时 `onViolation` 回报 `"deny"`（惰性姿态——无强制即无可确认违规）。
 
 **`get_sandbox_state`** — 字段 `threadId`。→ `{enabled, platform, degraded?, network, filesystem, source:"global"|"global+project", bashSandboxed:boolean, onViolation:"ask"|"deny", sessionExemptions:{writePaths:string[], bashCommands:string[]}}`（bashSandboxed = OS 层实际生效；enabled:true 但 bashSandboxed:false 即降级态；onViolation + sessionExemptions 为 v0.10 增——后者回应当前会话豁免清单）。
 

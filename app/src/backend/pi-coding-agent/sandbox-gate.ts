@@ -297,22 +297,23 @@ function hardCheckHandler(deps: {
   };
 }
 
-/** Bash confirm-rerun wiring (v0.10): built per execution context — the
- * agent tool passes the turn's abort signal, direct execution goes
- * timeout-only (the permission gate's direct-bash ask is signal-free the
- * same way). Undefined = the v0.7 behavior (denial stays a failure). */
+/** Bash confirm-rerun wiring (v0.10). The dialog signal comes from the
+ * EXEC call (both paths: agent tool passes the turn's abort signal, direct
+ * execution gets pi's executeBash controller — the v0.6 wall clock and
+ * abort_bash settle the dialog through it). Undefined = the v0.7 behavior
+ * (denial stays a failure). */
 function bashRerunDeps(deps: {
   config: SandboxConfig;
   subagent: boolean;
   state: SandboxGateState;
   cwd: string;
   ui: SandboxUiContext["ui"] | undefined;
-  signal?: AbortSignal;
 }): BashRerunDeps | undefined {
-  const { config, subagent, state, cwd, ui, signal } = deps;
+  const { config, subagent, state, cwd, ui } = deps;
   if (config.onViolation !== "ask" || subagent || ui === undefined) return undefined;
   return {
-    confirmRerun: async (command) => {
+    cwd,
+    confirmRerun: async (command, signal) => {
       let choice: string | undefined;
       try {
         choice = await ui.select(
@@ -333,6 +334,7 @@ function bashRerunDeps(deps: {
         state.exemptions.bashCommands.add(command);
       }
     },
+    denyReadEntries: [...config.filesystem.denyRead],
     denyReadRoots: denyReadRootVariants(config.filesystem, cwd),
   };
 }
@@ -341,8 +343,9 @@ function bashRerunDeps(deps: {
  * through the wrapped BashOperations); inert until the runtime is active.
  * ToolDefinition.execute receives the ExtensionContext as its FIFTH
  * argument — the AgentTool type from createBashTool only declares four, but
- * the runtime passes them all, so the dialog surface is read from args[4]
- * directly (no toolCallId bookkeeping). */
+ * the runtime passes them all, so the dialog surface is read from args[4].
+ * ALL arguments (incl. ctx) forward to the twin tools: pi's bash tool needs
+ * ctx for the PI_* session environment (review P5 — v0.7 forwarded all). */
 function registerSandboxedBashTool(
   pi: ExtensionAPI,
   deps: {
@@ -358,9 +361,8 @@ function registerSandboxedBashTool(
     ...localBash,
     label: "bash (sandboxed)",
     async execute(...args: unknown[]) {
-      const [toolCallId, params, signal, onUpdate] = args as Parameters<typeof localBash.execute>;
       if (!state.runtime.active) {
-        return localBash.execute(toolCallId, params, signal, onUpdate);
+        return localBash.execute(...(args as Parameters<typeof localBash.execute>));
       }
       const ctx = args[4] as { hasUI: boolean; ui: SandboxUiContext["ui"] } | undefined;
       const rerun = bashRerunDeps({
@@ -369,10 +371,9 @@ function registerSandboxedBashTool(
         state,
         cwd,
         ui: ctx !== undefined && ctx.hasUI ? ctx.ui : undefined,
-        ...(signal !== undefined ? { signal } : {}),
       });
       const sandboxed = createBashTool(cwd, { operations: createSandboxedBashOperations(rerun) });
-      return sandboxed.execute(toolCallId, params, signal, onUpdate);
+      return sandboxed.execute(...(args as Parameters<typeof localBash.execute>));
     },
   });
 }

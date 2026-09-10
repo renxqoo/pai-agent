@@ -328,6 +328,14 @@ export async function run({ assert }) {
           args: { command: `echo agent-rerun | tee ${OUTSIDE}/agent-rerun.txt` },
         },
         { kind: "text", text: "bash-rerun-done" },
+        {
+          kind: "tool",
+          name: "bash",
+          args: { command: `echo denied-agent | tee ${OUTSIDE}/agent-denied.txt` },
+        },
+        { kind: "text", text: "bash-deny-done" },
+        { kind: "tool", name: "write", args: { path: ".env", content: "CONFIRMED=1" } },
+        { kind: "text", text: "env-confirm-done" },
       ],
     },
   });
@@ -385,9 +393,11 @@ export async function run({ assert }) {
     // past the cursor), and every ui_response needs a unique id.
     let dialogSeq = 0;
     const answerSelect = async (value, label, since) => {
+      // 35s: the offer needs a POSITIVE violation line, which can lag the
+      // exit by >10s under load (the 15s discriminating wait) + dialog time.
       const dialog = await hostAsk.waitFrame(
         (f) => f.type === "ui_request" && f.method === "select",
-        { label, ms: 20_000, since },
+        { label, ms: 35_000, since },
       );
       assert(dialog.threadId === askTid, `${label}: tagged with threadId`);
       assert(

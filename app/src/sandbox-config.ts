@@ -239,7 +239,7 @@ export function loadSandboxConfig(deps: LoadSandboxDeps): {
  *   the BASENAME — the pi-example intent, at any depth;
  * - non-glob entry: directory containment OR basename equality.
  */
-function denyEntryMatches(entry: string, cwd: string, resolvedPath: string): boolean {
+export function denyEntryMatches(entry: string, cwd: string, resolvedPath: string): boolean {
   const expanded = entryEffectSpace(cwd, entry);
   const base = resolvedPath.split(sep).at(-1) ?? resolvedPath;
   if (entry.includes("*")) {

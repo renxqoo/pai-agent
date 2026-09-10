@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
-import { type SandboxConfig, foldForComparison } from "../../sandbox-config.ts";
+import { type SandboxConfig, denyEntryMatches, foldForComparison } from "../../sandbox-config.ts";
 
 export interface SandboxRuntimeState {
   /** The OS layer is active: bash commands get wrapped. */
@@ -32,15 +32,21 @@ export interface SandboxRuntimeState {
  * behavior (denial = the command's own failure). */
 export interface BashRerunDeps {
   /** Ask the user whether to re-run WITHOUT the sandbox; undefined = no
-   * (covers timeout/cancel/unknown/throwing channel — fail-closed). */
-  confirmRerun: (command: string) => Promise<"once" | "session" | undefined>;
+   * (covers timeout/cancel/unknown/throwing channel — fail-closed). The
+   * exec's abort signal settles the dialog immediately when provided
+   * (agent turn abort, direct-bash wall clock / abort_bash). */
+  confirmRerun: (command: string, signal?: AbortSignal) => Promise<"once" | "session" | undefined>;
   /** Session-exemption probe (exact command string). */
   isExempted: (command: string) => boolean;
   /** Record a "this session" grant (exact command string; cap enforced by
    * the caller). */
   onSessionGrant: (command: string) => void;
-  /** Effect-space denyRead roots: any file-read deny touching them
-   * suppresses the rerun offer (credential reads never re-run). */
+  /** Session cwd (relative denyRead entries resolve against it). */
+  cwd: string;
+  /** Raw denyRead policy entries (glob-aware, for violation-line paths). */
+  denyReadEntries: string[];
+  /** denyRead roots in both observable forms (effect space + lexical, for
+   * the failure-text floor). */
   denyReadRoots: string[];
 }
 
@@ -56,23 +62,35 @@ export interface ViolationDigest {
   /** A file-write or network-outbound denial: re-running unsandboxed would
    * change the outcome. */
   rerunCandidate: boolean;
-  /** A file-read denial touched a denyRead root: never offer the rerun. */
+  /** Evidence of a denyRead-policy hit: the rerun is NEVER offered. ANY
+   * file-read denial counts — denyRead is the ONLY read policy, so a
+   * file-read deny IS a denyRead hit regardless of path attribution (globs,
+   * relative echoes defeat root matching); write denials whose target
+   * matches a denyRead ENTRY (denyEntryMatches, glob-aware) floor too. */
   denyReadHit: boolean;
 }
 
 /** Classify raw violation lines against the policy (pure, table-tested). */
 export function digestViolationLines(
   lines: readonly string[],
-  denyReadRoots: readonly string[],
+  denyReadEntries: readonly string[],
+  cwd: string,
 ): ViolationDigest {
   let rerunCandidate = false;
   let denyReadHit = false;
   for (const line of lines) {
-    if (FILE_WRITE_DENY.test(line) || NETWORK_OUTBOUND_DENY.test(line)) rerunCandidate = true;
-    const readMatch = FILE_READ_DENY.exec(line);
-    if (readMatch !== null) {
-      const foldedPath = foldForComparison(readMatch[1] ?? "");
-      if (denyReadRoots.some((root) => foldedPath.includes(foldForComparison(root)))) {
+    const writeMatch = FILE_WRITE_DENY.exec(line);
+    if (writeMatch !== null || NETWORK_OUTBOUND_DENY.test(line)) rerunCandidate = true;
+    if (FILE_READ_DENY.test(line)) {
+      // Attribution-free: the OS layer logs literal paths, which glob and
+      // relative denyRead entries can never match — any read deny floors.
+      denyReadHit = true;
+    }
+    if (writeMatch !== null) {
+      // Write into a denyRead entry floors too (credential trees stay out of
+      // the click-to-allow flow — same rule as the write-tool layer, P2).
+      const target = writeMatch[1] ?? "";
+      if (denyReadEntries.some((entry) => denyEntryMatches(entry, cwd, target))) {
         denyReadHit = true;
       }
     }
@@ -94,30 +112,52 @@ export function shouldOfferRerun(deps: {
   );
 }
 
-/** Sandbox-denial signature in the command's own failure output. The kernel
- * seatbelt log line can lag the process exit by many seconds under load
- * (e2e-measured >10s), so the rerun CANDIDATE trigger reads the streamed
- * output directly — the signature is best-effort in the fail-open-on-dialogs
- * direction only (an ordinary EPERM failure may offer a pointless rerun the
- * user declines; a sandbox denial is never missed). */
+/** Sandbox-denial signature in the command's own failure output. Kernel
+ * seatbelt log lines lag the process exit by MANY SECONDS under load
+ * (e2e-measured >10s, occasionally >15s) and unified-log coalescing can drop
+ * repeats entirely — a line-gated offer would be unusably flaky. The
+ * signature is therefore FIRST-CLASS candidate evidence (instant); the
+ * read/write ambiguity it carries is compensated by a THREE-channel denyRead
+ * floor below. */
 const SANDBOX_DENIAL_SIGNATURE = /operation not permitted|permission denied|not on the allow list/i;
 
 /** Digest one failed run from BOTH evidence channels: the violation store
- * (may lag; precise) and the streamed failure text (instant; best-effort).
- * The denyRead floor consults both — the denied path appears verbatim in
- * the EPERM message. */
+ * (precise but lagging) and text (instant but non-discriminating).
+ *
+ * denyRead floor — three text-ish channels plus the precise line channel:
+ * 1. ANY file-read violation line (denyRead is the only read policy);
+ * 2. write-line targets matching a denyRead ENTRY (denyEntryMatches, glob);
+ * 3. the FAILURE text naming a denyRead root (tools echo the path — both
+ *    forms via denyReadRootVariants);
+ * 4. the COMMAND text naming a denyRead root (relative-echo shapes like
+ *    `cd ~/.ssh && cat id_rsa` carry the root in the command string).
+ * Residual leak: a path fully synthesized with the root substring absent
+ * from command AND error output — deliberate extreme obfuscation, with the
+ * full command still shown to the user before any approval. */
 export function digestFailure(deps: {
   lines: readonly string[];
   failureText: string;
+  commandText: string;
+  /** Raw denyRead policy ENTRIES (glob-aware) — matched against
+   * violation-line paths via denyEntryMatches. */
+  denyReadEntries: readonly string[];
+  /** denyRead roots in both observable forms (effect space + lexical) for
+   * the text floors. */
   denyReadRoots: readonly string[];
+  cwd: string;
 }): ViolationDigest {
-  const { lines, failureText, denyReadRoots } = deps;
-  const fromLines = digestViolationLines(lines, denyReadRoots);
-  const foldedText = foldForComparison(failureText);
-  const floorFromText = denyReadRoots.some((root) => foldedText.includes(foldForComparison(root)));
+  const { lines, failureText, commandText, denyReadEntries, denyReadRoots, cwd } = deps;
+  const fromLines = digestViolationLines(lines, denyReadEntries, cwd);
+  // Text floors match roots AND raw entries: commands carry the literal
+  // entry form ("cd ~/.ssh && cat id_rsa" — the tilde form never expands).
+  const rootCandidates = [...denyReadRoots, ...denyReadEntries];
+  const hitRootIn = (text: string): boolean => {
+    const folded = foldForComparison(text);
+    return rootCandidates.some((root) => folded.includes(foldForComparison(root)));
+  };
   return {
     rerunCandidate: fromLines.rerunCandidate || SANDBOX_DENIAL_SIGNATURE.test(failureText),
-    denyReadHit: fromLines.denyReadHit || floorFromText,
+    denyReadHit: fromLines.denyReadHit || hitRootIn(failureText) || hitRootIn(commandText),
   };
 }
 
@@ -209,7 +249,21 @@ async function wrapCommand(command: string, commandId: string): Promise<string> 
 
 /** Spawn `bash -c <command>` as a detached process group (wrapped sandbox
  * runs and raw confirmed reruns share these mechanics); abort/timeout kill
- * the whole group (bash children included); both streams feed onData. */
+ * the whole group (bash children included); both streams feed onData.
+ * Live group ids register in LIVE_CHILD_GROUPS so worker shutdown sweeps
+ * them (review P6): a detached, unsupervised child — especially a confirmed
+ * UNSANDBOXED rerun — must not outlive the worker that owned it. */
+const LIVE_CHILD_GROUPS = new Set<number>();
+process.on("exit", () => {
+  for (const pgid of LIVE_CHILD_GROUPS) {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+});
+
 function runChild(deps: {
   command: string;
   cwd: string;
@@ -228,8 +282,12 @@ function runChild(deps: {
       stdio: ["ignore", "pipe", "pipe"],
       ...(env !== undefined ? { env } : {}),
     });
+    if (child.pid !== undefined) LIVE_CHILD_GROUPS.add(child.pid);
     const timedOut = { flag: false };
     const kill = armGroupKill(child, timeout, timedOut);
+    const unregister = (): void => {
+      if (child.pid !== undefined) LIVE_CHILD_GROUPS.delete(child.pid);
+    };
     let settled = false;
     const idle = { timer: undefined as ReturnType<typeof setTimeout> | undefined };
     const onAbort = (): void => {
@@ -238,6 +296,7 @@ function runChild(deps: {
     const settle = (action: () => void): void => {
       if (settled) return;
       settled = true;
+      unregister();
       kill.clear();
       signal?.removeEventListener("abort", onAbort);
       if (idle.timer !== undefined) clearTimeout(idle.timer);
@@ -315,12 +374,16 @@ function armGroupKill(
 const RERUN_MARKER = "\n[pai] rerunning without sandbox (user-approved)\n";
 const DECLINED_MARKER = "[pai] sandbox denied; rerun declined\n";
 
-/** The violation store is best-effort evidence, not a gate: kernel seatbelt
- * lines can lag the process exit by many seconds under load (e2e-measured
- * >10s), so the decision reads the STORED lines after a short settle window
- * and independently consults the instant streamed-failure text (see
- * digestFailure). Ordinary failed commands pay at most QUICK_SETTLE_MS. */
+/** Violation-line settle windows (review P1/P4): kernel seatbelt lines lag
+ * the process exit — noise lines instantly, policy lines >10s under load.
+ * A failure WITHOUT the denial signature waits QUICK_SETTLE_MS (ordinary
+ * failures pay ~nothing); a signature-shaped failure waits up to
+ * DISCRIMINATING_SETTLE_MS for a policy line, because the text cannot
+ * discriminate a write denial (rerunnable) from a read denial (denyRead
+ * floor — NEVER rerunnable). No policy line by the deadline = no offer
+ * (fail-closed to v0.7 behavior). */
 const QUICK_SETTLE_MS = 300;
+const DISCRIMINATING_SETTLE_MS = 15_000;
 const VIOLATION_POLL_MS = 25;
 
 const sleep = (ms: number): Promise<void> =>
@@ -328,13 +391,20 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(done, ms);
   });
 
-/** Lines recorded for this commandId within the quick settle window. */
-async function violationLinesFor(commandId: string): Promise<string[]> {
+/** Policy-relevant lines (read OR write) for this commandId within the
+ * applicable settle window. */
+async function violationLinesFor(commandId: string, failureText: string): Promise<string[]> {
   const store = SandboxManager.getSandboxViolationStore();
-  const deadline = Date.now() + QUICK_SETTLE_MS;
+  const deadline =
+    Date.now() +
+    (SANDBOX_DENIAL_SIGNATURE.test(failureText) ? DISCRIMINATING_SETTLE_MS : QUICK_SETTLE_MS);
   for (;;) {
     const lines = store.getViolationsForCommand(commandId).map((violation) => violation.line);
-    if (lines.length > 0 || Date.now() >= deadline) return lines;
+    const relevant = lines.some(
+      (line) =>
+        FILE_WRITE_DENY.test(line) || FILE_READ_DENY.test(line) || NETWORK_OUTBOUND_DENY.test(line),
+    );
+    if (relevant || Date.now() >= deadline) return lines;
     await sleep(VIOLATION_POLL_MS);
   }
 }
@@ -350,16 +420,82 @@ function execPreflight(cwd: string, signal: AbortSignal | undefined): void {
   }
 }
 
+/** Post-failure confirm-rerun resolution (review P1/P2 hardening):
+ * 1. exemption FIRST (a session grant already adjudicated this exact
+ *    command; it must not re-pay the evidence wait — but still only
+ *    auto-reruns for denial-shaped failures, so an ordinary failure of a
+ *    previously-approved command never double-executes);
+ * 2. evidence: wait for a discriminating policy line (signature extends
+ *    the patience); no positive write/network evidence = no offer;
+ * 3. abort settles everything fail-closed: an aborted signal before the
+ *    dialog, after its answer, and before the rerun spawn declines the
+ *    rerun — an aborted run must never spawn an unkillable unsandboxed
+ *    child (attaching a listener to an already-aborted signal never fires). */
+async function resolveRerun(deps: {
+  rerun: BashRerunDeps;
+  command: string;
+  commandId: string;
+  failureText: string;
+  exitCode: number;
+  signal: AbortSignal | undefined;
+  run: () => Promise<{ exitCode: number | null }>;
+  emit: (text: string) => void;
+}): Promise<{ exitCode: number | null }> {
+  const { rerun, command, commandId, failureText, exitCode, signal, run, emit } = deps;
+  const decline = (): { exitCode: number | null } => {
+    emit(DECLINED_MARKER);
+    return { exitCode };
+  };
+  const denialShaped = SANDBOX_DENIAL_SIGNATURE.test(failureText);
+  if (denialShaped && rerun.isExempted(command)) {
+    if (signal?.aborted) return decline();
+    emit(RERUN_MARKER);
+    return run();
+  }
+  const lines = await violationLinesFor(commandId, failureText);
+  const digest = digestFailure({
+    lines,
+    failureText,
+    commandText: command,
+    denyReadEntries: rerun.denyReadEntries,
+    denyReadRoots: rerun.denyReadRoots,
+    cwd: rerun.cwd,
+  });
+  if (!shouldOfferRerun({ exitCode, digest, canAsk: true })) return { exitCode };
+  if (signal?.aborted) return decline();
+  let choice: "once" | "session" | undefined;
+  try {
+    choice = await rerun.confirmRerun(command, signal);
+  } catch {
+    choice = undefined; // a throwing dialog channel settles fail-closed
+  }
+  if (choice === undefined || signal?.aborted) return decline();
+  emit(RERUN_MARKER);
+  if (choice === "session") rerun.onSessionGrant(command);
+  return run();
+}
+
 export function createSandboxedBashOperations(rerun?: BashRerunDeps): BashOperations {
   return {
     async exec(command, cwd, { onData, signal, timeout, env }) {
       execPreflight(cwd, signal);
       const commandId = `pai-${randomUUID()}`;
       const wrapped = await wrapCommand(command, commandId);
-      let streamed = "";
+      // Bounded tail capture (review P4): policy lines live at the end of
+      // the output; decoding once at read time avoids split code points.
+      const STREAM_TAIL_BYTES = 64 * 1024;
+      const chunks: Buffer[] = [];
       const capturingOnData = (data: Buffer): void => {
-        streamed += data.toString("utf8");
+        chunks.push(data);
         onData(data);
+      };
+      const failureText = (): string => {
+        const whole = Buffer.concat(chunks);
+        const tail =
+          whole.length > STREAM_TAIL_BYTES
+            ? whole.subarray(whole.length - STREAM_TAIL_BYTES)
+            : whole;
+        return tail.toString("utf8");
       };
       const first = await runChild({
         command: wrapped,
@@ -371,32 +507,16 @@ export function createSandboxedBashOperations(rerun?: BashRerunDeps): BashOperat
       });
       if (rerun === undefined) return first;
       if (first.exitCode === 0 || first.exitCode === null) return first;
-      const lines = await violationLinesFor(commandId);
-      const digest = digestFailure({
-        lines,
-        failureText: streamed,
-        denyReadRoots: rerun.denyReadRoots,
+      return resolveRerun({
+        rerun,
+        command,
+        commandId,
+        failureText: failureText(),
+        exitCode: first.exitCode,
+        signal,
+        run: () => runChild({ command, cwd, onData, signal, timeout, env }),
+        emit: (text) => onData(Buffer.from(text)),
       });
-      if (!shouldOfferRerun({ exitCode: first.exitCode, digest, canAsk: true })) {
-        return first;
-      }
-      if (rerun.isExempted(command)) {
-        onData(Buffer.from(RERUN_MARKER));
-        return runChild({ command, cwd, onData, signal, timeout, env });
-      }
-      let choice: "once" | "session" | undefined;
-      try {
-        choice = await rerun.confirmRerun(command);
-      } catch {
-        choice = undefined; // a throwing dialog channel settles fail-closed
-      }
-      if (choice === undefined) {
-        onData(Buffer.from(DECLINED_MARKER));
-        return first;
-      }
-      onData(Buffer.from(RERUN_MARKER));
-      if (choice === "session") rerun.onSessionGrant(command);
-      return runChild({ command, cwd, onData, signal, timeout, env });
     },
   };
 }
