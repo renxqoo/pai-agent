@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { runHost } from "./host.ts";
-import { WORKER_FLAG } from "./protocol.ts";
+import { WORKER_FLAG } from "./protocol-internal.ts";
 import { runWorker } from "./worker.ts";
 
 const isWorker = process.argv.includes(WORKER_FLAG);

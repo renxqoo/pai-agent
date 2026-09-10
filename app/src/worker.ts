@@ -16,14 +16,14 @@ import { responseFailure, responseSuccess } from "./frames.ts";
 import { createInflightRegistry } from "./inflight-registry.ts";
 import { createJsonlSplitter } from "./jsonl.ts";
 import { readNonNegativeIntEnv } from "./int-env.ts";
+import type { HubFrame } from "./protocol.ts";
 import type {
-  HubFrame,
   WorkerCommand,
   WorkerGrantFrame,
   WorkerHeartbeatFrame,
   WorkerSandboxGrantFrame,
-} from "./protocol.ts";
-import { OBSERVER_COMMANDS, WORKER_PROTOCOL_VERSION } from "./protocol.ts";
+} from "./protocol-internal.ts";
+import { OBSERVER_COMMANDS, WORKER_PROTOCOL_VERSION } from "./protocol-internal.ts";
 import { SubagentRegistry } from "./subagent-registry.ts";
 import {
   createFrameWriter,
@@ -85,6 +85,7 @@ function startHeartbeat(deps: {
       streaming: session?.isStreaming === true,
       sessionPath: session?.sessionFile ?? null,
       ...(subagents.inFlight() > 0 ? { subagents: subagents.inFlight() } : {}),
+      rssBytes: process.memoryUsage().rss,
     });
   }, HEARTBEAT_INTERVAL_MS);
   process.on("exit", () => clearInterval(heartbeat));

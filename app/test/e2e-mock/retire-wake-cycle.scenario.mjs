@@ -63,6 +63,9 @@ export async function run({ assert }) {
     assert(rssBaseline > 0, "host RSS baseline sampled");
 
     for (let cycle = 1; cycle <= CYCLES; cycle++) {
+      // Frame window for this cycle's retirement assertions (frames accumulate
+      // across cycles; each cycle parks exactly once).
+      const cycleStart = host.frames.length;
       // Park: poll thread/list (host-local, never wakes the worker) until the
       // idle retire moves the thread to parked.
       let parked = false;
@@ -82,6 +85,28 @@ export async function run({ assert }) {
       }
       assert(parked, `cycle ${cycle}: thread parks within ${IDLE_RETIRE_MS}ms + margin`);
       assert(host.workerPids().length === 0, `cycle ${cycle}: parked means zero worker processes`);
+      // v0.13: the retirement is observable — exactly one thread_parked frame
+      // with the idle origin, and the parked row carries the zeroed facts.
+      const parkedFrames = host.frames
+        .slice(cycleStart)
+        .filter((f) => f.type === "thread_parked" && f.threadId === tid);
+      assert(
+        parkedFrames.length === 1 && parkedFrames[0].reason === "idle",
+        `cycle ${cycle}: exactly one thread_parked(reason idle)`,
+      );
+      {
+        const row = host.frames.length; // marker: facts asserted via a fresh list below
+        host.send({ id: `lf${cycle}_${row}`, type: "thread/list" });
+        const facts = await host.waitResponse(`lf${cycle}_${row}`, { ms: 15_000 });
+        const entry = facts.data.threads.find((t) => t.threadId === tid);
+        assert(entry?.state === "parked", `cycle ${cycle}: list row parked`);
+        assert(
+          entry?.idleMs === 0 && entry?.subagents === 0,
+          `cycle ${cycle}: parked facts zeroed`,
+        );
+        assert(entry?.rssBytes === null, `cycle ${cycle}: parked rssBytes null`);
+        assert(entry?.keepalive === false, `cycle ${cycle}: parked keepalive false`);
+      }
 
       // Wake: an ordinary command transparently revives the same threadId.
       const ww = host.frames.length;
@@ -107,12 +132,32 @@ export async function run({ assert }) {
           "wake round works",
         `cycle ${cycle}: wake round served the scripted reply`,
       );
-      const listAfter = await (async () => {
-        host.send({ id: `la${cycle}`, type: "thread/list" });
-        return host.waitResponse(`la${cycle}`, { ms: 15_000 });
-      })();
-      const entry = listAfter.data.threads.find((t) => t.threadId === tid);
-      assert(entry?.state === "live", `cycle ${cycle}: thread is live again after wake`);
+      // The respawned worker's observability fields are zeroed until its
+      // first heartbeat lands (~1s cadence) — poll for the fact, not a sleep.
+      let entry = null;
+      {
+        let seq = 0;
+        const liveDeadline = Date.now() + 8_000;
+        while (Date.now() < liveDeadline) {
+          seq += 1;
+          const pollId = `la${cycle}_${seq}`;
+          host.send({ id: pollId, type: "thread/list" });
+          const list = await host.waitResponse(pollId, { ms: 15_000 });
+          const row = list.data.threads.find((t) => t.threadId === tid);
+          if (row?.state === "live" && typeof row.rssBytes === "number" && row.rssBytes > 0) {
+            entry = row;
+            break;
+          }
+          await new Promise((done) => {
+            setTimeout(done, 300);
+          });
+        }
+      }
+      assert(entry !== null, `cycle ${cycle}: thread is live again after wake`);
+      assert(
+        entry !== null && entry.state === "live" && entry.rssBytes > 0,
+        `cycle ${cycle}: live row reports worker rssBytes`,
+      );
       assert(
         !host.frames.some((f) => f.type === "thread_died"),
         `cycle ${cycle}: no thread_died in a clean cycle`,

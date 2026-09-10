@@ -145,6 +145,21 @@ export interface ThreadStopCmd {
   threadId: string;
 }
 
+/** v0.13: manual idle-retire — parks the entry (opposite of thread/stop's dispose). */
+export interface ThreadRetireCmd {
+  type: "thread/retire";
+  threadId: string;
+}
+
+/** v0.13: per-thread keepalive flag — the idle sweep skips live workers whose
+ * entry is marked (stale-heartbeat kills still apply). Not persisted; the
+ * client's registry is the durable truth and re-asserts on wake. */
+export interface ThreadSetKeepaliveCmd {
+  type: "thread/set_keepalive";
+  threadId: string;
+  keepalive: boolean;
+}
+
 export interface ThreadListCmd {
   type: "thread/list";
 }
@@ -396,6 +411,13 @@ export interface GetHostInfoCmd {
   type: "get_host_info";
 }
 
+/** v0.13: runtime idle-retire threshold change (clamped to 1s..24h; the
+ * response data carries the applied value). */
+export interface SetIdleRetireMsCmd {
+  type: "set_idle_retire_ms";
+  ms: number;
+}
+
 /** v0.7: the thread's sandbox snapshot + OS-runtime state (docs/plans
  * 2026-09-09-sandbox.md). */
 export interface GetSandboxStateCmd {
@@ -433,6 +455,8 @@ export type HubCommand =
   | (ThreadResumeCmd & { id?: string })
   | (ThreadRegisterCmd & { id?: string })
   | (ThreadStopCmd & { id?: string })
+  | (ThreadRetireCmd & { id?: string })
+  | (ThreadSetKeepaliveCmd & { id?: string })
   | (ThreadListCmd & { id?: string })
   | (ThreadListSavedCmd & { id?: string })
   | (PromptCmd & { id?: string })
@@ -468,6 +492,7 @@ export type HubCommand =
   | (AgentsListCmd & { id?: string })
   | (SubagentSteerCmd & { id?: string })
   | (GetHostInfoCmd & { id?: string })
+  | (SetIdleRetireMsCmd & { id?: string })
   | (GetSandboxStateCmd & { id?: string });
 
 // ============================================================================
@@ -502,10 +527,14 @@ export interface UiRequestFrame {
   [key: string]: unknown;
 }
 
-/** Host heartbeat; v0.5 adds the aggregate in-flight subagent count. */
+/** Host heartbeat; v0.5 adds the aggregate in-flight subagent count; v0.13
+ * adds host-process resource numbers (rssBytes always; cpuPercent is a
+ * process.cpuUsage 1s differential normalized to one core, may exceed 100). */
 export interface HeartbeatFrame {
   type: "heartbeat";
   subagents?: number;
+  rssBytes?: number;
+  cpuPercent?: number;
 }
 
 export interface HubErrorFrame {
@@ -521,6 +550,15 @@ export interface ThreadDiedFrame {
   type: "thread_died";
   threadId: string;
   reason: string;
+}
+
+/** v0.13: a worker was retired (idle sweep or thread/retire); the entry moved
+ * to "parked" and the session file is kept. Emitted exactly once from the
+ * close settlement — the healthy counterpart of thread_died. */
+export interface ThreadParkedFrame {
+  type: "thread_parked";
+  threadId: string;
+  reason: "idle" | "manual";
 }
 
 /**
@@ -559,6 +597,14 @@ export interface ThreadListEntry {
   sessionPath: string | null;
   isStreaming: boolean;
   state: "live" | "parked" | "dead";
+  /** v0.13 observability: idle duration from the worker heartbeat (0 for non-live). */
+  idleMs: number;
+  /** v0.13: in-flight subagents per the last heartbeat (0 for non-live). */
+  subagents: number;
+  /** v0.13: worker RSS as reported by its heartbeat; null until first report. */
+  rssBytes: number | null;
+  /** v0.13: entry flag — the idle sweep skips live workers marked keepalive. */
+  keepalive: boolean;
 }
 
 export type HubFrame =
@@ -568,160 +614,6 @@ export type HubFrame =
   | HeartbeatFrame
   | HubErrorFrame
   | ThreadDiedFrame
+  | ThreadParkedFrame
   | SubagentEventFrame
   | SubagentMessageFrame;
-
-// ============================================================================
-// INTERNAL: host <-> worker protocol (never on the Electron wire)
-// ============================================================================
-
-/** CLI flag that enters single-session worker mode. */
-export const WORKER_FLAG = "--internal-worker";
-
-/** Generation convention for host-initiated command ids. Absorption is decided
- * by membership in the host's pending-internal-id set, never by this prefix
- * (the Electron id space is unconstrained). */
-export const INTERNAL_ID_PREFIX = "pai-internal-";
-
-/** Worker heartbeat carries the worker-side truth: how long the session has
- * been idle (observer commands do not reset it), whether it is streaming,
- * the current session file path (null until first persist; the host needs
- * it to park a retired conversation), and — v0.5 — the number of live
- * subagent (grandchild) processes (observability; no host quota). */
-// The v0.6 grant-arbitration trio and the v0.12 grant-persist frame live in
-// protocol-internal.ts (file-size cap); re-exported here — protocol.ts
-// remains the single public truth for the wire vocabulary.
-import type {
-  WorkerGrantFrame,
-  WorkerSandboxGrantFrame,
-  WorkerGrantResultCmd,
-} from "./protocol-internal.ts";
-
-export type { WorkerGrantFrame, WorkerSandboxGrantFrame, WorkerGrantResultCmd };
-
-export interface WorkerHeartbeatFrame {
-  type: "heartbeat";
-  idleMs: number;
-  streaming: boolean;
-  sessionPath: string | null;
-  subagents?: number;
-}
-
-/** v0.8 INTERNAL worker→host hello (worker contract v1, docs/worker-contract.md):
- * the FIRST frame a worker writes after taking over stdout — before the
- * heartbeat timer arms. The host rejects version/backend mismatches through
- * the spawning-failure recycle path (occupancy reclaimed, pending ids
- * failed exactly once, no thread_died). */
-export const WORKER_PROTOCOL_VERSION = 1;
-
-export interface WorkerHelloFrame {
-  type: "hello";
-  protocolVersion: number;
-  backendId: string;
-  capabilities: string[];
-}
-
-/** INTERNAL thread/start: host injects the resolved model object. v0.5 adds
- * the subagent extension fields (used by the task tool's grandchild spawns):
- * systemPrompt/tools/thinkingLevel shape the grandchild session,
- * permissionThreadId re-reads the parent conversation's live ruleset on
- * every gate decision (never a frozen snapshot), subagent disables the task
- * tool inside the grandchild (depth 1) and enables its communication tools
- * (report/send), subagentId/agentName label the grandchild's outgoing
- * subagent_message frames (advisory — the parent re-stamps), ephemeral runs
- * an in-memory session (the pi --no-session equivalent). */
-export interface WorkerThreadStartCmd extends Omit<ThreadStartCmd, "provider" | "modelId"> {
-  /** v0.12 lineage: parent's in-sandbox grants (no bashPrefixes — escape
-   * privileges never propagate into never-dialog processes, plan §4.6). */
-  sandboxGrants?: { writeDirs: string[]; writePatterns: string[]; domains: string[] };
-  model?: SessionModel;
-  systemPrompt?: string;
-  tools?: string[];
-  thinkingLevel?: SetThinkingLevelCmd["level"];
-  permissionThreadId?: string;
-  /** Conversation-cwd paths a grandchild must never write (sandbox P3). */
-  parentProtectedPaths?: string[];
-  subagent?: boolean;
-  subagentId?: string;
-  agentName?: string;
-  ephemeral?: boolean;
-}
-
-/** INTERNAL set_model: host injects the resolved model object. */
-export interface WorkerSetModelCmd extends Omit<SetModelCmd, "provider" | "modelId"> {
-  model: SessionModel;
-}
-
-type ThreadScopedCmd =
-  | PromptCmd
-  | SteerCmd
-  | FollowUpCmd
-  | AbortCmd
-  | CompactCmd
-  | GetStateCmd
-  | GetMessagesCmd
-  | SetThinkingLevelCmd
-  | GetThinkingLevelsCmd
-  | GetEntriesCmd
-  | GetTreeCmd
-  | SetSessionNameCmd
-  | GetSessionStatsCmd
-  | ClearQueueCmd
-  | ForkCmd
-  | CloneCmd
-  | NavigateTreeCmd
-  | GetForkMessagesCmd
-  | GetCommandsCmd
-  | BashCmd
-  | AbortBashCmd
-  | ThreadResumeCmd
-  | ThreadStopCmd
-  | UiResponseCmd
-  | SubagentSteerCmd
-  | GetSandboxStateCmd;
-
-export type WorkerCommand =
-  | (WorkerThreadStartCmd & { id?: string })
-  | (WorkerSetModelCmd & { id?: string })
-  | (WorkerGrantResultCmd & { id?: string })
-  | (ThreadScopedCmd & { id?: string });
-
-/** Commands that do not mutate or exercise the session; they never reset the
- * worker's idle timer (a polling client must not keep workers alive). */
-export const OBSERVER_COMMANDS: ReadonlySet<string> = new Set([
-  "get_state",
-  "get_messages",
-  "get_entries",
-  "get_tree",
-  "get_session_stats",
-  "get_commands",
-  "get_fork_messages",
-]);
-
-/** Commands the host routes verbatim to the owning worker. Anything else on
- * stdin is rejected with the v0.3 "Unknown command" wording. */
-export const THREAD_SCOPED_COMMANDS: ReadonlySet<string> = new Set([
-  "prompt",
-  "steer",
-  "follow_up",
-  "abort",
-  "compact",
-  "get_state",
-  "get_messages",
-  "set_thinking_level",
-  "get_thinking_levels",
-  "get_entries",
-  "get_tree",
-  "set_session_name",
-  "get_session_stats",
-  "clear_queue",
-  "fork",
-  "clone",
-  "navigate_tree",
-  "get_fork_messages",
-  "get_commands",
-  "bash",
-  "abort_bash",
-  "subagent/steer",
-  "get_sandbox_state",
-]);

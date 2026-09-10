@@ -8,12 +8,12 @@
 
 import type { CapabilityBit } from "../capabilities.ts";
 import type { DialogBroker } from "../../dialogs.ts";
+import type { HubFrame } from "../../protocol.ts";
 import type {
-  HubFrame,
   WorkerGrantFrame,
   WorkerHeartbeatFrame,
   WorkerSandboxGrantFrame,
-} from "../../protocol.ts";
+} from "../../protocol-internal.ts";
 import type { CheckPermission } from "./interception.ts";
 import type { PaiAuthFace, PaiModelRuntime } from "./model-auth.ts";
 import type { PaiResources } from "./resources.ts";

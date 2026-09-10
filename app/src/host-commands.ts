@@ -17,18 +17,21 @@ import type {
   HubCommand,
   HubFrame,
   SessionModel,
+  SetIdleRetireMsCmd,
   SetModelCmd,
   SetModelOverrideCmd,
   SetPermissionRulesCmd,
   ThreadListCmd,
   ThreadListSavedCmd,
   ThreadRegisterCmd,
+  ThreadRetireCmd,
   ThreadResumeCmd,
+  ThreadSetKeepaliveCmd,
   ThreadStartCmd,
   ThreadStopCmd,
   UiResponseCmd,
 } from "./protocol.ts";
-import { THREAD_SCOPED_COMMANDS } from "./protocol.ts";
+import { THREAD_SCOPED_COMMANDS } from "./protocol-internal.ts";
 import { handleSetModelOverride } from "./model-overrides.ts";
 import { resolve as resolvePath } from "node:path";
 import { readNonNegativeIntEnv } from "./int-env.ts";
@@ -148,6 +151,40 @@ const handleRegister: HostHandler = async (deps, cmd, id) => {
 const handleStop: HostHandler = async (deps, cmd, id) => {
   const stop = cmd as ThreadStopCmd;
   await deps.pool.stopThread(stop.threadId, id, stop.type);
+};
+
+/** thread/retire (v0.13): manual idle-retire — parks the entry (the dispose
+ * counterpart is thread/stop). Host-orchestrated: never routed to a worker. */
+const handleRetire: HostHandler = async (deps, cmd, id) => {
+  const retire = cmd as ThreadRetireCmd;
+  deps.pool.retireThread(retire.threadId, id, retire.type);
+  return Promise.resolve();
+};
+
+/** thread/set_keepalive (v0.13): host-local flag flip; unknown threads fail. */
+const handleSetKeepalive: HostHandler = async (deps, cmd, id) => {
+  const setKeepalive = cmd as ThreadSetKeepaliveCmd;
+  if (typeof setKeepalive.keepalive !== "boolean") {
+    deps.emit(responseFailure(id, setKeepalive.type, "Invalid keepalive"));
+    return;
+  }
+  if (deps.pool.setKeepalive(setKeepalive.threadId, setKeepalive.keepalive)) {
+    deps.emit(responseSuccess(id, setKeepalive.type, { keepalive: setKeepalive.keepalive }));
+    return;
+  }
+  deps.emit(responseFailure(id, setKeepalive.type, `Unknown threadId: ${setKeepalive.threadId}`));
+};
+
+/** set_idle_retire_ms (v0.13): runtime threshold change; the applied (clamped)
+ * value is the response so the client never displays a stale policy. */
+const handleSetIdleRetireMs: HostHandler = async (deps, cmd, id) => {
+  const setThreshold = cmd as SetIdleRetireMsCmd;
+  if (typeof setThreshold.ms !== "number" || !Number.isFinite(setThreshold.ms)) {
+    deps.emit(responseFailure(id, setThreshold.type, "Invalid ms"));
+    return;
+  }
+  const applied = deps.pool.setIdleRetireMs(setThreshold.ms);
+  deps.emit(responseSuccess(id, setThreshold.type, { idleRetireMs: applied }));
 };
 
 const handleList: HostHandler = async (deps, cmd, id) => {
@@ -347,6 +384,9 @@ export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, Ho
     "thread/resume": handleResume,
     "thread/register": handleRegister,
     "thread/stop": handleStop,
+    "thread/retire": handleRetire,
+    "thread/set_keepalive": handleSetKeepalive,
+    set_idle_retire_ms: handleSetIdleRetireMs,
     "thread/list": handleList,
     "thread/list_saved": handleListSaved,
     get_models: handleGetModels,

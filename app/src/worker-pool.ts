@@ -13,15 +13,9 @@
  */
 
 import { resolve as resolvePath } from "node:path";
-import type {
-  HubFrame,
-  SessionModel,
-  ThreadListEntry,
-  UiResponseCmd,
-  WorkerGrantFrame,
-  WorkerSandboxGrantFrame,
-} from "./protocol.ts";
-import { INTERNAL_ID_PREFIX } from "./protocol.ts";
+import type { HubFrame, SessionModel, ThreadListEntry, UiResponseCmd } from "./protocol.ts";
+import type { WorkerGrantFrame, WorkerSandboxGrantFrame } from "./protocol-internal.ts";
+import { INTERNAL_ID_PREFIX } from "./protocol-internal.ts";
 import { type RetireIntent, type WorkerHandle, spawnWorkerProcess } from "./worker-process.ts";
 import { type DeathDeps, reconcileWorkerClosed } from "./worker-death.ts";
 import { GrantLedger, MAX_SUBAGENTS_DEFAULT, replyGrant } from "./grant-ledger.ts";
@@ -34,6 +28,7 @@ import {
 import { stopThreadSettlement, type StopOps } from "./thread-stop.ts";
 import { registerParkedAdmission, type RegisterOutcome } from "./thread-register.ts";
 import { armTeardownDeadline, sweepWorkers, type SweepOps } from "./thread-retire.ts";
+import { retireThreadSettlement } from "./thread-retire-cmd.ts";
 import { type ThreadEntry, ThreadTable } from "./thread-table.ts";
 import { readIntEnv } from "./int-env.ts";
 import { resumeAndWait } from "./resume-wait.ts";
@@ -77,9 +72,8 @@ export interface WorkerPoolOptions {
   spawnSpec?: { command: string; args: readonly string[]; env?: Record<string, string> };
 }
 
-/** Internal resume exchange: settle when the absorbed response lands, the
- * worker dies, or the write fails; onFailedResume runs the occupancy/death
- * cleanup exactly once. */
+/** Internal resume exchange lives in thread-resume-wait.ts (one verb, one
+ * file); internalResume below wires the pool's registries into it. */
 export class WorkerPool {
   private readonly table = new ThreadTable();
   private readonly internalIds = new Map<string, InternalWaiter>();
@@ -87,7 +81,7 @@ export class WorkerPool {
   private internalSeq = 0;
   private workerSeq = 0;
   private readonly maxThreads: number;
-  private readonly idleRetireMs: number;
+  private idleRetireMs: number;
   private readonly workerStaleMs: number;
   private readonly workerExitTimeoutMs: number;
   private readonly maxSubagents: number;
@@ -125,7 +119,7 @@ export class WorkerPool {
   }
 
   listEntries(): ThreadListEntry[] {
-    return this.table.list((threadId) => this.table.liveWorker(threadId)?.streaming ?? false);
+    return this.table.list((threadId) => this.table.liveFacts(threadId));
   }
 
   hasThread(threadId: string): boolean {
@@ -279,6 +273,27 @@ export class WorkerPool {
 
   async stopThread(threadId: string, cmdId: string | undefined, cmdType: string): Promise<void> {
     stopThreadSettlement(this.stopOps(), { threadId, id: cmdId, cmdType });
+  }
+
+  /** thread/retire (v0.13): manual idle-retire — parks the entry. */
+  retireThread(threadId: string, cmdId: string | undefined, cmdType: string): void {
+    // stopOps 是 RetireOps 的结构超集（多 deliverCommand）——共用一份工厂
+    retireThreadSettlement(this.stopOps(), { threadId, id: cmdId, cmdType });
+  }
+
+  /** thread/set_keepalive (v0.13): false return = unknown thread. */
+  setKeepalive(threadId: string, keepalive: boolean): boolean {
+    return this.table.setKeepalive(threadId, keepalive);
+  }
+
+  /** set_idle_retire_ms (v0.13): clamp to [1s, 24h]; garbage input falls back
+   * to the default rather than throwing. Returns the applied value. */
+  setIdleRetireMs(ms: number): number {
+    const clamped = Number.isFinite(ms)
+      ? Math.min(86_400_000, Math.max(1_000, Math.round(ms)))
+      : IDLE_RETIRE_MS_DEFAULT;
+    this.idleRetireMs = clamped;
+    return clamped;
   }
 
   /** ui_response: ack once in the host, broadcast to every live worker (the

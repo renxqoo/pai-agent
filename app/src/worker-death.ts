@@ -89,5 +89,20 @@ function settleClosedWorker(deps: DeathDeps, worker: WorkerHandle, reason: strin
   deps.table.enforceNonLiveCap();
   if (!wasRetire) {
     deps.emitFrame({ type: "thread_died", threadId: worker.threadId, reason });
+  } else {
+    emitThreadParkedIfPresent(deps, worker);
   }
+}
+
+/** v0.13: retirement is observable — the client folds its session view to
+ * parked on this frame instead of waiting for a restart reconciliation.
+ * Skipped when the non-live cap just evicted the entry: a parked frame for a
+ * vanished entry would contradict the next thread/list reconciliation. */
+function emitThreadParkedIfPresent(deps: DeathDeps, worker: WorkerHandle): void {
+  if (deps.table.entry(worker.threadId) === undefined) return;
+  deps.emitFrame({
+    type: "thread_parked",
+    threadId: worker.threadId,
+    reason: worker.retireReason ?? "idle",
+  });
 }

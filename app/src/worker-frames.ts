@@ -6,15 +6,14 @@
  */
 
 import { CONTROL_COMMANDS, type ResponseHead, matchResponseHead } from "./frame-classify.ts";
+import type { HubFrame, UiResponseCmd } from "./protocol.ts";
 import type {
-  HubFrame,
-  UiResponseCmd,
   WorkerGrantFrame,
   WorkerSandboxGrantFrame,
   WorkerHeartbeatFrame,
   WorkerHelloFrame,
-} from "./protocol.ts";
-import { WORKER_PROTOCOL_VERSION } from "./protocol.ts";
+} from "./protocol-internal.ts";
+import { WORKER_PROTOCOL_VERSION } from "./protocol-internal.ts";
 import { type RetireIntent, type WorkerHandle } from "./worker-process.ts";
 import type { ThreadTable } from "./thread-table.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
@@ -167,6 +166,7 @@ function onHeartbeat(
   worker.idleMs = frame.idleMs;
   worker.streaming = frame.streaming;
   worker.subagents = frame.subagents ?? 0;
+  worker.rssBytes = typeof frame.rssBytes === "number" ? frame.rssBytes : null;
   if (worker.subagents > 0) deps.renewGrants(worker);
   if (frame.sessionPath !== worker.sessionPath) {
     // First persist, or a fork/clone path change: keep occupancy exact.

@@ -20,12 +20,31 @@ export interface ThreadEntry {
   /** v0.12 sandbox posture from the admitting command (undefined = infer). */
   posture: "strict" | "balanced" | "open" | undefined;
   state: "live" | "parked" | "dead";
+  /** v0.13: skip the idle retire for this entry's live worker (thread/set_keepalive).
+   * Not persisted — the client's registry is the durable truth. */
+  keepalive: boolean;
   /** In-progress respawn (parked/dead -> live); concurrent senders share it. */
   wake: Promise<void> | undefined;
   /** thread/stop arrived while a wake was in flight; the wake must not
    * resurrect the entry (design §6 spawning -thread/stop-> cancelled). */
   stopRequested: boolean;
 }
+
+/** v0.13 observability projection for one live worker (thread/list rows). */
+export interface LiveWorkerFacts {
+  isStreaming: boolean;
+  idleMs: number;
+  subagents: number;
+  rssBytes: number | null;
+}
+
+/** Non-live rows report a zeroed projection (no worker exists to ask). */
+export const IDLE_WORKER_FACTS: LiveWorkerFacts = {
+  isStreaming: false,
+  idleMs: 0,
+  subagents: 0,
+  rssBytes: null,
+};
 
 interface StartResponseData {
   threadId: string;
@@ -68,7 +87,7 @@ export class ThreadTable {
   /** Live/parked/dead entry counts (get_host_info.threads). */
   stateCounts(): { live: number; parked: number; dead: number } {
     const counts = { live: 0, parked: 0, dead: 0 };
-    for (const entry of this.list(() => false)) counts[entry.state] += 1;
+    for (const entry of this.entries.values()) counts[entry.state] += 1;
     return counts;
   }
 
@@ -76,13 +95,36 @@ export class ThreadTable {
     return this.workers.size;
   }
 
-  list(streamingFor: (threadId: string) => boolean): ThreadListEntry[] {
+  /** v0.13: set the keepalive flag; false return = unknown thread (the
+   * command answers a failure on it). */
+  setKeepalive(threadId: string, keepalive: boolean): boolean {
+    const entry = this.entries.get(threadId);
+    if (entry === undefined) return false;
+    entry.keepalive = keepalive;
+    return true;
+  }
+
+  /** v0.13 observability projection of the live worker (thread/list rows);
+   * the table owns the live-worker map, so the projection lives here. */
+  liveFacts(threadId: string): LiveWorkerFacts {
+    const worker = this.workers.get(threadId);
+    if (worker === undefined) return IDLE_WORKER_FACTS;
+    return {
+      isStreaming: worker.streaming,
+      idleMs: worker.idleMs,
+      subagents: worker.subagents,
+      rssBytes: worker.rssBytes,
+    };
+  }
+
+  list(factsFor: (threadId: string) => LiveWorkerFacts): ThreadListEntry[] {
     return [...this.entries.values()].map((entry) => ({
       threadId: entry.threadId,
       cwd: entry.cwd,
       sessionPath: entry.sessionPath,
-      isStreaming: entry.state === "live" ? streamingFor(entry.threadId) : false,
       state: entry.state,
+      ...(entry.state === "live" ? factsFor(entry.threadId) : IDLE_WORKER_FACTS),
+      keepalive: entry.keepalive,
     }));
   }
 
@@ -129,6 +171,7 @@ export class ThreadTable {
       trusted: spec.trusted,
       posture: undefined,
       state: "parked",
+      keepalive: false,
       wake: undefined,
       stopRequested: false,
     });
@@ -206,6 +249,9 @@ export class ThreadTable {
       trusted: worker.trusted,
       posture: worker.posture,
       state: "live",
+      // keepalive survives the wake cycle only through entry reuse (the flag
+      // is client-owned); a brand-new entry starts unmarked.
+      keepalive: false,
       wake: undefined,
       stopRequested: false,
     };
@@ -240,6 +286,9 @@ export class ThreadTable {
       this.entries.delete(fork.previousThreadId);
       entry.threadId = fork.threadId;
       entry.sessionPath = fork.sessionPath;
+      // A fork is a new conversation: keepalive is client-owned per thread and
+      // must not silently carry over (the client re-asserts if it wants it).
+      entry.keepalive = false;
       this.entries.set(fork.threadId, entry);
     }
     if (this.workers.get(fork.previousThreadId) === worker) {
