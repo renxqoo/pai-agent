@@ -295,6 +295,97 @@ export interface GetSessionStatsCmd {
   threadId: string;
 }
 
+/** v0.14: current in-flight turn facts (see InflightState payload). */
+export interface GetInflightCmd {
+  type: "get_inflight";
+  threadId: string;
+}
+
+/** v0.14: subagent snapshot (running/queued/recently settled). */
+export interface GetSubagentsCmd {
+  type: "get_subagents";
+  threadId: string;
+}
+
+/** v0.14: dialogs awaiting a ui_response (reload convergence). */
+export interface GetPendingDialogsCmd {
+  type: "get_pending_dialogs";
+  threadId: string;
+}
+
+/** One running tool call's streamed output tail (get_inflight). */
+export interface InflightToolOutput {
+  callId: string;
+  /** Plain text tail (host-dropped head marked by `truncated`). */
+  output: string;
+  truncated: boolean;
+  /** Epoch ms the call started (client-side duration display across a reload). */
+  startedAt: number;
+}
+
+/** Direct bash execution in progress (get_inflight). */
+export interface InflightBashState {
+  command: string;
+  output: string;
+  truncated: boolean;
+  /** Epoch ms the command started (banner elapsed time across a reload). */
+  startedAt: number;
+}
+
+/**
+ * get_inflight payload: everything about the current turn that is NOT yet in
+ * the session file. `turnStartEntryId` = the leaf entry id recorded when the
+ * turn started — the authoritative boundary of this turn's persistent prefix
+ * (clients must not re-derive it from events; a mid-turn injected user
+ * message or a steer would break any heuristic). `turnStartedAt` = that same
+ * moment in epoch ms (clients continue the turn's elapsed-time display across
+ * a reload instead of restarting it). Absent = empty form.
+ */
+export interface GetInflightPayload {
+  turnStartEntryId: string | null;
+  turnStartedAt: number | null;
+  message: unknown;
+  toolOutputs: readonly InflightToolOutput[];
+  bash: InflightBashState | null;
+}
+
+/** get_subagents payload entry (mirror of the hub's registry snapshot). */
+export interface SubagentSnapshotEntry {
+  subagentId: string;
+  agent: string;
+  task: string;
+  status: "queued" | "running" | "completed" | "failed" | "stopped";
+  elapsedMs: number;
+  output: string;
+  usage: unknown;
+  eventsRelayed: number;
+  truncated: boolean;
+}
+
+/** get_pending_dialogs payload entry: the ui_request frame's own fields
+ * (`threadId` + method + payload), so a client rebuilds the dialog with the
+ * same normalization it uses for the live frame. */
+export interface PendingDialogEntry {
+  requestId: string;
+  threadId: string;
+  method: string;
+  payload: Record<string, unknown>;
+}
+
+/** get_state payload (v0.14 adds the queue face). */
+export interface GetStatePayload {
+  model: unknown;
+  thinkingLevel: unknown;
+  isStreaming: boolean;
+  isCompacting: boolean;
+  sessionId: string;
+  sessionName: string | null;
+  sessionFile: string | null;
+  messageCount: number;
+  /** Queued steering / follow-up texts (empty when the backend has no queue). */
+  queue: { steering: string[]; followUp: string[] };
+}
+
 /** Drop queued steering/follow-up messages; returns their text. */
 export interface ClearQueueCmd {
   type: "clear_queue";
@@ -418,6 +509,15 @@ export interface SetIdleRetireMsCmd {
   ms: number;
 }
 
+/** Runtime change of the worker RSS hard cap (mirrors set_idle_retire_ms):
+ * bytes = 0 disables the cap; otherwise clamped to [256 MiB, 2 TiB]. A live
+ * worker whose heartbeat rssBytes reaches the cap is retired (hard cap —
+ * keepalive/busy do not shield it; reason "rss" in thread_parked). */
+export interface SetRssRetireBytesCmd {
+  type: "set_rss_retire_bytes";
+  bytes: number;
+}
+
 /** v0.7: the thread's sandbox snapshot + OS-runtime state (docs/plans
  * 2026-09-09-sandbox.md). */
 export interface GetSandboxStateCmd {
@@ -440,6 +540,7 @@ export interface HostInfo {
   limits: {
     maxThreads: number;
     idleRetireMs: number;
+    rssRetireBytes: number;
     workerStaleMs: number;
     workerExitTimeoutMs: number;
     maxSubagents: number;
@@ -493,7 +594,11 @@ export type HubCommand =
   | (SubagentSteerCmd & { id?: string })
   | (GetHostInfoCmd & { id?: string })
   | (SetIdleRetireMsCmd & { id?: string })
-  | (GetSandboxStateCmd & { id?: string });
+  | (SetRssRetireBytesCmd & { id?: string })
+  | (GetSandboxStateCmd & { id?: string })
+  | (GetInflightCmd & { id?: string })
+  | (GetSubagentsCmd & { id?: string })
+  | (GetPendingDialogsCmd & { id?: string });
 
 // ============================================================================
 // Frames (stdout, host -> Electron)
@@ -552,13 +657,14 @@ export interface ThreadDiedFrame {
   reason: string;
 }
 
-/** v0.13: a worker was retired (idle sweep or thread/retire); the entry moved
- * to "parked" and the session file is kept. Emitted exactly once from the
- * close settlement — the healthy counterpart of thread_died. */
+/** v0.13: a worker was retired (idle sweep or thread/retire; the RSS hard
+ * cap since set_rss_retire_bytes); the entry moved to "parked" and the
+ * session file is kept. Emitted exactly once from the close settlement —
+ * the healthy counterpart of thread_died. */
 export interface ThreadParkedFrame {
   type: "thread_parked";
   threadId: string;
-  reason: "idle" | "manual";
+  reason: "idle" | "manual" | "rss";
 }
 
 /**

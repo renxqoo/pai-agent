@@ -13,13 +13,13 @@
  */
 
 import type { StartGrandchildTask } from "./backend/ports/subagent.ts";
+import type { SubagentSnapshotEntry } from "./protocol.ts";
 import type {
   GrandchildDriver,
   GrandchildHooks,
   GrandchildMessage,
   GrandchildResult,
   GrandchildTaskSpec,
-  GrandchildUsage,
 } from "./subagent-contract.ts";
 import {
   chainOuterSignal,
@@ -109,16 +109,20 @@ export interface RegistryDeps {
   };
 }
 
-export interface SnapshotEntry {
+/** task_out snapshot entry. The wire shape (get_subagents payload) is the
+ * single truth in protocol.ts; this alias keeps the registry free of a
+ * second definition. */
+export type SnapshotEntry = SubagentSnapshotEntry;
+
+/** One unsettled grandchild ui_request (v0.14 get_pending_dialogs source):
+ * the ORIGINAL grandchild frame; the serving handler re-stamps the parent
+ * threadId and appends subagentId/agent — the same shape the live relay
+ * emits, so a reloaded client rebuilds an identical prompt. */
+export interface PendingSubagentDialog {
+  requestId: string;
   subagentId: string;
   agent: string;
-  task: string;
-  status: SubagentStatus;
-  elapsedMs: number;
-  output: string;
-  usage: GrandchildUsage;
-  eventsRelayed: number;
-  truncated: boolean;
+  frame: Record<string, unknown>;
 }
 
 function noSession(): NotifySession | undefined {
@@ -335,6 +339,22 @@ export class SubagentRegistry {
       }
     }
     return false;
+  }
+
+  /** v0.14: unsettled grandchild ui_request frames (get_pending_dialogs
+   * source). Running entries only — a settled grandchild's dialogs died
+   * with it; the parent re-stamps threadId when serving the read. */
+  pendingDialogs(): PendingSubagentDialog[] {
+    const out: PendingSubagentDialog[] = [];
+    for (const [subagentId, entry] of this.entries) {
+      if (entry.status !== "running" || entry.driver === undefined) continue;
+      for (const frame of entry.driver.pendingUiFrames()) {
+        const { requestId } = frame;
+        if (typeof requestId !== "string" || requestId.length === 0) continue;
+        out.push({ requestId, subagentId, agent: entry.spec.agent, frame });
+      }
+    }
+    return out;
   }
 
   /**

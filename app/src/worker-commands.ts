@@ -6,6 +6,11 @@
 
 import { toImages, validateImages } from "./images.ts";
 import { handleAbortBash, handleBash } from "./bash-commands.ts";
+import {
+  handleGetInflight,
+  handleGetPendingDialogs,
+  handleGetSubagents,
+} from "./inflight-read-commands.ts";
 import { selectEntriesWindow } from "./entries-window.ts";
 import { toSkillPointer } from "./skill-pointer.ts";
 import { tryCompactInvocation } from "./compact-invocation.ts";
@@ -22,6 +27,7 @@ import type {
   GetSandboxStateCmd,
   GetSessionStatsCmd,
   GetStateCmd,
+  GetStatePayload,
   GetThinkingLevelsCmd,
   GetTreeCmd,
   NavigateTreeCmd,
@@ -250,7 +256,13 @@ const handleGetState: Handler = (ctx, cmd, id) => {
     sessionName: session.sessionName ?? null,
     sessionFile: session.sessionFile ?? null,
     messageCount: session.messages.length,
-  });
+    // v0.14: queued texts (a reloading client cannot re-derive them; the
+    // queue_update event stream it missed is not replayed).
+    queue: {
+      steering: [...session.getSteeringMessages()],
+      followUp: [...session.getFollowUpMessages()],
+    },
+  } satisfies GetStatePayload);
   return Promise.resolve();
 };
 
@@ -549,6 +561,9 @@ export const workerHandlers: ReadonlyMap<string, Handler> = new Map<string, Hand
     abort_bash: handleAbortBash,
     grant_result: handleGrantResult,
     get_sandbox_state: handleGetSandboxState,
+    get_inflight: handleGetInflight,
+    get_subagents: handleGetSubagents,
+    get_pending_dialogs: handleGetPendingDialogs,
     "subagent/steer": handleSubagentSteer,
     ui_response: handleUiResponse,
   }),

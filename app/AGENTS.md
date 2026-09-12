@@ -1,10 +1,11 @@
 # pai-cli 开发规则
 
-本目录是完全独立的项目：自己的工具链、锁文件、门禁。不读取、不依赖上层 `/Users/wrr/work/pi` 仓库的任何配置（biome/tsconfig/脚本）。
+- 本目录是完全独立的项目：自己的工具链、锁文件、门禁。不读取、不依赖上层 `/Users/wrr/work/pi` 仓库的任何配置（biome/tsconfig/脚本）。
+- 如果你需要了解项目代码逻辑，阅读代码是唯一标准，文档只是左证。
 
 ## 项目是什么
 
-pai-cli 是 pi coding agent 的多会话宿主 CLI：**host 进程 + 每个活跃对话一个 worker 子进程**（v0.4 架构，见 `docs/migration/`），stdin/stdout JSONL 协议，供 Electron 等富客户端渲染。**本项目边界 = 仅为外部 Electron 项目提供接口**（协议 + CLI 产物 + 文档）；Electron 端代码一律不进本仓库。线协议规格的唯一真相是 `docs/design.md`，worker 架构规格是 `docs/migration/design.md`，内部 host↔worker 协议的公开契约（worker contract v1，hello 握手 + backends.json 注册）唯一真相是 `docs/worker-contract.md`（v0.8 起），Electron 对接约定见 `docs/electron-integration.md`，对外接口文档是 `docs/api.md`（新增命令必须同步它）；改协议先改文档再改代码，同一提交落档。v0.5 契约要点：38 命令 / 8 帧（含 `subagent_event`、`subagent_message`；v0.6 增补 `get_host_info`、`bash.timeoutMs`、`PAI_MAX_SUBAGGENTS` grant 配额；v0.7 增补 agent 执行沙箱（`get_sandbox_state`、sandbox.json、PAI_SANDBOX）；v0.8 增补后端能力包（事件词表 PaiEvent 归 protocol.ts 自有、能力协商 + `get_host_info.backend`、host 级后端选择 `PAI_BACKEND`/backends.json、worker 契约公开化预备）；v0.9 增补模型参数覆写（`set_model_override` 写 models.json modelOverrides + 快照热刷新，能力位 `model.config`）；v0.10 增补沙箱违规确认流程（sandbox.json `onViolation:"ask"|"deny"`、三选弹框 Allow once/session/Deny、会话内豁免、bash 拒后确认重跑；protected paths 与 denyRead 恒硬拦）；v0.11 增补压缩命令 hub 化；v0.12 增补沙箱重构（posture 档位 strict/balanced/open、连接前域名问询、四选弹框粗粒度授予、Always 落盘全局 grants 节、env 凭证过滤、escalate 预声明、血缘传播——见 design.md 对应增补）；子 agent 深度 1（孙进程无 task 工具、ephemeral、untrusted）；后台通知是 user-role 消息注入（自动消耗模型回合）；`abort`/`thread/stop` 杀全部子 agent；每线程权限 sidecar 与孙进程权限热读。改这些行为先改 `docs/api.md` 与 `docs/design.md` 的对应增补。
+pai-cli 是 pi coding agent 的多会话宿主 CLI：**host 进程 + 每个活跃对话一个 worker 子进程**
 
 ## 工具链（全部最新，锁死精确版本）
 
@@ -29,35 +30,31 @@ npm run ci                             # check + build + test 全门
 npm start                              # 直接跑 host（stdio JSONL）
 ```
 
-改动代码后必须 `npm run ci` 全绿才算完。真实 LLM 的 E2E 是独立 opt-in 门：`npm run e2e`（全接口旅程 + worker 韧性：kill/retire/orphan）、`npm run e2e:multi`（bun 打包产物上的 4 线程并发：数据不串/设置隔离/杀一 worker 其他存活/进程树 RSS）、`npm run e2e:compile`（`bun build --compile` 单文件形态冒烟），都需要 app/.env 提供 GLM_BASE_URL/GLM_API_KEY/GLM_MODEL；key 只经 env 注入，严禁打印/落盘/出现在断言输出。协议命令增删改后：跑两个 e2e + 更新 `docs/api.md`。已知口径：自定义 provider 模型未声明 reasoning 时思考档被 pi 统一 clamp 为 off（models.json 加 `"reasoning": true` 可启用）。
+改动代码后必须 `npm run ci` 全绿才算完。真实 LLM 的 E2E 是独立 opt-in 门：`npm run e2e`（全接口旅程 + worker 韧性：kill/retire/orphan）、`npm run e2e:multi`（bun 打包产物上的 4 线程并发：数据不串/设置隔离/杀一 worker 其他存活/进程树 RSS）、`npm run e2e:compile`（`bun build --compile` 单文件形态冒烟），都需要 app/.env 提供 GLM_BASE_URL/GLM_API_KEY/GLM_MODEL；key 只经 env 注入，严禁打印/落盘/出现在断言输出。
 
 ## 代码纪律
 
 - TypeScript：严格模式全覆盖；`.ts` 后缀导入；只用可擦除语法（bun 直接跑 TS，无构建转译层）；无 `any`（确需类型逃生用 `as never` 并注释原因）。
-- 单一真相：协议类型只在 `src/protocol.ts`（v0.8 起 `PaiEvent` 词表与 `SessionModel`（pi-ai `Model`）自有化，不再 import 上游事件/会话类型）；事件剥离（message_update 快照）只在 `src/backend/ports/event-strip.ts`；能力位与命令映射只在 `src/backend/capabilities.ts`；权限判定顺序只在 `src/rules.ts` 的 `decide()`；沙箱配置合并/trust-gate/grants 节只在 `src/sandbox/config.ts`、优先级与授予语义在 `src/sandbox/policy.ts`+`controller.ts`、OS 适配在 `src/sandbox/runtime.ts`（v0.12 组件化，`scripts/check-import-boundary.mjs` 边界门），权限门×沙箱组合序在 `src/backend/pi-coding-agent/sandbox-binding.ts`；stdout 写入语义只在 `src/stdout-guard.ts`；模型解析只在 host（`resolveModel`，v0.8 起经 P3 端口 `backend/ports/model-auth.ts`）；auth.json 写入只在 host；会话多重性只在 `src/worker-pool.ts` 的路由表。
 - 纯函数优先：`rules.ts`、`jsonl.ts` 保持无副作用、可表驱动测试；新增判定逻辑先进这两个模块再被引用。
 - 错误 message 用英文中性语言。
 - 迭代中会 delete 的 Map，遍历用 `Array.from(...)` 快照（oxlint 的 no-useless-spread 会误报 spread 写法）。
+-
 
-## 契约要点（详见 docs/design.md「契约」节）
+## 不能做哪些事
 
-- 每个带 `id` 的命令恰好一个 `response`（prompt 在接受时刻经 preflight 发出；`ui_response` 恒 ack）。
-- `event` 帧按 threadId 打标、全局有序不交错；`message_update` 剥离累积快照。
-- 对话框 settle 恰好一次（response / 超时 / abort）；晚到忽略。
-- stdout 是唯一协议通道：接管两层（`process.stdout.write` + `console.*`），协议帧走原始句柄串行写入；满管（ENOBUFS）重试，断连（EPIPE）走优雅退出。
-- 会话文件同路径至多一个写者：host 的跨进程占用表，**spawning 即占位**（design/migration §5）。
-- worker 终止一律以 stdout close（drain 完）为准做状态迁移与 pendingIds 对账；补 failure 只补未见响应的 id（恰好一响应闭环）。
-- `thread_died` 恰好一次；retire/关闭期终止不发；fork/clone 表重键先于响应转发。
-- 输入行 16 MiB 上限，超限整行丢弃 + parse failure。
+- 不能写 TODO：必须把当前任务完成到所有测试通过、无已知异常问题，交付一个生产可用的版本才算结束
+- 不写兼容代码：不兼容老代码、不留旧路径别名或双轨字段，同一事实只需要一套接口实现，发现旧实现立即删除
+- UI 使用同一套风格的组件：基于现有 shadcn 组件开发；后面会多次使用的 UI 必须封装成通用组件，避免重复开发
+- 不能留有安全问题和内存泄漏问题：出现必须修复，不允许「先记着以后修」
+- bug 修复不做最小修补：不能只基于现在的实现考虑修复方案，要为以后的项目扩展考虑，用可持续、可扩展的方案根治当前 bug
+- 不写版本叙事：代码、注释、UI 文案里禁止出现「v1/v2 改了什么」「某版本修复了 XX」之类的内容；版本变更历史只属于 CHANGELOG/log 文档
+- 对外文档只描述当前行为：README、用户文档等不写 v1/v2 版本相关问题与新旧对比；版本差异只出现在 CHANGELOG/发布说明
+- 不允许假绿：禁止为过门禁加 skip、注释或删除断言、调低覆盖率阈值
+- 禁止 `git stash` / `git reset --hard` 等一切销毁性 git 操作
 
-## 安全模型
+## 提交与交付规范
 
-- 扩展即任意代码：线程默认 `trusted:false` 只加载内联权限门；`trusted:true` 才启用项目 `.pi` 扩展发现。
-- 权限规则热读 `~/.pi/agent/permission-rules.json`（bash 命令串 / write·edit 原始 path），坏文件降级到 `{mode:"ask"}` 永不抛错。
-- 直接 fd 写无法被接管拦截——不可信代码本就不应被加载。
-- 后端注册表（v0.8）：`backends.json` 指向外部可执行 = 用户机器级显式信任该 worker 的 containment 自声明——pai 的权限确认与执行沙箱对默认后端（pi-coding-agent）以外的 worker **不自动生效**（能力位如实声明；详见 `docs/worker-contract.md` §6）。
-
-## Git
-
-- 遵循上层仓库的多会话并行纪律：只提交本目录内自己改动的文件；不 `git add -A`；不主动 commit。
-- 提交信息引用 design.md 节号（如 `feat: xxx (design.md §契约)`）。
+- 只能提交自己改动的代码：只提交自己点名的文件路径；共享产物混有他人未提交变更时不提交，留待协调；他人在途的门禁失败如实标注归属，不越界代修
+- 并行开发使用 git worktree 物理隔离，不共享工作区
+- 没有 push 指令：只允许 commit，禁止任何 push / publish 操作
+- 方案与代码同变：实现推翻方案时，同一提交内先改文档再改代码，禁止口头漂移

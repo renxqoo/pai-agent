@@ -29,19 +29,29 @@ export interface HistorySnapshot {
 }
 
 /** Header validation mirrors loadEntriesFromFile: first entry must be a
- * session header with a string id, otherwise the file is not a pi session. */
+ * session header with a string id, otherwise the file is not a pi session.
+ * parseSessionEntries admits any JSON value per line (header included), so
+ * corrupted lines (null, numbers, wrong shapes) are skipped here rather than
+ * thrown on — the direct read serves the well-formed entries and degrades
+ * field-by-field (garbage session_info.name → null, id-less tail → previous
+ * valid leaf). */
 export function historySnapshotOf(fileEntries: FileEntry[]): HistorySnapshot | null {
   const [header] = fileEntries;
   if (header === undefined || header.type !== "session" || typeof header.id !== "string") {
     return null;
   }
-  const entries = fileEntries.filter((entry): entry is SessionEntry => entry.type !== "session");
+  const entries = fileEntries.filter(
+    (entry): entry is SessionEntry =>
+      typeof entry === "object" && entry !== null && entry.type !== "session",
+  );
   let leafId: string | null = null;
   let sessionName: string | null = null;
   for (const entry of entries) {
-    leafId = entry.id;
+    if (typeof entry.id === "string") leafId = entry.id;
+    // name:null/missing legitimately CLEARS the name (last info wins); a
+    // non-string garbage shape degrades to no-name instead of throwing.
     if (entry.type === "session_info") {
-      sessionName = entry.name?.trim() || null;
+      sessionName = typeof entry.name === "string" ? entry.name.trim() || null : null;
     }
   }
   return { sessionId: header.id, entries, leafId, sessionName };
@@ -95,9 +105,20 @@ export function readHistoryState(
   sessionName: string | null;
   sessionFile: string;
   messageCount: number;
+  /** v0.14: parked threads have no worker and therefore no queue — the field
+   * is present with the empty arrays so the live/parked shapes stay closed. */
+  queue: { steering: string[]; followUp: string[] };
 } | null {
   if (!parentChainAcyclic(snapshot.entries, snapshot.leafId)) return null;
-  const context = buildSessionContext(snapshot.entries, snapshot.leafId);
+  let context;
+  try {
+    context = buildSessionContext(snapshot.entries, snapshot.leafId);
+  } catch {
+    // Shape damage the SDK's context walk does not guard (e.g. a message
+    // entry without its body): unusable entry graph → null → the caller's
+    // fail-open wake path owns the file.
+    return null;
+  }
   const model: SessionModel | null =
     context.model !== null && context.messages.length > 0
       ? (options.resolveModel(context.model.provider, context.model.modelId) ?? null)
@@ -111,20 +132,29 @@ export function readHistoryState(
     sessionName: snapshot.sessionName,
     sessionFile: options.sessionPath,
     messageCount: context.messages.length,
+    queue: { steering: [], followUp: [] },
   };
 }
 
 /** Guard for the SDK's unguarded parent walk: a hand-crafted or corrupted
  * file with a cyclic parentId chain must degrade to fail-open (null), not
  * loop the host. Walks exactly the leaf path the context walk would take. */
+/** parentId chain walk: only string ids are indexable and only string
+ * parentIds are followed — a missing/null/non-string parentId is a root.
+ * Without the string guards, a garbage no-id entry lands under the key
+ * `undefined` and a valid entry whose parentId FIELD is missing matches it,
+ * self-looping the walk into a false "cyclic" verdict. */
 function parentChainAcyclic(entries: readonly SessionEntry[], leafId: string | null): boolean {
-  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const byId = new Map<string, SessionEntry>();
+  for (const entry of entries) {
+    if (typeof entry.id === "string") byId.set(entry.id, entry);
+  }
   const seen = new Set<string>();
   let current = leafId === null ? undefined : byId.get(leafId);
   while (current !== undefined) {
     if (seen.has(current.id)) return false;
     seen.add(current.id);
-    current = current.parentId === null ? undefined : byId.get(current.parentId);
+    current = typeof current.parentId === "string" ? byId.get(current.parentId) : undefined;
   }
   return true;
 }

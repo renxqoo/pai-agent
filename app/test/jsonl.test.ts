@@ -96,3 +96,59 @@ describe("jsonl splitter: oversized line protection", () => {
     expect(overflows.length).toBe(1);
   });
 });
+
+/**
+ * 对抗处置（adv-fuzz F5/F6）：maxLineBytes 名义是字节、实按 UTF-16 code unit
+ * 计——CJK 行（60 字 = 180 字节）能穿过 100「字节」上限，缓冲上界放大 3 倍；
+ * 溢出上报按 push 边界触发，同一条被丢的行可因分块方式不同重复上报。
+ */
+/** Feed chunks through a splitter recording emitted lines + overflow reports. */
+function record(
+  chunks: string[],
+  maxLineBytes: number,
+): { lines: string[]; overflowCalls: number } {
+  const lines: string[] = [];
+  let overflowCalls = 0;
+  const splitter = createJsonlSplitter(
+    (line) => {
+      lines.push(line);
+    },
+    () => {
+      overflowCalls += 1;
+    },
+    maxLineBytes,
+  );
+  for (const chunk of chunks) splitter.push(chunk);
+  splitter.flush();
+  return { lines, overflowCalls };
+}
+
+describe("jsonl line cap is byte-true and reports each dropped line once (adversarial)", () => {
+  test("症状回归 F6「按 code unit 计」：60 个 CJK 字符（180 字节）对 100 字节上限必须被丢", () => {
+    const { lines, overflowCalls } = record([`${"一".repeat(60)}\n`], 100);
+    expect(lines).toEqual([]);
+    expect(overflowCalls).toBe(1);
+  });
+
+  test("症状回归 F5「分块相关重复上报」：同一行无论怎么分块恰好上报一次", () => {
+    expect(record(["xxxxxxxxxxxx\n"], 5).overflowCalls).toBe(1); // 整块喂入
+    expect(record(["xxxxxx", "xxxxxx", "\n"], 5).overflowCalls).toBe(1); // 分三块
+  });
+
+  test("跨块代理对不虚增字节数：块边界劈开代理对时短行不得被误丢", () => {
+    // 一对代理对被块边界劈开时，byteLength(a)+byteLength(b) 比拼接后多 2
+    // 字节（3+3 的替换编码拼成 4 字节代理对）——增量记账必须校正，否则
+    // 35 字节的合法行会在第 39 字节上限下被整行误丢（分块不变性破坏）。
+    const line = "ab\ud800\udc00cd"; // 6 units, 8 bytes
+    const chunks = ["x\n", "ab\ud800", "\udc00cd"]; // 劈在高/低代理之间：5+5 记账 vs 实际 8
+    const { lines, overflowCalls } = record(chunks, 8);
+    expect(lines).toEqual(["x", line]);
+    expect(overflowCalls).toBe(0);
+  });
+
+  test("合法尺寸行不受影响（含多字节）", () => {
+    const { lines, overflowCalls } = record(['{"k":"值"}\n'], 100);
+    expect(lines).toEqual(['{"k":"值"}']);
+    expect(overflowCalls).toBe(0);
+  });
+});

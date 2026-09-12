@@ -10,6 +10,7 @@
  */
 
 import type { PermissionRules } from "../../rules.ts";
+import type { InflightState } from "../../inflight-state.ts";
 import type { SessionModel, SetThinkingLevelCmd } from "../../protocol.ts";
 
 /** Image attachments as declared on the wire (ImagePayload-compatible). */
@@ -59,6 +60,13 @@ export interface PaiResourceLoader {
   getSkills(): { skills: ReadonlyArray<{ name: string; description?: string; filePath: string }> };
 }
 
+/** The agent sub-face composition reads (v0.14 in-flight read): the partial
+ * assistant message of the current streamed response, if any. It is the only
+ * copy of content that has not reached the session file yet. */
+export interface PaiAgentSubFace {
+  readonly state: { readonly streamingMessage?: unknown };
+}
+
 /**
  * One conversation's session as the composition layer sees it. Payloads pai
  * passes through to responses are `unknown` — the wire is JSON; the backend
@@ -73,6 +81,7 @@ export interface PaiSession {
   readonly isStreaming: boolean;
   readonly isCompacting: boolean;
   readonly messages: ReadonlyArray<unknown>;
+  readonly agent: PaiAgentSubFace;
   readonly sessionManager: PaiSessionManager;
   readonly extensionRunner: PaiExtensionRunner;
   readonly promptTemplates: ReadonlyArray<{ name: string; description?: string }>;
@@ -85,6 +94,9 @@ export interface PaiSession {
   abortCompaction(): unknown;
   compact(customInstructions?: string): Promise<unknown>;
   clearQueue(): unknown;
+  /** v0.14: queued texts (read face of clear_queue's payload). */
+  getSteeringMessages(): ReadonlyArray<string>;
+  getFollowUpMessages(): ReadonlyArray<string>;
   setModel(model: SessionModel): Promise<unknown>;
   setThinkingLevel(level: SetThinkingLevelCmd["level"]): void;
   getAvailableThinkingLevels(): unknown;
@@ -110,6 +122,8 @@ export interface PaiThread {
   session: PaiSession;
   cwd: string;
   sessionPath: string | undefined;
+  /** v0.14: in-flight retention (turn boundary + running tool/bash tails). */
+  inflight: InflightState;
 }
 
 /** Sandbox observability snapshot (v0.7 get_sandbox_state payload face; v2

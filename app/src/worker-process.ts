@@ -51,7 +51,7 @@ export interface WorkerHandle {
   rssBytes: number | null;
   /** Who asked for the retirement (v0.13): feeds the thread_parked frame
    * reason. Null unless retireIntent is "retire". */
-  retireReason: "idle" | "manual" | null;
+  retireReason: "idle" | "manual" | "rss" | null;
   /** Routed command ids awaiting a response (id -> command), reconciled at close. */
   readonly pendingIds: Map<string, string>;
   /** Internal ids issued to this worker (broadcast acks, wake resumes). */

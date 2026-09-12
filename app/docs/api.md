@@ -20,7 +20,7 @@ spawn("pai-cli", [], {
 - 协议走 **stdin/stdout JSONL**，stderr 是日志（无协议含义；worker 的日志带 `[pai:worker:<threadId>]` 前缀转发到 host stderr）。
 - 进程生命周期：stdin EOF / SIGTERM / SIGINT → host 优雅停掉全部 worker（落盘会话）并 exit 0。
 - 心跳：stdout 每 1 秒一帧 `{"type":"heartbeat"}`；**超过 10 秒没有心跳 = 进程卡死**，杀掉重启后用 `thread/resume` 恢复各会话（`thread/list` 的 `sessionPath` 先持久化到你的注册表）。
-- 环境旋钮（v0.6 汇总；当前生效值可用 `get_host_info.limits` 回读）：`PAI_MAX_THREADS`（32）、`PAI_IDLE_RETIRE_MS`（900000）、`PAI_WORKER_STALE_MS`（30000）、`PAI_WORKER_EXIT_TIMEOUT_MS`（10000）、`PAI_MAX_SUBAGGENTS`（16，全局**正在运行**孙进程上限，超出时该任务立即失败、模型可重试）、`PAI_BASH_TIMEOUT_MS`（600000，直执行 bash 服务端墙钟；`0` 关闭）、`PAI_SANDBOX`（v0.7，`off|0|false` 强制关闭执行沙箱）、`PAI_BACKEND`（v0.8，host 级后端选择，缺省 `pi-coding-agent`；备选后端经 `<agentDir>/backends.json` 注册，见 §10）。
+- 环境旋钮（v0.6 汇总；当前生效值可用 `get_host_info.limits` 回读）：`PAI_MAX_THREADS`（32）、`PAI_IDLE_RETIRE_MS`（900000）、`PAI_RSS_RETIRE_BYTES`（0=关，worker RSS 硬顶；env 值与命令同钳制）、`PAI_WORKER_STALE_MS`（30000）、`PAI_WORKER_EXIT_TIMEOUT_MS`（10000）、`PAI_MAX_SUBAGGENTS`（16，全局**正在运行**孙进程上限，超出时该任务立即失败、模型可重试）、`PAI_BASH_TIMEOUT_MS`（600000，直执行 bash 服务端墙钟；`0` 关闭）、`PAI_SANDBOX`（v0.7，`off|0|false` 强制关闭执行沙箱）、`PAI_BACKEND`（v0.8，host 级后端选择，缺省 `pi-coding-agent`；备选后端经 `<agentDir>/backends.json` 注册，见 §10）。
 
 ## 2. 协议基础
 
@@ -28,24 +28,25 @@ spawn("pai-cli", [], {
 - 响应契约：**每个带 `id` 的命令恰好收到一个 `response` 帧，`id` 回显**。`prompt` 的 response 表示"已接受"，回复内容走事件流——**例外**：行首 `/compact` 命中拦截时响应时序同 `compact`（压缩完成才返回，见 §3 对话驱动）。
 - 行上限 16 MiB：超限整行丢弃并回 parse failure。
 - 错误统一形态：`{"type":"response","success":false,"error":"英文描述"}`，进程不会因单条命令失败而退出。
-- 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、thread/list、prompt、abort、get_state、get_commands、get_host_info、ui_response、get_permission_rules、set_permission_rules、thread/register、thread/retire、thread/set_keepalive、set_idle_retire_ms——共 15 个，任何后端恒可用）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
+- 能力门控（v0.8）：除核心必选命令（thread/start、thread/stop、thread/list、prompt、abort、get_state、get_commands、get_host_info、ui_response、get_permission_rules、set_permission_rules、thread/register、thread/retire、thread/set_keepalive、set_idle_retire_ms、set_rss_retire_bytes、get_subagents（v0.14）、get_pending_dialogs（v0.14）——共 18 个，任何后端恒可用）外，命令按后端能力位过滤；当前后端不支持时回 `success:false`，error 形如 `Unsupported capability: session.fork on backend pi-agent-core`。客户端应在启动时读 `get_host_info.backend.capabilities` 驱动 UI 可用性。
 
-## 3. 命令总览（43 个）
+## 3. 命令总览（47 个）
 
-| 组               | 命令                                                                                                                                                      |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 线程生命周期     | thread/start、thread/resume、thread/register（v0.12）、thread/stop、thread/retire（v0.13）、thread/set_keepalive（v0.13）、thread/list、thread/list_saved |
-| 对话驱动         | prompt、steer、follow_up、abort、clear_queue、compact                                                                                                     |
-| 状态与历史       | get_state、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages                                      |
-| 会话树/分叉      | fork、clone、navigate_tree                                                                                                                                |
-| 模型             | get_models、set_model、set_model_override（v0.9）、set_thinking_level、get_thinking_levels                                                                |
-| 凭据             | auth/list、auth/set_api_key、auth/remove_key                                                                                                              |
-| 直执行           | bash、abort_bash                                                                                                                                          |
-| 对话框           | ui_response                                                                                                                                               |
-| 子 agent 通信    | subagent/steer                                                                                                                                            |
-| 权限（v0.5）     | get_permission_rules、set_permission_rules                                                                                                                |
-| agent（v0.5）    | agents/list                                                                                                                                               |
-| 宿主信息（v0.6） | get_host_info、set_idle_retire_ms（v0.13）                                                                                                                |
+| 组                | 命令                                                                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 线程生命周期      | thread/start、thread/resume、thread/register（v0.12）、thread/stop、thread/retire（v0.13）、thread/set_keepalive（v0.13）、thread/list、thread/list_saved |
+| 对话驱动          | prompt、steer、follow_up、abort、clear_queue、compact                                                                                                     |
+| 状态与历史        | get_state（v0.14 增 queue）、get_messages、get_entries、get_tree、get_session_stats、set_session_name、get_commands、get_fork_messages                    |
+| 收敛读口（v0.14） | get_inflight、get_subagents、get_pending_dialogs                                                                                                          |
+| 会话树/分叉       | fork、clone、navigate_tree                                                                                                                                |
+| 模型              | get_models、set_model、set_model_override（v0.9）、set_thinking_level、get_thinking_levels                                                                |
+| 凭据              | auth/list、auth/set_api_key、auth/remove_key                                                                                                              |
+| 直执行            | bash、abort_bash                                                                                                                                          |
+| 对话框            | ui_response                                                                                                                                               |
+| 子 agent 通信     | subagent/steer                                                                                                                                            |
+| 权限（v0.5）      | get_permission_rules、set_permission_rules                                                                                                                |
+| agent（v0.5）     | agents/list                                                                                                                                               |
+| 宿主信息（v0.6）  | get_host_info、set_idle_retire_ms（v0.13）、set_rss_retire_bytes（RSS 硬顶）                                                                              |
 
 ## 4. 命令明细
 
@@ -87,7 +88,13 @@ spawn("pai-cli", [], {
 
 ### 状态与历史
 
-**`get_state`** — 单次往返拿到面板所需的全部状态：`{model, thinkingLevel, isStreaming, isCompacting, sessionId, sessionName, sessionFile, messageCount}`。**parked/dead thread 走 host 本地直读**（不唤醒 worker）：`isStreaming`/`isCompacting` 恒 false；`model`/`thinkingLevel`/`messageCount` 从会话文件条目推导（与 resume 后重放同源）；直读不可用（文件缺失/无效/后端不支持）自动回退唤醒路径。
+**`get_state`** — 单次往返拿到面板所需的全部状态：`{model, thinkingLevel, isStreaming, isCompacting, sessionId, sessionName, sessionFile, messageCount, queue}`（v0.14 增 `queue: {steering, followUp}` = 排队文本的读口，无队列后端回空数组；**parked/dead 直读同样返回该字段（恒空数组）**，两条路径形状闭合）。**parked/dead thread 走 host 本地直读**（不唤醒 worker）：`isStreaming`/`isCompacting` 恒 false；`model`/`thinkingLevel`/`messageCount` 从会话文件条目推导（与 resume 后重放同源）；直读不可用（文件缺失/无效/后端不支持）自动回退唤醒路径。
+
+**`get_inflight`**（v0.14）— 当前轮**尚未落盘**的全部事实：`{turnStartEntryId, turnStartedAt, message, toolOutputs, bash}`。`turnStartEntryId` = `agent_start` 时刻的 leaf entry id（本轮持久前缀边界的**权威**判据；不要用"末位用户消息"启发式重推）；`turnStartedAt` = 同一时刻的 epoch ms（刷新后**续算**轮计时，不从刷新时刻从 0 起算）；`message` = 在途 assistant partial（与 `message_end` 同源形状，`get_messages` 恒不含它）；`toolOutputs` = 运行中工具调用的输出尾部 `[{callId, output, truncated, startedAt}]`（每调用 64KiB **按字节**封顶、至多 8 条；`startedAt` = epoch ms，供重载后的时长显示）；`bash` = 直执行 bash 的 `{command, output, truncated, startedAt}`。并发直执行在途面按命令帧 id 隔离保留（互不覆盖、各自结束只清自己）；读口单面取**最新仍在跑**的直执行，`bash === null` ⇔ 无任何直执行在跑。无在途轮 = `{null, null, null, [], null}`（恒 success）。只读 observer 命令；parked/dead 走 host 本地空形态（不唤醒）。**典型用途：客户端刷新/重连后与 `get_entries` 一起并行拉取，幂等合并即可收敛。**
+
+**`get_subagents`**（v0.14）— 子代理快照 `{subagents: [{subagentId, agent, task, status, elapsedMs, output, usage, eventsRelayed, truncated}]}`（registry 快照原样；无子代理回 `[]`）。只读 observer 命令；parked/dead 回 `[]`。
+
+**`get_pending_dialogs`**（v0.14）— 待应答对话框 `{dialogs: [{requestId, threadId, method, payload}]}`；`payload` = 该对话框请求的完整字段体（不含 type/requestId/threadId 三帧头字段），客户端按 `{...payload}` 重建帧、复用与实时帧同一套弹窗正规化。**worker 作用域**：本 worker 承载一个会话，其子代理（grandchild）发起的弹窗同样覆盖——子代理的实时帧由父 worker 直发、不经 broker，读口从 registry 保留的原始帧重建，条目与实时 relay 同口径（`threadId` = 父会话 id，`payload` 追加 `subagentId`/`agent`；grandchild 结束后其条目随进程消亡）。broker 保留 request payload 以支持重载后重建；「恰好 settle 一次」语义不变。只读 observer 命令；parked/dead 回 `[]`。
 
 **`get_messages`** — 当前分支全量消息（`AgentMessage[]`：user/assistant/toolResult/bashExecution），**无分页、单帧可随会话无限增长**（数十 MB 级会话产生等量单行帧）。仅适合小会话/诊断；UI 水化与长会话一律用 `get_entries` 的 `limit` 分页。恒需 live thread（不走直读）。
 
@@ -135,6 +142,8 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 **`bash`** — 字段：`threadId`、`command`、`excludeFromContext?`（不喂给模型）、`timeoutMs?`（v0.6，见下）。**先过权限门**（与 agent 工具调用同一套规则+弹窗，§6），通过后执行。流式输出经事件帧 `bash_execution_update`（带命令 `id`）实时到达；最终 `BashResult` 在 response（output/exitCode/cancelled/truncated/fullOutputPath?）。**与 prompt 不同，bash 是长操作：response 在命令执行完成时才返回**（构建/安装类命令可达分钟级），客户端应设长超时或无超时，取消用 `abort_bash`。输出会记入会话、在下一次 prompt 时进入模型上下文。
 `timeoutMs`（服务端墙钟，v0.6）：正整数 ≤ 86_400_000；`0` = 显式关闭本命令超时；缺省取环境旋钮 `PAI_BASH_TIMEOUT_MS`（默认 600_000 = 10 分钟，同样支持 `0` 关闭）。到点服务端触发中止：response 为 `success:true` + `BashResult.cancelled:true`（与 abort_bash 同形，不是 failure）；非法值（负数/非整数/超上限）→ failure。注意：到点触发的是 pi 的会话级 `abortBash`，它会中止**该会话全部运行中的 bash**——包括并发发出的其他直执行命令（哪怕那条带 `timeoutMs:0`）；并发直执行需要互相隔离时请用独立线程。扩展经 `user_bash` 替换执行的路径不受服务端计时（扩展自身责任，与 pi RPC 模式一致）。
+**并发直执行**（同线程同时跑多条）：各命令在途面按命令帧 `id` 隔离保留（`bash_execution_update` 事件携带同一 `id`；`id` 为空串视同缺省，与无 `id` 命令共用 `""` 哨兵槽）。准入在命令到达时同步判定：无 `id` 的命令在已有任一无 `id` 直执行在跑（含其权限弹窗挂起期）时 → failure `concurrent direct bash requires a command id`；命令携带的 `id` 与一条在跑命令相同 → failure `bash command id is already in use`；同线程第 9 条并发直执行 → failure `too many concurrent direct bash executions (limit reached)`（槽位上界 8，运行中不逐出）。fork/clone 换绑会话时：挂起在旧会话名下的弹窗立即按未应答结算，未开始的命令不再执行。
+**弹窗期 `abort_bash`**：命令尚未进入执行（停在权限弹窗）时到达的 `abort_bash` 立即取消该会话全部挂起准入——弹窗按未应答结算、命令永不执行、response 为 failure `aborted before execution started`（恰一帧）；随后照常发出会话级 `abortBash` 中止已进入执行的命令。
 **`abort_bash`** — 中止运行中的直执行命令。
 
 ### 对话框应答
@@ -187,17 +196,17 @@ fork/clone 失败语义：校验类失败（如 entry 不存在、会话未落�
 
 ## 5. 输出帧（stdout → 客户端）
 
-| 帧                        | 说明                                                                                                                                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `response`                | 命令应答（§2 契约）                                                                                                                                                                                                            |
-| `event`                   | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序                                                                                                                         |
-| `ui_request`              | 确认/输入请求（§6）                                                                                                                                                                                                            |
-| `heartbeat`               | 1Hz 心跳（host 发出；有任何子 agent 在途时带 `subagents` 计数 = queued+running，前台委派也计入；v0.13 起恒带 `rssBytes`〔宿主进程内存〕与 `cpuPercent`〔`process.cpuUsage` 1s 差分、单核归一、可>100〕）                       |
-| `hub_error`               | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段                                                                                                                                    |
-| `thread_died`             | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，写命令自动重开（读命令 `get_entries`/`get_state` 走直读不自愈，v0.12）                                                                              |
-| `thread_parked` (v0.13)   | `{"threadId", "reason": "idle"\|"manual"}`：worker 被收编（闲置 sweep / `thread/retire`），表项转 `parked`、会话文件保留。以 close 结算为准恰好一次；`thread/stop` 关闭不发。与 `thread_died` 互补：died=异常，parked=正常收编 |
-| `subagent_event` (v0.5)   | `{"threadId","subagentId","agent","task","event"}`：子 agent（grandchild 进程）的会话事件原样转发，按 `subagentId` 分组渲染                                                                                                    |
-| `subagent_message` (v0.5) | `{"threadId","subagentId","agent","text","to?"}`：子 agent 的 `report`/`send` 工具产出（阶段 8/9）。worker 用自己注册表重盖身份（孙自报 id 不可信）；`to` 仅兄弟路由时存在（父模型中介转发）                                   |
+| 帧                        | 说明                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `response`                | 命令应答（§2 契约）                                                                                                                                                                                                                                                                                                                     |
+| `event`                   | `{"type":"event","threadId":...,"event":{...}}`——全部 AgentSessionEvent 打 threadId 标签，同线程内有序                                                                                                                                                                                                                                  |
+| `ui_request`              | 确认/输入请求（§6）                                                                                                                                                                                                                                                                                                                     |
+| `heartbeat`               | 1Hz 心跳（host 发出；有任何子 agent 在途时带 `subagents` 计数 = queued+running，前台委派也计入；v0.13 起恒带 `rssBytes`〔宿主进程内存〕与 `cpuPercent`〔`process.cpuUsage` 1s 差分、单核归一、可>100〕）                                                                                                                                |
+| `hub_error`               | 未捕获异常报告（进程不退出；心跳消失才需要杀 host 进程）；worker 内的异常带 `threadId` 字段                                                                                                                                                                                                                                             |
+| `thread_died`             | `{"threadId", "reason"}`：该对话的 worker 异常死亡（v0.4）。线程转 `dead`，写命令自动重开（读命令 `get_entries`/`get_state` 走直读不自愈，v0.12）                                                                                                                                                                                       |
+| `thread_parked` (v0.13)   | `{"threadId", "reason": "idle"\|"manual"\|"rss"}`：worker 被收编（闲置 sweep / `thread/retire` / RSS 硬顶），表项转 `parked`、会话文件保留。以 close 结算为准恰好一次；`thread/stop` 关闭不发。与 `thread_died` 互补：died=异常，parked=正常收编；RSS 硬顶对未落盘会话走 kill（`thread_died`）而非收编——无文件可保的表项不得进 `parked` |
+| `subagent_event` (v0.5)   | `{"threadId","subagentId","agent","task","event"}`：子 agent（grandchild 进程）的会话事件原样转发，按 `subagentId` 分组渲染                                                                                                                                                                                                             |
+| `subagent_message` (v0.5) | `{"threadId","subagentId","agent","text","to?"}`：子 agent 的 `report`/`send` 工具产出（阶段 8/9）。worker 用自己注册表重盖身份（孙自报 id 不可信）；`to` 仅兄弟路由时存在（父模型中介转发）                                                                                                                                            |
 
 **渲染聊天界面需要的核心事件**（`event.type`；v0.8 起事件词表归 pai 所有，已知成员与 v0.5-v0.7 逐字节等价；pai 尚未认领的上游新事件会**原样透传**——客户端对未知 `event.type` 应容忍忽略）：
 

@@ -7,7 +7,12 @@ import type {
   AgentSessionRuntime,
   ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { SessionHost, type Thread } from "../src/backend/pi-coding-agent/session-adapter.ts";
+import {
+  SessionHost,
+  bindThread,
+  type Thread,
+} from "../src/backend/pi-coding-agent/session-adapter.ts";
+import { createInflightState } from "../src/inflight-state.ts";
 import { SessionDestroyedError } from "../src/session-destroyed-error.ts";
 import { clearSidecarRules, writeSidecarRules } from "../src/sidecar-rules.ts";
 import type { PermissionRules } from "../src/rules.ts";
@@ -204,3 +209,91 @@ describe("grandchild gate ruleset is re-read per call (B-P2-5)", () => {
     expect(host.getInjectedRules()).toBeUndefined();
   });
 });
+
+/**
+ * 对抗处置（adv-lifecycle）：rebind 换绑后，挂在旧 sessionId 下的 broker 弹窗
+ * 既读面不可见（get_pending_dialogs 按当前 id 过滤）也无 per-thread settle
+ * 路径可达——僵尸到自身 300s 超时，期间心跳 busy 阻止 idle retire。换绑时
+ * 必须对 previousId 结算（与 stop 的 onThreadDisposed 同一语义）。
+ */
+describe("rebind settles dialogs under the previous session id", () => {
+  test("换绑即结算 previousId；新会话获得全新 inflight 状态", async () => {
+    const settled: string[] = [];
+    let rebindFn: ((replacement: unknown) => Promise<void>) | undefined;
+    const gen1Inflight = createInflightState();
+    const thread: Thread = {
+      runtime: {
+        setRebindSession: (cb: (r: unknown) => Promise<void>) => {
+          rebindFn = cb;
+        },
+      } as unknown as AgentSessionRuntime,
+      session: {
+        sessionId: "s1",
+        sessionFile: undefined,
+        subscribe: () => () => {},
+        bindExtensions: () => Promise.resolve(),
+      } as unknown as AgentSession,
+      cwd: "/tmp",
+      sessionPath: null,
+      unsubscribe: () => {},
+      inflight: gen1Inflight,
+    };
+    await bindThread({
+      thread,
+      emit: () => {},
+      createUi: () => undefined as never,
+      threadIdRef: { id: "" },
+      writeStderr: () => {},
+      settlePrevious: (threadId) => settled.push(threadId),
+    });
+    expect(rebindFn).toBeDefined();
+    const replacement = {
+      sessionId: "forked-id",
+      sessionFile: undefined,
+      subscribe: () => () => {},
+      bindExtensions: () => Promise.resolve(),
+    };
+    await rebindFn?.(replacement);
+    expect(settled).toEqual(["s1"]); // 换绑即结算旧 id
+    expect(thread.session.sessionId).toBe("forked-id");
+    expect(thread.inflight).not.toBe(gen1Inflight); // 全新在途状态
+    expect(threadIdOf(thread)).toBe("forked-id");
+  });
+
+  test("同 id 换绑（clone 回写同 id）不触发结算", async () => {
+    const settled: string[] = [];
+    let rebindFn: ((replacement: unknown) => Promise<void>) | undefined;
+    const thread: Thread = {
+      runtime: {
+        setRebindSession: (cb: (r: unknown) => Promise<void>) => {
+          rebindFn = cb;
+        },
+      } as unknown as AgentSessionRuntime,
+      session: {
+        sessionId: "s1",
+        sessionFile: undefined,
+        subscribe: () => () => {},
+        bindExtensions: () => Promise.resolve(),
+      } as unknown as AgentSession,
+      cwd: "/tmp",
+      sessionPath: null,
+      unsubscribe: () => {},
+      inflight: createInflightState(),
+    };
+    const threadIdRef = { id: "s1" };
+    await bindThread({
+      thread,
+      emit: () => {},
+      createUi: () => undefined as never,
+      threadIdRef,
+      writeStderr: () => {},
+      settlePrevious: (threadId) => settled.push(threadId),
+    });
+    await rebindFn?.({ ...thread.session });
+    expect(settled).toEqual([]); // id 未变：无旧弹窗需要结算
+  });
+});
+
+function threadIdOf(thread: Thread): string {
+  return thread.session.sessionId;
+}

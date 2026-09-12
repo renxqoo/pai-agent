@@ -13,7 +13,12 @@ import type {
   GrandchildResult,
   GrandchildTaskSpec,
 } from "../../subagent-contract.ts";
-import type { LaunchHandle, SnapshotEntry, SubagentStatus } from "../../subagent-registry.ts";
+import type {
+  LaunchHandle,
+  PendingSubagentDialog,
+  SnapshotEntry,
+  SubagentStatus,
+} from "../../subagent-registry.ts";
 
 /** The spawn-shaped grandchild runner (backend-owned; tests inject fakes). */
 export type StartGrandchildTask = (deps: {
@@ -38,4 +43,6 @@ export interface SubagentRegistryFace {
   steer(subagentId: string, message: string): Promise<boolean | string>;
   suppressNotifications(ids: string[]): void;
   releaseNotifications(ids: string[]): void;
+  /** v0.14: unsettled grandchild ui_request frames (get_pending_dialogs). */
+  pendingDialogs(): PendingSubagentDialog[];
 }

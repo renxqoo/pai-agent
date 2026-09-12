@@ -16,7 +16,7 @@ import { responseFailure, responseSuccess } from "./frames.ts";
 import { createInflightRegistry } from "./inflight-registry.ts";
 import { createJsonlSplitter } from "./jsonl.ts";
 import { readNonNegativeIntEnv } from "./int-env.ts";
-import type { HubFrame } from "./protocol.ts";
+import type { HubFrame, SubagentSnapshotEntry } from "./protocol.ts";
 import type {
   WorkerCommand,
   WorkerGrantFrame,
@@ -139,6 +139,8 @@ function buildContext(deps: {
     checkPermission: deps.backend.checkPermission,
     routeSubagentUi: (requestId, payload) => deps.subagents.route(requestId, payload),
     killSubagents: () => deps.subagents.killAll(),
+    subagentSnapshot: () => deps.subagents.snapshot() as readonly SubagentSnapshotEntry[],
+    subagentPendingDialogs: () => deps.subagents.pendingDialogs(),
     steerSubagent: (subagentId, message) => deps.subagents.steer(subagentId, message),
     success: (id, command, data) => {
       deps.emit(responseSuccess(id, command, data));

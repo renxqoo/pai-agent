@@ -101,3 +101,13 @@ hub: ModelRuntime.login(provider, type, 桥接 AuthInteraction)
 - **档位选择器**：`thread.start`/`thread/resume` 增可选 `sandboxPosture:"strict"|"balanced"|"open"`（缺省按 trusted 推断：trusted→balanced、untrusted→strict）。一个旋钮同时管权限门与沙箱（沙箱内静默语义见 api.md §沙箱）；host 持久化进线程表，唤醒保留。
 - **弹框**：沙箱问询统一四选（`Allow once` / `Allow for this session` / `Always allow` / `Deny`），复用既有 select 帧渲染（options 数据驱动，标题携带规则原文——Always 的标题即「将写入的规则」）。标题样式：`Sandbox: allow writes under <dir>? (command <cmd>)`、`Sandbox: allow network access to <host>? (<host>)`、`Sandbox denied this command — re-run without sandbox? (<cmd>)`。
 - **`get_sandbox_state` 破坏性变更**：移除 `sessionExemptions`，新增 `posture`、`grants`（全局持久授予）、`credentials`、`sessionGrants:{writeDirs,writePatterns,domains,bashPrefixes}`（会话授予）。设置面板可据 `sessionGrants` 渲染「本会话已授予」清单。
+
+## 收敛链（v0.14）：刷新 / 重连后仅靠只读快照收敛
+
+宿主侧不重放事件（订阅前的增量随旧渲染层消亡），因此**任何由事件流派生的视图面都必须有只读读口**（见 `design.md` 契约 v0.14 增补的事件↔读口登记表）。客户端在首挂载、渲染层重载、宿主重启回落、失败重试时按同一链条收敛：
+
+1. **内存态读先、落盘读最后**：先并发拉 `get_inflight` + `get_subagents` + `get_pending_dialogs` + `get_state`（均含 queue），**最后**才 `get_entries`。顺序不是风格：SDK 结束一条消息的次序是「清 `streamingMessage`（agent-core，先于发事件）→ `_emit(message_end)` → 才 `appendMessage` 落盘」，`message_end` 事件与转写落盘之间存在毫秒级窗口；inflight 先读、entries 最后读让该窗口由「后读的 entries + `messageFinal` 事件 + 复拉兜底」三面闭合，任何单读时序都不单独承担它。
+2. **幂等合并**：同一消息在转写/在途快照/增量流三处共用块身份（消息 `timestamp`，即事件流的 `messageId`）——正文按 append-only 拼接（前缀取长者 / 后缀取快照 / 否则拼接），工具调用按 `callId` 合并且**读口说在跑就保持 running + 快照输出**；`get_state.queue` 整体替换；弹窗与子代理快照只增不删（读取与应用之间存在在途窗口，删除只走结算路径）。任一时点重复应用结果不变。
+3. **轮边界用 `turnStartEntryId`**（`agent_start` 时刻的 leaf 条目 id）：它是「哪些转写条目属于当前轮」的唯一权威判据——**不要用「末位用户消息之后」之类启发式**，轮内注入的 user 消息（task-notification/task-message）与 steer 中途插话都会把启发式切错，切错即同一轮渲染成两个折叠体。
+4. **能力探测降级**：宿主不支持某读口 → 该命令回 `success:false`（`Unknown command` / `Unsupported capability`），客户端**探测一次并缓存不可用**、跳过该读口；**不要按版本号比较**（能力位是后端能力面，不是 hub 版本面）。宿主进程代际变化（`host` 帧 restarting/failed）后清空缓存重探。探测只对 live 会话发起；非 live（parked/dead）读由宿主本地回空形态（不唤醒 worker），parked 线程的历史走 `thread/register` + `get_entries` 直读。
+5. **直执行 bash 无终态帧**：`bash_execution_update` 只有增量，`session/bash` 的响应发给发起方——渲染层重载后没有人接。客户端在输出静默后读一次 `get_inflight` 确认收尾（`bash === null` 即结束），再拉一次 `get_entries` 把结果条目补上。

@@ -15,6 +15,7 @@
 import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
 import { AgentCoreSession, unsupported } from "./agent-core-session.ts";
 import { stripCumulativeSnapshot } from "../ports/event-strip.ts";
+import { createInflightState } from "../../inflight-state.ts";
 import type { PaiEvent, SessionModel } from "../../protocol.ts";
 import type { PaiSessionHost, PaiSandboxState, PaiThread, SpawnShaping } from "../ports/session.ts";
 
@@ -94,7 +95,14 @@ export class AgentCoreSessionHost implements PaiSessionHost {
     }
     const agent = this.createAgent(options.model, options.cwd);
     const session = new AgentCoreSession(agent);
-    const thread: PaiThread = { session, cwd: options.cwd, sessionPath: undefined };
+    const thread: PaiThread = {
+      session,
+      cwd: options.cwd,
+      sessionPath: undefined,
+      // Unfed: the probe's `session.inflight` bit is off, so get_inflight is
+      // capability-rejected before this face can be read.
+      inflight: createInflightState(),
+    };
     this.unsubscribe = agent.subscribe((event: AgentEvent) => {
       for (const lifted of liftAgentEvent(event)) {
         this.emit({ type: "event", threadId: session.sessionId, event: lifted });

@@ -32,6 +32,8 @@ import { SandboxController } from "../../sandbox/controller.ts";
 import { buildSnapshot } from "../../sandbox/config.ts";
 import { type SandboxGrantPersister, noopPersister } from "../../sandbox/ports.ts";
 import { stripCumulativeSnapshot } from "../ports/event-strip.ts";
+import { createInflightState, type InflightState } from "../../inflight-state.ts";
+import { feedInflight } from "./inflight-feed.ts";
 import type { PaiEvent } from "../../protocol.ts";
 import type { SpawnShaping } from "../ports/session.ts";
 import type { PermissionRules } from "../../rules.ts";
@@ -46,6 +48,9 @@ export interface Thread {
   cwd: string;
   sessionPath: string | undefined;
   unsubscribe: () => void;
+  /** v0.14 in-flight retention (get_inflight). Fed by the single event
+   * subscription; reset whenever the session is replaced. */
+  inflight: InflightState;
 }
 
 export type UiContextFactory = (threadId: string) => ExtensionUIContext;
@@ -228,13 +233,13 @@ export interface ThreadIdRef {
   id: string;
 }
 
-/** Subscribe to session events and register the fork/clone rebind closure:
- * replacement swaps the subscription in place, the thread's id becomes the
- * new session's id (the host updates its routing from the response), and the
- * permission-rule sidecar follows the conversation to the new id. */
 /** The fork/clone rebind closure: swap the session in place, re-point the
  * subscription and the id ref, and copy the permission sidecar across
- * (best-effort; failure degrades to the global rules with a note). */
+ * (best-effort; failure degrades to the global rules with a note). Dialogs
+ * pending under the previous id are settled (denied) — after a rebind they
+ * are invisible to the read face and unreachable by any per-thread settle,
+ * so without this they would zombie until their own timeout while keeping
+ * the heartbeat busy. */
 async function rebindThread(deps: {
   thread: Thread;
   replacement: AgentSession;
@@ -242,13 +247,18 @@ async function rebindThread(deps: {
   createUi: UiContextFactory;
   threadIdRef: ThreadIdRef;
   writeStderr: (text: string) => void;
+  settlePrevious: (threadId: string) => void;
 }): Promise<void> {
-  const { thread, replacement, emit, createUi, threadIdRef, writeStderr } = deps;
+  const { thread, replacement, emit, createUi, threadIdRef, writeStderr, settlePrevious } = deps;
   const previousId = thread.session.sessionId;
   thread.unsubscribe();
   thread.session = replacement;
   thread.sessionPath = replacement.sessionFile;
+  // Replacement = a different session: the previous session's in-flight facts
+  // are meaningless for the new one.
+  thread.inflight = createInflightState();
   thread.unsubscribe = replacement.subscribe((event: AgentSessionEvent) => {
+    feedInflight(thread.inflight, replacement, event);
     // Adapter lift: strip the cumulative snapshot, then hand the pai-owned
     // wire vocabulary the (structurally compatible) pi event.
     emit({
@@ -258,6 +268,7 @@ async function rebindThread(deps: {
     });
   });
   threadIdRef.id = replacement.sessionId;
+  if (replacement.sessionId !== previousId) settlePrevious(previousId);
   if (
     replacement.sessionId !== previousId &&
     !copySidecarRules(previousId, replacement.sessionId)
@@ -272,19 +283,25 @@ async function rebindThread(deps: {
   });
 }
 
-function bindThread(deps: {
+/** Subscribe to session events and register the fork/clone rebind closure.
+ * Exported as the assembly primitive so the rebind contract (fresh inflight
+ * state, previous-id dialog settlement) is testable without a full SDK
+ * runtime. */
+export function bindThread(deps: {
   thread: Thread;
   emit: (frame: HubFrame) => void;
   createUi: UiContextFactory;
   threadIdRef: ThreadIdRef;
   writeStderr: (text: string) => void;
+  settlePrevious: (threadId: string) => void;
 }): Promise<void> {
-  const { thread, emit, createUi, threadIdRef, writeStderr } = deps;
+  const { thread, emit, createUi, threadIdRef, writeStderr, settlePrevious } = deps;
   const { runtime, session } = thread;
   runtime.setRebindSession((replacement) =>
-    rebindThread({ thread, replacement, emit, createUi, threadIdRef, writeStderr }),
+    rebindThread({ thread, replacement, emit, createUi, threadIdRef, writeStderr, settlePrevious }),
   );
   thread.unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+    feedInflight(thread.inflight, session, event);
     emit({
       type: "event",
       threadId: session.sessionId,
@@ -604,6 +621,7 @@ export class SessionHost {
       cwd: options.cwd,
       sessionPath: session.sessionFile,
       unsubscribe: () => {},
+      inflight: createInflightState(),
     };
     await bindThread({
       thread,
@@ -611,6 +629,7 @@ export class SessionHost {
       createUi: this.options.createUi,
       threadIdRef: this.threadIdRef,
       writeStderr: this.options.writeStderr ?? (() => {}),
+      settlePrevious: (threadId) => this.options.onThreadDisposed?.(threadId),
     });
     this.thread = thread;
     return thread;

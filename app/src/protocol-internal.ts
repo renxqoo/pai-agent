@@ -17,7 +17,10 @@ import type {
   GetCommandsCmd,
   GetEntriesCmd,
   GetForkMessagesCmd,
+  GetInflightCmd,
   GetMessagesCmd,
+  GetPendingDialogsCmd,
+  GetSubagentsCmd,
   GetSandboxStateCmd,
   GetSessionStatsCmd,
   GetStateCmd,
@@ -151,6 +154,9 @@ type ThreadScopedCmd =
   | SetThinkingLevelCmd
   | GetThinkingLevelsCmd
   | GetEntriesCmd
+  | GetInflightCmd
+  | GetSubagentsCmd
+  | GetPendingDialogsCmd
   | GetTreeCmd
   | SetSessionNameCmd
   | GetSessionStatsCmd
@@ -184,6 +190,10 @@ export const OBSERVER_COMMANDS: ReadonlySet<string> = new Set([
   "get_session_stats",
   "get_commands",
   "get_fork_messages",
+  // v0.14 convergence reads (reload-time pulls; never keep a worker alive).
+  "get_inflight",
+  "get_subagents",
+  "get_pending_dialogs",
 ]);
 
 /** Commands the host routes verbatim to the owning worker. Anything else on
@@ -211,5 +221,8 @@ export const THREAD_SCOPED_COMMANDS: ReadonlySet<string> = new Set([
   "bash",
   "abort_bash",
   "subagent/steer",
+  "get_inflight",
+  "get_subagents",
+  "get_pending_dialogs",
   "get_sandbox_state",
 ]);

@@ -18,6 +18,52 @@ import { historySnapshotOf, readHistoryEntries, readHistoryState } from "./read-
 
 const READ_HISTORY_COMMANDS: ReadonlySet<string> = new Set(["get_entries", "get_state"]);
 
+/**
+ * v0.14 convergence reads: on a non-live thread there is nothing in flight by
+ * definition (parked/dead have no worker), so the empty form is the truth —
+ * answered host-locally without reading the session file and without waking
+ * anything. Failure to reach a thread entry falls through (fail-open), same
+ * as the file-backed reads below.
+ */
+/** Shared constants must be structurally immutable: a downstream mutation
+ * would pollute every later response (structural guard, not a copy tax). */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+const EMPTY_INFLIGHT_READS: ReadonlyMap<string, unknown> = new Map<string, unknown>([
+  [
+    "get_inflight",
+    deepFreeze({
+      turnStartEntryId: null,
+      turnStartedAt: null,
+      message: null,
+      toolOutputs: [],
+      bash: null,
+    }),
+  ],
+  ["get_subagents", deepFreeze({ subagents: [] })],
+  ["get_pending_dialogs", deepFreeze({ dialogs: [] })],
+]);
+
+/** Non-live convergence read: empty form, host-local, no wake. Returns true
+ * when answered (unknown thread / live thread fall through to the wake path). */
+function answerEmptyInflightRead(deps: HostDeps, cmd: HubCommand, id: string | undefined): boolean {
+  const name = String(cmd.type ?? "unknown");
+  const empty = EMPTY_INFLIGHT_READS.get(name);
+  if (empty === undefined) return false;
+  const { threadId } = cmd as { threadId?: unknown };
+  if (typeof threadId !== "string") return false;
+  const facts = deps.pool.entryFacts(threadId);
+  if (facts === undefined || facts.state === "live") return false;
+  deps.emit(responseSuccess(id, name, empty));
+  return true;
+}
+
 /** Returns true when the command has been answered; false = not handled. */
 export async function tryHandleReadHistory(
   deps: HostDeps,
@@ -25,6 +71,7 @@ export async function tryHandleReadHistory(
   id: string | undefined,
 ): Promise<boolean> {
   const name = String(cmd.type ?? "unknown");
+  if (answerEmptyInflightRead(deps, cmd, id)) return true;
   if (!READ_HISTORY_COMMANDS.has(name)) return false;
   const { threadId } = cmd as { threadId?: unknown };
   if (typeof threadId !== "string") return false;

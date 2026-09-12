@@ -38,6 +38,8 @@ interface FakeLaunch {
   signal: AbortSignal | undefined;
   settle: (result: GrandchildResult) => void;
   driver: GrandchildDriver;
+  /** v0.14: frames the fake driver reports as unsettled (tests mutate). */
+  uiFrames: Array<Record<string, unknown>>;
 }
 
 function okResult(taskSpec: GrandchildTaskSpec): GrandchildResult {
@@ -71,16 +73,19 @@ function makeFakeLauncher(): { start: StartTaskFn; launches: FakeLaunch[] } {
     const result = new Promise<GrandchildResult>((resolve) => {
       resolveResult = resolve;
     });
+    const uiFrames: Array<Record<string, unknown>> = [];
     const launch: FakeLaunch = {
       spec: deps.spec,
       signal: deps.signal,
       settle: resolveResult,
+      uiFrames,
       driver: {
         result,
         resolveUi: () => false,
         steer: () => Promise.resolve(false),
         // eslint-disable-next-line unicorn/no-useless-undefined -- interface requires undefined before settle
         progress: () => undefined,
+        pendingUiFrames: () => [...uiFrames],
       },
     };
     launches.push(launch);
@@ -708,5 +713,42 @@ describe("stage 6 adversarial review fixes", () => {
     const snapshot = registry.snapshot("sub_env00");
     if (snapshot === undefined || Array.isArray(snapshot)) throw new Error("no snapshot");
     expect(Buffer.byteLength(snapshot.task, "utf8")).toBeLessThanOrEqual(ENVELOPE_TASK_CAP + 8);
+  });
+});
+
+describe("pending dialogs read face (v0.14)", () => {
+  test("running entries expose unsettled frames with spec identity; settled entries drop out", async () => {
+    const fake = makeFakeLauncher();
+    const registry = new SubagentRegistry({ startTask: fake.start });
+    registry.launch({ spec: makeSpec("sub_pd1"), hooks: HOOKS });
+    const [launch] = fake.launches;
+    if (launch === undefined) throw new Error("no launch");
+    const frame = {
+      type: "ui_request",
+      requestId: "req-a",
+      threadId: "g-sess-9",
+      method: "confirm",
+      title: "Allow command execution?",
+    };
+    launch.uiFrames.push(frame);
+    expect(registry.pendingDialogs()).toEqual([
+      { requestId: "req-a", subagentId: "sub_pd1", agent: launch.spec.agent, frame },
+    ]);
+    launch.settle(okResult(launch.spec));
+    await tick();
+    expect(registry.pendingDialogs()).toEqual([]);
+  });
+
+  test("frames without a usable requestId are skipped (garbage degrade)", () => {
+    const fake = makeFakeLauncher();
+    const registry = new SubagentRegistry({ startTask: fake.start });
+    registry.launch({ spec: makeSpec("sub_pd2"), hooks: HOOKS });
+    const [launch] = fake.launches;
+    if (launch === undefined) throw new Error("no launch");
+    launch.uiFrames.push(
+      { type: "ui_request", method: "confirm" },
+      { type: "ui_request", requestId: "", method: "confirm" },
+    );
+    expect(registry.pendingDialogs()).toEqual([]);
   });
 });

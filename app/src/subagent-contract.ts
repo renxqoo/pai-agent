@@ -116,6 +116,10 @@ export interface GrandchildDriver {
   /** Live progress for task_out snapshots: last assistant text tail,
    * running usage totals, and relay counters; undefined once settled. */
   progress: () => LiveProgress | undefined;
+  /** v0.14: unsettled ui_request frames, arrival order, TTL-filtered (the
+   * read face of resolveUi's routing table — get_pending_dialogs rebuilds
+   * reloaded prompts from them). */
+  pendingUiFrames: () => Array<Record<string, unknown>>;
 }
 
 // --- runner-internal shapes (kept beside the contract; the runner in
@@ -139,7 +143,13 @@ export interface AssistantMessage {
 export interface DriverState {
   threadId: string;
   waiters: Map<string, (frame: Record<string, unknown>) => void>;
-  pendingUiRequests: Set<string>;
+  /** Unsettled grandchild ui_request frames in arrival order (v0.14:
+   * get_pending_dialogs rebuild source; resolveUi drops the entry). The
+   * value keeps the arrival time so the read face can hide entries older
+   * than the grandchild-side dialog timeout (a timed-out grandchild dialog
+   * never notifies the parent — without the TTL the read face would
+   * resurrect dead dialogs on every reload). */
+  pendingUiFrames: Map<string, { frame: Record<string, unknown>; at: number }>;
   /** Aggregated over every assistant turn; text/stopReason from the last. */
   usage: GrandchildUsage;
   lastText: string;

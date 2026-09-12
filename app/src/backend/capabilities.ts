@@ -37,6 +37,7 @@ export const CAPABILITY_BITS = [
   "extensions.project",
   "resources.agents",
   "resources.skills",
+  "session.inflight",
 ] as const;
 
 export type CapabilityBit = (typeof CAPABILITY_BITS)[number];
@@ -52,6 +53,7 @@ export const CORE_COMMANDS: ReadonlySet<string> = new Set([
   "thread/retire",
   "thread/set_keepalive",
   "set_idle_retire_ms",
+  "set_rss_retire_bytes",
   "prompt",
   "abort",
   "get_state",
@@ -60,6 +62,11 @@ export const CORE_COMMANDS: ReadonlySet<string> = new Set([
   "ui_response",
   "get_permission_rules",
   "set_permission_rules",
+  // v0.14 convergence reads of hub-owned state (registry / dialog broker):
+  // backend-independent, so core. get_inflight is the one backend-dependent
+  // read and lives in COMMAND_CAPABILITIES.
+  "get_subagents",
+  "get_pending_dialogs",
 ]);
 
 /** Command → required capability bits (design.md v0.8 table mirror). */
@@ -92,6 +99,10 @@ export const COMMAND_CAPABILITIES: Readonly<Record<string, readonly CapabilityBi
   "subagent/steer": ["subagents"],
   "agents/list": ["resources.agents"],
   get_sandbox_state: ["sandbox.bash"],
+  // v0.14: only the in-flight read is backend-dependent (it reads the
+  // session's streaming message + queue). get_subagents / get_pending_dialogs
+  // read hub-owned state (registry / dialog broker), so they are core.
+  get_inflight: ["session.inflight"],
 };
 
 /**

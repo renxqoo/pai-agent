@@ -31,6 +31,7 @@ import { armTeardownDeadline, sweepWorkers, type SweepOps } from "./thread-retir
 import { retireThreadSettlement } from "./thread-retire-cmd.ts";
 import { type ThreadEntry, ThreadTable } from "./thread-table.ts";
 import { readIntEnv } from "./int-env.ts";
+import { clampIdleRetireMs, clampRssRetireBytes, retireLimitsFromEnv } from "./retire-limits.ts";
 import { resumeAndWait } from "./resume-wait.ts";
 import { persistSandboxGrant } from "./sandbox-grant-writer.ts";
 import { copySidecarRules } from "./sidecar-rules.ts";
@@ -43,7 +44,6 @@ import {
 } from "./worker-frames.ts";
 
 export const MAX_THREADS_DEFAULT = 32;
-export const IDLE_RETIRE_MS_DEFAULT = 900_000;
 export const WORKER_STALE_MS_DEFAULT = 30_000;
 export const WORKER_EXIT_TIMEOUT_MS_DEFAULT = 10_000;
 const STALE_SIGKILL_GRACE_MS = 2_000;
@@ -82,6 +82,7 @@ export class WorkerPool {
   private workerSeq = 0;
   private readonly maxThreads: number;
   private idleRetireMs: number;
+  private rssRetireBytes: number;
   private readonly workerStaleMs: number;
   private readonly workerExitTimeoutMs: number;
   private readonly maxSubagents: number;
@@ -102,8 +103,9 @@ export class WorkerPool {
     this.emitRaw = options.emitRaw;
     this.writeStderr = options.writeStderr;
     this.maxThreads = options.maxThreads ?? readIntEnv("PAI_MAX_THREADS", MAX_THREADS_DEFAULT);
-    this.idleRetireMs =
-      options.idleRetireMs ?? readIntEnv("PAI_IDLE_RETIRE_MS", IDLE_RETIRE_MS_DEFAULT);
+    const envLimits = retireLimitsFromEnv();
+    this.idleRetireMs = options.idleRetireMs ?? envLimits.idleRetireMs;
+    this.rssRetireBytes = envLimits.rssRetireBytes;
     this.workerStaleMs =
       options.workerStaleMs ?? readIntEnv("PAI_WORKER_STALE_MS", WORKER_STALE_MS_DEFAULT);
     this.workerExitTimeoutMs =
@@ -163,6 +165,7 @@ export class WorkerPool {
   limits(): {
     maxThreads: number;
     idleRetireMs: number;
+    rssRetireBytes: number;
     workerStaleMs: number;
     workerExitTimeoutMs: number;
     maxSubagents: number;
@@ -170,6 +173,7 @@ export class WorkerPool {
     return {
       maxThreads: this.maxThreads,
       idleRetireMs: this.idleRetireMs,
+      rssRetireBytes: this.rssRetireBytes,
       workerStaleMs: this.workerStaleMs,
       workerExitTimeoutMs: this.workerExitTimeoutMs,
       maxSubagents: this.maxSubagents,
@@ -286,14 +290,12 @@ export class WorkerPool {
     return this.table.setKeepalive(threadId, keepalive);
   }
 
-  /** set_idle_retire_ms (v0.13): clamp to [1s, 24h]; garbage input falls back
-   * to the default rather than throwing. Returns the applied value. */
   setIdleRetireMs(ms: number): number {
-    const clamped = Number.isFinite(ms)
-      ? Math.min(86_400_000, Math.max(1_000, Math.round(ms)))
-      : IDLE_RETIRE_MS_DEFAULT;
-    this.idleRetireMs = clamped;
-    return clamped;
+    return (this.idleRetireMs = clampIdleRetireMs(ms));
+  }
+
+  setRssRetireBytes(bytes: number): number {
+    return (this.rssRetireBytes = clampRssRetireBytes(bytes));
   }
 
   /** ui_response: ack once in the host, broadcast to every live worker (the
@@ -594,6 +596,7 @@ export class WorkerPool {
       grantLedger: this.grantLedger,
       workers: () => [...this.allWorkers],
       idleRetireMs: this.idleRetireMs,
+      rssRetireBytes: this.rssRetireBytes,
       workerStaleMs: this.workerStaleMs,
       workerExitTimeoutMs: this.workerExitTimeoutMs,
       killWorker: (worker, intent) => this.killWorker(worker, intent),

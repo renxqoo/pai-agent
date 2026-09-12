@@ -30,6 +30,7 @@ import {
   SUBAGENT_STALE_MS_DEFAULT,
 } from "../../subagent-contract.ts";
 import { truncateBytes } from "../../truncate.ts";
+import { pendingUiFrameList, retainUiFrame } from "./subagent-ui-frames.ts";
 import { matchResponseId, sleep } from "../../subagent-wire.ts";
 import { spawnWorkerProcess, type WorkerHandle } from "../../worker-process.ts";
 import type { PaiEvent } from "../../protocol.ts";
@@ -72,7 +73,7 @@ class GrandchildRunner {
     this.state = {
       threadId: "",
       waiters: new Map(),
-      pendingUiRequests: new Set(),
+      pendingUiFrames: new Map(),
       usage: {
         turns: 0,
         input: 0,
@@ -109,6 +110,7 @@ class GrandchildRunner {
       resolveUi: (requestId, payload) => this.resolveUi(requestId, payload),
       steer: (message) => this.steer(message),
       progress: () => this.progress(),
+      pendingUiFrames: () => pendingUiFrameList(this.state.pendingUiFrames, Date.now()),
     };
   }
 
@@ -381,8 +383,8 @@ class GrandchildRunner {
 
   private resolveUi(requestId: string, payload: Record<string, unknown>): boolean {
     const { child } = this;
-    if (child === undefined || !this.state.pendingUiRequests.has(requestId)) return false;
-    this.state.pendingUiRequests.delete(requestId);
+    if (child === undefined || !this.state.pendingUiFrames.has(requestId)) return false;
+    this.state.pendingUiFrames.delete(requestId);
     void child
       .writeLine(JSON.stringify({ type: "ui_response", requestId, payload }))
       .catch(() => {});
@@ -420,8 +422,18 @@ class GrandchildRunner {
   private onUiRequestLine(line: string): void {
     try {
       const frame = JSON.parse(line) as Record<string, unknown>;
-      const { requestId } = frame;
-      if (typeof requestId === "string") this.state.pendingUiRequests.add(requestId);
+      // Admission policy (requestId shape / live count / frame bytes) lives
+      // in subagent-ui-frames beside its constants; every rejection is fatal.
+      const admission = retainUiFrame(
+        this.state.pendingUiFrames,
+        { line, requestId: frame["requestId"] },
+        Date.now(),
+      );
+      if (!admission.ok) {
+        this.noteFatal(admission.reason);
+        return;
+      }
+      this.state.pendingUiFrames.set(admission.requestId, { frame, at: Date.now() });
       this.hooks.onUiRequest(frame);
     } catch {
       this.noteFatal("grandchild sent a malformed ui_request");

@@ -18,6 +18,7 @@ import type {
   HubFrame,
   SessionModel,
   SetIdleRetireMsCmd,
+  SetRssRetireBytesCmd,
   SetModelCmd,
   SetModelOverrideCmd,
   SetPermissionRulesCmd,
@@ -185,6 +186,18 @@ const handleSetIdleRetireMs: HostHandler = async (deps, cmd, id) => {
   }
   const applied = deps.pool.setIdleRetireMs(setThreshold.ms);
   deps.emit(responseSuccess(id, setThreshold.type, { idleRetireMs: applied }));
+};
+
+/** set_rss_retire_bytes: runtime RSS hard-cap change; the applied (clamped)
+ * value is the response so the client never displays a stale policy. */
+const handleSetRssRetireBytes: HostHandler = async (deps, cmd, id) => {
+  const setThreshold = cmd as SetRssRetireBytesCmd;
+  if (typeof setThreshold.bytes !== "number" || !Number.isFinite(setThreshold.bytes)) {
+    deps.emit(responseFailure(id, setThreshold.type, "Invalid bytes"));
+    return;
+  }
+  const applied = deps.pool.setRssRetireBytes(setThreshold.bytes);
+  deps.emit(responseSuccess(id, setThreshold.type, { rssRetireBytes: applied }));
 };
 
 const handleList: HostHandler = async (deps, cmd, id) => {
@@ -364,6 +377,7 @@ const handleGetHostInfo: HostHandler = async (deps, cmd, id) => {
       limits: {
         maxThreads: limits.maxThreads,
         idleRetireMs: limits.idleRetireMs,
+        rssRetireBytes: limits.rssRetireBytes,
         workerStaleMs: limits.workerStaleMs,
         workerExitTimeoutMs: limits.workerExitTimeoutMs,
         maxSubagents: limits.maxSubagents,
@@ -387,6 +401,7 @@ export const hostHandlers: ReadonlyMap<string, HostHandler> = new Map<string, Ho
     "thread/retire": handleRetire,
     "thread/set_keepalive": handleSetKeepalive,
     set_idle_retire_ms: handleSetIdleRetireMs,
+    set_rss_retire_bytes: handleSetRssRetireBytes,
     "thread/list": handleList,
     "thread/list_saved": handleListSaved,
     get_models: handleGetModels,

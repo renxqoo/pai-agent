@@ -7,7 +7,7 @@ import {
 } from "../src/backend/capabilities.ts";
 import { THREAD_SCOPED_COMMANDS } from "../src/protocol-internal.ts";
 
-/** The full external command set (api.md §3: 43 commands). */
+/** The full external command set (api.md §3: 47 commands). */
 const ALL_COMMANDS = [
   ...THREAD_SCOPED_COMMANDS,
   "thread/start",
@@ -30,12 +30,16 @@ const ALL_COMMANDS = [
   "agents/list",
   "get_host_info",
   "set_idle_retire_ms",
+  "set_rss_retire_bytes",
+  "get_inflight",
+  "get_subagents",
+  "get_pending_dialogs",
 ] as const;
 
 describe("capability tables", () => {
-  test("every one of the 43 commands is classified exactly once", () => {
+  test("every one of the 47 commands is classified exactly once", () => {
     const unique = new Set(ALL_COMMANDS);
-    expect(unique.size).toBe(43);
+    expect(unique.size).toBe(47);
     for (const command of unique) {
       const classified = CORE_COMMANDS.has(command) || command in COMMAND_CAPABILITIES;
       expect(classified).toBeTrue();

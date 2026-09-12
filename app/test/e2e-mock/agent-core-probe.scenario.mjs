@@ -93,6 +93,7 @@ export async function run({ assert }) {
       { id: "st1", type: "steer", threadId: tid, message: "x" },
       { id: "b1", type: "bash", threadId: tid, command: "echo hi" },
       { id: "r1", type: "thread/resume", sessionPath: "/tmp/nope.jsonl" },
+      { id: "gi1", type: "get_inflight", threadId: tid },
     ];
     for (const cmd of gated) {
       host.send(cmd);
@@ -110,6 +111,16 @@ export async function run({ assert }) {
     host.send({ id: "t1", type: "thread/stop", threadId: tid });
     const stop = await host.waitResponse("t1");
     assert(stop.success, "thread/stop succeeds (core command)");
+
+    // Capability gate precedes the non-live short-circuit (design.md v0.14):
+    // a dead thread on a backend without session.inflight must still get the
+    // capability error, never the empty form.
+    host.send({ id: "gi2", type: "get_inflight", threadId: tid });
+    const gatedDead = await host.waitResponse("gi2");
+    assert(
+      !gatedDead.success && gatedDead.error.startsWith("Unsupported capability:"),
+      `dead-thread get_inflight is capability-gated, not empty-form (got ${gatedDead.error})`,
+    );
 
     const exitCode = await host.endGracefully();
     assert(exitCode === 0, `stdin EOF graceful exit 0 (got ${exitCode})`);

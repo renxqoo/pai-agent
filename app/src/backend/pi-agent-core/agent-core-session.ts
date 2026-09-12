@@ -31,7 +31,8 @@ export class AgentCoreSession implements PaiSession {
   readonly sessionId: string;
   readonly sessionFile = undefined;
   private sessionNameValue: string | undefined;
-  private readonly agent: Agent;
+  /** v0.14: public as the port's in-flight read sub-face (`agent.state`). */
+  readonly agent: Agent;
 
   constructor(agent: Agent) {
     this.sessionId = randomUUID();
@@ -133,6 +134,16 @@ export class AgentCoreSession implements PaiSession {
 
   clearQueue(): unknown {
     return unsupported("queue.clear");
+  }
+
+  /** v0.14 queue read face: the probe has no steering/follow-up queues
+   * (`steer`/`followUp` bits are off), so the queue is honestly empty. */
+  getSteeringMessages(): ReadonlyArray<string> {
+    return [];
+  }
+
+  getFollowUpMessages(): ReadonlyArray<string> {
+    return [];
   }
 
   setModel(): Promise<unknown> {

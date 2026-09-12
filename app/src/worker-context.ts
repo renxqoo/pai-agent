@@ -9,6 +9,8 @@ import type { WorkerCommand } from "./protocol-internal.ts";
 import type { DialogBroker } from "./dialogs.ts";
 import type { InflightRegistry } from "./inflight-registry.ts";
 import type { HubFrame } from "./protocol.ts";
+import type { SubagentSnapshotEntry } from "./protocol.ts";
+import type { PendingSubagentDialog } from "./subagent-registry.ts";
 import type {
   WorkerGrantFrame,
   WorkerHeartbeatFrame,
@@ -45,6 +47,11 @@ export interface WorkerContext {
   routeSubagentUi: (requestId: string, payload: Record<string, unknown>) => boolean;
   /** U2: client abort / thread stop kills every subagent (foreground + background). */
   killSubagents: () => void;
+  /** v0.14: subagent registry snapshot (get_subagents read face). */
+  subagentSnapshot: () => readonly SubagentSnapshotEntry[];
+  /** v0.14: unsettled grandchild ui_request frames (get_pending_dialogs
+   * merge source; broker dialogs and grandchild relays are one queue). */
+  subagentPendingDialogs: () => PendingSubagentDialog[];
   /** Stage 7: steer a running subagent; true on ack, otherwise an error string. */
   steerSubagent: (subagentId: string, message: string) => Promise<boolean | string>;
   /** v0.6 INTERNAL grant_result: wake the pending acquire by grant id

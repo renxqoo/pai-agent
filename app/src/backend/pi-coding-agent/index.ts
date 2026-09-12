@@ -63,6 +63,8 @@ const FULL_CAPABILITIES: ReadonlySet<CapabilityBit> = new Set<CapabilityBit>([
   "extensions.project",
   "resources.agents",
   "resources.skills",
+  // v0.14: in-flight read face (streaming message + queue + turn boundary).
+  "session.inflight",
 ]);
 
 /**

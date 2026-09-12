@@ -24,7 +24,15 @@ export interface DialogRequest {
 interface PendingDialog {
   threadId: string;
   settle: (payload: DialogPayload | undefined) => void;
+  /** v0.14: the request payload as sent on the wire — retained so a client
+   * that reloaded mid-dialog can rebuild the prompt (get_pending_dialogs). */
+  request: DialogRequest;
 }
+
+/** Frame headers are owned by the broker; a payload key with these names must
+ * never override them (ui_request shape integrity, incl. the v0.14 rebuild
+ * path where get_pending_dialogs re-spreads the retained payload). */
+const RESERVED_FRAME_KEYS: ReadonlySet<string> = new Set(["type", "requestId", "threadId"]);
 
 export class DialogBroker {
   private readonly pending = new Map<string, PendingDialog>();
@@ -44,6 +52,14 @@ export class DialogBroker {
     if (options.signal?.aborted) return Promise.resolve(undefined);
 
     const requestId = randomUUID();
+    const request: DialogRequest = { method: payload.method };
+    for (const [key, value] of Object.entries(payload)) {
+      // Assignment form would route an own `__proto__` key through the
+      // prototype setter and pollute the retained request object.
+      if (key !== "method" && key !== "__proto__" && !RESERVED_FRAME_KEYS.has(key)) {
+        request[key] = value;
+      }
+    }
     return new Promise((resolve) => {
       const timerRef: { value?: ReturnType<typeof setTimeout> } = {};
       const { signal } = options;
@@ -62,8 +78,8 @@ export class DialogBroker {
           ? setTimeout(() => settle(undefined), options.timeout)
           : undefined;
 
-      this.pending.set(requestId, { threadId, settle });
-      this.emitRequest({ type: "ui_request", requestId, threadId, ...payload });
+      this.pending.set(requestId, { threadId, settle, request });
+      this.emitRequest({ type: "ui_request", requestId, threadId, ...request });
     });
   }
 
@@ -73,6 +89,17 @@ export class DialogBroker {
     if (!entry) return false;
     entry.settle(payload);
     return true;
+  }
+
+  /** v0.14: unsettled dialogs, in ask order (reload convergence). Worker-scoped
+   * on purpose: a worker hosts one conversation, and dialogs raised by its
+   * subagents register under the grandchild's own threadId. */
+  pendingAll(): Array<{ requestId: string; threadId: string; request: DialogRequest }> {
+    const out: Array<{ requestId: string; threadId: string; request: DialogRequest }> = [];
+    for (const [requestId, entry] of this.pending) {
+      out.push({ requestId, threadId: entry.threadId, request: entry.request });
+    }
+    return out;
   }
 
   /** Number of unsettled dialogs (worker idle computation). */

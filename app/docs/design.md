@@ -235,7 +235,7 @@ src/
 纯增量（36 命令、8 帧），对外接口：[api.md](api.md)；实施与审查细节存于本地工作目录 `plans/`（不入库，本节为自足摘要）。要点：
 
 - **每线程权限 sidecar**：`get/set_permission_rules`（host 本地、严格校验、`rules:null` 清除）；判定链 injected→sidecar→全局热读；fork/clone 复制。
-- **子 agent 子系统**：`task` 工具（single/parallel/chain + `background:true`）→ 每任务一个 ephemeral 孙 worker（深度 1、in-memory、untrusted）；agent 定义 `.md` 热发现（项目级仅 trusted）；预算：≤8/调用、全局活孙 ≤4、在飞 ≤8（registry 同步闸门）、留存 ≤16（按完成序逐出）、通知/消息/中继/产出/stderr 五级字节上限。中继 256KB/任务上限只丢弃非终态事件：无负载的 `agent_settled` 恒转发（其字节仍计入累计，上界 +4KB/任务；超限异常帧只转发无负载规范形态），且父侧对**已产生事件**的子 agent 兜底合成终态事件（被杀/崩溃/看门狗终止也有终态，客户端不会停在「进行中」）。
+- **子 agent 子系统**：`task` 工具（single/parallel/chain + `background:true`）→ 每任务一个 ephemeral 孙 worker（深度 1、in-memory、untrusted）；agent 定义 `.md` 热发现（项目级仅 trusted）；预算：≤8/调用、全局活孙 ≤4、在飞 ≤8（registry 同步闸门）、留存 ≤16（按完成序逐出）、弹窗帧 ≤64 KiB/条（超出处死，保留面字节上界 1 MiB/孙）、通知/消息/中继/产出/stderr 五级字节上限。中继 256KB/任务上限只丢弃非终态事件：无负载的 `agent_settled` 恒转发（其字节仍计入累计，上界 +4KB/任务；超限异常帧只转发无负载规范形态），且父侧对**已产生事件**的子 agent 兜底合成终态事件（被杀/崩溃/看门狗终止也有终态，客户端不会停在「进行中」）。
 - **通知唤起链**：后台任务 settle → `[task-notification]` user-role 消息经回合边界投递（串行单飞；成功路径链式；失败回队 ≤3 次后 stderr 丢弃；streaming/compacting 挂起；killed/前台不通知；task_wait 抑制并回收已排队项）；worker isBusy 含在飞与待投递双窗口（retire 免疫）。
 - **agent 通信三扇门**：`subagent/steer` 命令 + `task_steer` 工具（同管线，running-only）；孙内置 `report`/`send`（深度 1 无 task 工具；tools 白名单自动合并）→ `subagent_message` 帧（父重盖身份）+ 信封入通知队列（项目级 agent 标注 unverified data；10 条×8KB 双侧预算）；`task_send` 兄弟路由（父中介，`[from: lead]` 信封）。
 - **U2 停止语义**：`abort`/`thread/stop`/shutdown → killAll（前台+后台+通知队列+抑制集）。
@@ -246,7 +246,7 @@ src/
 
 对外纯增量（37 命令 / 8 帧，帧不变）：
 
-- **`get_host_info`**（host 本地，无字段）→ `{version, piVersion, bunVersion, pid, uptimeMs, rssBytes, threads:{live,parked,dead}, subagents:{running}, limits:{maxThreads, idleRetireMs, workerStaleMs, workerExitTimeoutMs, maxSubagents, bashTimeoutMs}}`。版本启动期一次性读取；不回显路径/env/凭据。`subagents.running` = grant 账本的全局运行孙进程数（与心跳 `subagents`（在飞=queued+running）是两个口径，各自单一真相）。
+- **`get_host_info`**（host 本地，无字段）→ `{version, piVersion, bunVersion, pid, uptimeMs, rssBytes, threads:{live,parked,dead}, subagents:{running}, limits:{maxThreads, idleRetireMs, rssRetireBytes, workerStaleMs, workerExitTimeoutMs, maxSubagents, bashTimeoutMs}}`。版本启动期一次性读取；不回显路径/env/凭据。`subagents.running` = grant 账本的全局运行孙进程数（与心跳 `subagents`（在飞=queued+running）是两个口径，各自单一真相）。
 - **`bash` 新增可选 `timeoutMs`**：正整数 ≤ 86_400_000；`0` 显式关闭；缺省 `PAI_BASH_TIMEOUT_MS`（默认 600_000，`0` 关闭）。到点服务端 `abortBash` → `success:true` + `BashResult.cancelled:true`（与 abort_bash 同形，恰好一响应不变）。非法值 failure。`user_bash` 扩展替换执行路径不套计时（与 pi RPC 一致）。
 - **环境旋钮**：`PAI_MAX_SUBAGGENTS`（默认 16）——全局**正在运行**孙进程硬上限，经 host↔worker 内部 grant 仲裁强制执行（规格见 migration/design.md §3 增补）：worker 在任务 queued→running 前（spawn 前）向 host 申请租约，拒绝=任务立即失败（`global subagent limit reached`，模型可见可重试），不排队；settle/kill 释放；租约 TTL 5 分钟 + 心跳续约（worker 心跳 `subagents>0` 时刷新其全部租约）+ worker 死亡回收。线程内既有预算（≤8/调用、并发 ≤4、在飞 ≤8）不变，两道闸门串联。
 - 验收口径：e2e-mock `subagent-global-quota` 场景（PAI_MAX_SUBAGGENTS=1 下并行 2 任务恰 1 运行 1 拒绝、settle 后租约归零）+ smoke 断言（get_host_info 形状、timeoutMs 校验矩阵、超时 cancelled 往返）+ worker-pool 单测（租约申请/释放/TTL/心跳续约/死亡回收）。
@@ -397,6 +397,32 @@ v0.10 的确认流程在默认配置下弹框过密（精确路径/精确命令�
 - **retire × 在途唤醒**：wake 在飞时 retire 不再 success-lie——置后置收编（`entry.wake` 落地为 live 后即以 reason=manual 收编；对称 stop 的 stopRequested 语义）。
 - **未落盘会话**：`worker.sessionPath === null`（lazy-persist 首条消息前）的 live worker retire 回 failure `Session not persisted yet`——parking 会造成不可唤醒的幽灵表项（sweep 的同款守卫对齐）。
 - **fork 不继承 keepalive**：rekeyFork 迁移表项时显式清零（新会话新策略；客户端按需 re-assert）。
-- **垃圾输入**：`set_idle_retire_ms` 非有限数字、`thread/set_keepalive` 非布尔 → failure（命令族惯例，不静默折叠加默认）。
+- **`set_rss_retire_bytes`（RSS 硬顶）**：`{bytes}` → 运行期改 worker RSS 硬顶（0=关闭；有效域钳制 `[256 MiB, 2 TiB]`，响应回生效值；环境旋钮 `PAI_RSS_RETIRE_BYTES` 同语义、缺省 0=关；`get_host_info.limits.rssRetireBytes` 回显）。sweep 判据（stale/spawn-deadline 之后）：live worker 心跳 `rssBytes ≥ 阈值` → **已落盘**（sessionPath 非空）走 idle/manual 同一 `retireWorker` 入口回收，`thread_parked.reason = "rss"`；**未落盘**（首回合、无会话文件）走 kill（`thread_died` 诚实失败）——收编一个无文件表项会造出永远无法唤醒的 parked 僵尸。**硬顶语义：keepalive 与 busy 不豁免**（机器保护优先；mid-turn 回收丢在途轮、会话已落盘前缀无损，与 thread/retire 手动回收一致）。上下限 256 MiB..2 TiB 对**所有配置面**（命令与 `PAI_RSS_RETIRE_BYTES` env 一致）生效，防「低于 bun worker 基线 → resume 即回收」死循环。默认关（杀 busy worker 是破坏性动作，opt-in）。
+- **在途快照尾部预判（热路径）**：`tool_execution_update` 携带累积快照——保留面从末块累计字节、已取部分 > cap 即停（每事件 O(cap)，头块永不 join/测量），结果与「全量 join + retainTail」逐字节等价、`truncated` 标志同样精确。
+- **垃圾输入**：`set_idle_retire_ms` 非有限数字、`set_rss_retire_bytes` 非有限数字、`thread/set_keepalive` 非布尔 → failure（命令族惯例，不静默折叠加默认）。
 - **cpuPercent 分母**：以实测 tick 间隔为分母（事件循环停顿拉长 tick 时不再系统性放大读数）。
 - **cap 驱逐不发帧**：settleClosedWorker 的非 live 容量驱逐命中本表项时跳过 thread_parked（不给已消失的表项发帧）。
+
+## 契约 v0.14 增补：收敛读口族（刷新/重连后仅靠只读快照即可收敛）（2026-09-11；方案 docs/plans/2026-09-11-convergence-read-surface.md）
+
+**不变量（新增，协议级）**：任何由事件（`PaiEvent` / `ui_request` / `subagent_event` / `subagent_message`）派生的客户端视图面，**必须**存在一个只读快照命令；客户端在任意时点（首挂载 / 渲染层重载 / 重连 / 宿主重启回落）仅靠只读快照即可收敛，事件只承担低延迟增量。快照与增量的合并必须幂等（同实体同 id，或明文规定的前缀 / 整体替换规则）。事件 ↔ 读口 ↔ 合并规则登记表见方案 §3.1——**新增事件类型必须同表登记读口与合并规则**。
+
+**新命令（3 条，均属 observer：只读、不发事件、不重置 worker idle 计时）**
+
+| 命令                  | 响应                                                                                                                                                                 | 空形态                         |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `get_inflight`        | `{turnStartEntryId, turnStartedAt, message, toolOutputs, bash}`                                                                                                      | `{null, null, null, [], null}` |
+| `get_subagents`       | `{subagents: SnapshotEntry[]}`（registry 快照原样）                                                                                                                  | `{subagents: []}`              |
+| `get_pending_dialogs` | `{dialogs: [{requestId, threadId, method, payload}]}`（payload = 请求完整字段体〔帧头保留键已剥除〕，客户端 `{...payload}` 重建帧；**worker 作用域**，含子代理弹窗） | `{dialogs: []}`                |
+
+- **`get_inflight.turnStartedAt`**：轮首时刻（epoch ms，与 `turnStartEntryId` 同点采集）——客户端刷新后**续算**轮计时，而不是从刷新时刻重新起算。
+- **`get_inflight.turnStartEntryId`**：本轮持久前缀边界 = `agent_start` 时刻的 leaf entry id（无在途轮为 `null`）。这是「哪些条目属于当前轮」的**权威**判据——客户端不得用「末位用户消息」之类启发式重推（轮内注入的 user 消息与 steer 中途插话都会把启发式切错，切错即同轮双渲染）。
+- **`get_inflight.message`**：在途 assistant partial，与 `message_end` 事件同源形状（客户端复用同一正规化路径）。**`get_messages` 恒不含它**（`agent.state.messages` 只在 `message_end` 收到消息，partial 在 `streamingMessage` 里）——在途内容一律走本条命令。
+- **`get_inflight.toolOutputs / bash`**：运行中工具调用的输出尾部与直执行 bash 的输出尾部（bash 的生命周期由 begin/end 独立管理，**模型轮结算不清它**——并发直执行时轮结算不得清掉仍在跑的 bash 面），各带 `startedAt`（epoch ms，供重载后恢复时长/计时显示）。上界：每调用 / 每条 64 KiB（**按字节**，丢头保尾且不劈代理对），超出置 `truncated: true`；调用结束（tool_execution_end）/ 对应命令结束即除名。并发数上界分治：工具调用表至多 8 条（超出丢最旧——工具调用不承载准入信号，丢旧只损失读面）；直执行槽位表至多 8 条且**满表拒绝**（槽位全部运行中，逐出会同时丢在途面与无 id 并发的准入信号）——第 9 条并发直执行回 failure `too many concurrent direct bash executions (limit reached)`。**槽位认领在准入时同步完成，且认领/释放/执行全程使用准入时捕获的 inflight 状态与会话引用**（权限弹窗最长可挂 5 分钟，worker 又是并发分发，检查与登记之间不能有异步窗；fork/clone 的 rebind 会就地换掉两者，晚绑定会释放在新代状态上或对新会话执行——换绑同时结算旧 id 弹窗，被换绑中断的准入以干净失败收场）：无 id 直执行在任一无 id 槽在跑（含权限门挂起期）时回 failure `concurrent direct bash requires a command id`；非空 id 撞已在跑的同 id 回 failure `bash command id is already in use`（`id:""` 视同缺省）。**弹窗期 abort_bash 穿透准入窗**：立即 abort 该会话全部挂起准入（弹窗按未应答结算、命令永不执行、response failure `aborted before execution started` 恰一帧），再发会话级 abortBash。**并发直执行**（api.md 明示支持）：在途面按命令帧 id 隔离保留，互不覆盖、各自结束只清自己；读口 `bash` 是单面（与客户端横幅、live 事件同为单面）——取**最新仍在跑**的直执行，`bash === null` ⇔ 无任何直执行在跑（客户端收尾探测的判据）。
+- **孙进程弹窗帧契约**：`requestId` 非非空字符串 = malformed 帧（fatal、不中继——中继会出现客户端永远无法应答、重载后消失的僵尸弹窗）；保留表 TTL 过期条目在插入路径清扫（死弹窗不占 cap，16 条上限只计可应答弹窗）；单帧 64 KiB 字节上限（超出 = 协议违例处死）——保留面的字节上界由此成立（16 × 64 KiB = 每孙进程 1 MiB），不再只依赖管道行上限。
+- **`get_pending_dialogs`**：两个数据源合并成一个队列——broker 保留 request payload（原先只保留关联关系），以及子代理（grandchild）的在途弹窗帧（其实时帧直发客户端、不经 broker，registry 保留的原始帧是重载后唯一重建源；条目按实时 relay 同口径：threadId = 父会话 id，payload 追加 `subagentId`/`agent`；running 之外的 grandchild 条目随进程消亡）。「恰好 settle 一次」语义不变（payload 保留只是新增只读观察面）。
+- **`get_state` 增字段 `queue: {steering, followUp}`**：排队文本的读口（读会话既有 getter；无队列后端回空数组）。**parked/dead 直读路径同批返回该字段（恒空数组）**——live/parked 形状必须闭合（v0.12 同源表纪律）。
+- **非 live 短路**：三条读命令对 `parked`/`dead` 由 host 本地回**空形态**应答（不读文件、不 spawn、不改状态、不发事件）；`live` 透传 worker（内存态真相）。**能力门控先于短路**：后端不支持某读口（如探针后端无 `session.inflight`）时，非 live 读同样回 `success:false` 的能力错误——门控语义不受线程状态影响。
+- **能力位**：新增 `session.inflight`（门控 `get_inflight`；pi-coding-agent 支持，探针后端 pi-agent-core 不支持）。`get_subagents` / `get_pending_dialogs` 读的是 hub 自有状态（子代理 registry / 对话框 broker），属**核心命令**（无能力位，任何后端恒可用）。外部命令数 43 → **46**。
+- **客户端降级口径（写进 electron-integration.md）**：旧 hub 无该命令 → failure（不挂起）；**探测只允许对 live 会话发起**——对 parked 线程发未知命令会经 passthrough 走唤醒路径（`host.ts` handlePassthrough → `sendToThread` ensureAwake），违反 v0.12「读不唤醒」；探测结果按 hub 进程代际失效。
+- **不处理（明确归属）**：事件序号补拉（`thread/events?since`）——客户端要的是"现在是什么"而非"曾经发生了什么"，且它仍需快照兜底；出现第二个消费方（多窗口/远端订阅）再立项。自动重试状态读口（SDK 私有字段，无稳定真相，缺它代价极低）。子代理 relayed 事件历史（只给快照）。

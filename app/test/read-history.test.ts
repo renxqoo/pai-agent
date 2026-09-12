@@ -507,3 +507,201 @@ describe("readHistoryState cyclic-parent guard (host loop safety)", () => {
     expect(readHistoryState(fine, { sessionPath: "/s", resolveModel: noModel })).not.toBeNull();
   });
 });
+
+/** 短路路径不得读会话文件：读到即失败（hostWith 的 readHistory 特意抛错）。 */
+function nonLiveHost(target: unknown, frames: HubFrame[]): HostDeps {
+  return {
+    pool: { entryFacts: () => target },
+    backend: {
+      resources: {
+        readHistory: () => {
+          throw new Error("short-circuit must not read the session file");
+        },
+      },
+    },
+    emit: (frame: HubFrame) => frames.push(frame),
+  } as unknown as HostDeps;
+}
+
+describe("v0.14 non-live convergence reads (empty-form short-circuit)", () => {
+  test("parked/dead 三读口回空形态（不读文件、不唤醒、恒 success）", async () => {
+    for (const state of ["parked", "dead"] as const) {
+      const frames: HubFrame[] = [];
+      const host = nonLiveHost({ state, sessionPath: "/sessions/s1.jsonl" }, frames);
+      expect(
+        await tryHandleReadHistory(
+          host,
+          { type: "get_inflight", threadId: "t1" } as HubCommand,
+          "1",
+        ),
+      ).toBe(true);
+      expect(
+        await tryHandleReadHistory(
+          host,
+          { type: "get_subagents", threadId: "t1" } as HubCommand,
+          "2",
+        ),
+      ).toBe(true);
+      expect(
+        await tryHandleReadHistory(
+          host,
+          { type: "get_pending_dialogs", threadId: "t1" } as HubCommand,
+          "3",
+        ),
+      ).toBe(true);
+      expect(frames).toEqual([
+        {
+          type: "response",
+          id: "1",
+          command: "get_inflight",
+          success: true,
+          data: {
+            turnStartEntryId: null,
+            turnStartedAt: null,
+            message: null,
+            toolOutputs: [],
+            bash: null,
+          },
+        },
+        {
+          type: "response",
+          id: "2",
+          command: "get_subagents",
+          success: true,
+          data: { subagents: [] },
+        },
+        {
+          type: "response",
+          id: "3",
+          command: "get_pending_dialogs",
+          success: true,
+          data: { dialogs: [] },
+        },
+      ]);
+    }
+  });
+
+  test("live 线程 / 未知线程 / 缺 threadId / 非收敛命令：不接手（走唤醒透传路径）", async () => {
+    for (const target of [{ state: "live", sessionPath: "/s" }, undefined]) {
+      const frames: HubFrame[] = [];
+      const host = nonLiveHost(target, frames);
+      for (const type of ["get_inflight", "get_subagents", "get_pending_dialogs"]) {
+        expect(await tryHandleReadHistory(host, { type, threadId: "t1" } as HubCommand, "1")).toBe(
+          false,
+        );
+      }
+      expect(frames).toEqual([]);
+    }
+    const frames: HubFrame[] = [];
+    const host = nonLiveHost({ state: "parked", sessionPath: "/s" }, frames);
+    expect(await tryHandleReadHistory(host, { type: "get_inflight" } as HubCommand, "1")).toBe(
+      false,
+    );
+    expect(
+      await tryHandleReadHistory(host, { type: "get_inflight", threadId: 7 } as never, "2"),
+    ).toBe(false);
+    expect(
+      await tryHandleReadHistory(host, { type: "prompt", threadId: "t1" } as HubCommand, "3"),
+    ).toBe(false);
+    expect(frames).toEqual([]);
+  });
+
+  test("空形态常量被冻结（下游改动不得污染后续应答）", async () => {
+    const frames: HubFrame[] = [];
+    const host = nonLiveHost({ state: "parked", sessionPath: "/s" }, frames);
+    await tryHandleReadHistory(host, { type: "get_subagents", threadId: "t1" } as HubCommand, "1");
+    const { data } = frames[0] as { data: { subagents: unknown[] } };
+    expect(() => {
+      (data.subagents as unknown[]).push("pollution");
+    }).toThrow();
+  });
+});
+
+/**
+ * 对抗处置（adv-fuzz F3/F4/F8/F7）：parseSessionEntries 按设计接受任意 JSON
+ * 值（含 null/数字行），头部校验只查第一行——损坏文件可达。直读路径对非对象
+ * 条目、非 string 的 session_info.name、缺 body 的 message 条目抛 TypeError，
+ * 越过模块「不可用 → null → fail-open 唤醒」的自有契约变成 internal error。
+ */
+describe("corrupted session files degrade, never throw (adversarial)", () => {
+  test("症状回归 F3「非对象条目抛 TypeError」：垃圾行被跳过，合法条目照常服务", () => {
+    const snapshot = historySnapshotOf([
+      header("s1"),
+      null as never,
+      42 as never,
+      "garbage" as never,
+      entry("e1", null, { type: "session_info", name: "kept" }),
+    ]);
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.entries.map((e) => e.id)).toEqual(["e1"]);
+    expect(snapshot?.leafId).toBe("e1");
+    expect(snapshot?.sessionName).toBe("kept");
+  });
+
+  test("症状回归 F8「非 string 的 session_info.name 抛 TypeError」：名字降级为 null", () => {
+    const snapshot = historySnapshotOf([
+      header("s1"),
+      entry("e1", null, { type: "session_info", name: 42 as never }),
+    ]);
+    expect(snapshot?.sessionName).toBeNull();
+    expect(snapshot?.leafId).toBe("e1");
+  });
+
+  test("症状回归 F7「无 id 末条目产出 undefined leafId」：类型恒为 string | null", () => {
+    const snapshot = historySnapshotOf([
+      header("s1"),
+      entry("e1", null, { type: "session_info" }),
+      { type: "session_info", parentId: "e1", name: "tail" } as never,
+    ]);
+    expect(snapshot?.leafId === null || typeof snapshot?.leafId === "string").toBe(true);
+    expect(JSON.parse(JSON.stringify({ leafId: snapshot?.leafId })).leafId).toBeDefined();
+  });
+
+  test("症状回归 F4「缺 body 的 message 条目让 readHistoryState 抛出」：回 null 走 fail-open", () => {
+    const snapshot = historySnapshotOf([
+      header("s1"),
+      { type: "message", id: "e1", parentId: null } as never,
+    ]);
+    expect(snapshot).not.toBeNull();
+    const state = readHistoryState(
+      snapshotOf([header("s1"), { type: "message", id: "e1", parentId: null } as never]),
+      { sessionPath: "/tmp/anywhere.jsonl", resolveModel: noModel },
+    );
+    expect(state).toBeNull(); // 不可用条目图 → null（fail-open 唤醒路径）
+  });
+});
+
+/**
+ * 处置遗留②：双重损坏文件（无 id 垃圾对象行 + 合法条目缺 parentId 字段）
+ * 下，byId 以 undefined 为键收录垃圾条目，缺字段的 parentId(=undefined)
+ * 命中它并自环 → 误判循环 → 放弃直读。修法：只收录 string id；parentId
+ * 仅在为 string 时跟随（缺失/null/异型一律视为根）。
+ */
+describe("parentChainAcyclic tolerates doubly-corrupt files (disposition leftover 2)", () => {
+  test("症状回归「undefined 键误判循环」：垃圾行 + 缺 parentId 的合法条目不再放弃直读", () => {
+    const entries = [
+      header("s1"),
+      { type: "session_info", name: "garbage-no-id" } as never, // 无 id 垃圾对象行
+      {
+        type: "message",
+        id: "e1",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "hi" }],
+          provider: "p",
+          model: "m",
+        },
+      } as never, // parentId 字段缺失（undefined ≠ null）
+    ];
+    // 先证伪旧症状：快照可用（垃圾行被跳过、e1 是叶子）
+    const snapshot = historySnapshotOf(entries);
+    expect(snapshot?.leafId).toBe("e1");
+    // 直读不再因误判循环回 null（旧代码在此返回 null）
+    const state = readHistoryState(snapshotOf(entries), {
+      sessionPath: "/tmp/x.jsonl",
+      resolveModel: noModel,
+    });
+    expect(state).not.toBeNull();
+    expect(state?.messageCount).toBe(1);
+  });
+});
