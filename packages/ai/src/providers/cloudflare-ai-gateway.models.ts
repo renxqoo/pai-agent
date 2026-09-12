@@ -5,4 +5,4 @@ import values from "./data/cloudflare-ai-gateway.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
 export const CLOUDFLARE_AI_GATEWAY_MODELS: ModelCatalog<typeof values, "cloudflare-ai-gateway"> =
-  flattenModelCatalog("cloudflare-ai-gateway", values);
+	flattenModelCatalog("cloudflare-ai-gateway", values);

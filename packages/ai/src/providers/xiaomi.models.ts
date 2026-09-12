@@ -4,7 +4,5 @@
 import values from "./data/xiaomi.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const XIAOMI_MODELS: ModelCatalog<typeof values, "xiaomi"> = flattenModelCatalog(
-  "xiaomi",
-  values,
-);
+export const XIAOMI_MODELS: ModelCatalog<typeof values, "xiaomi"> =
+	flattenModelCatalog("xiaomi", values);

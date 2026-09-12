@@ -4,7 +4,5 @@
 import values from "./data/opencode-go.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const OPENCODE_GO_MODELS: ModelCatalog<typeof values, "opencode-go"> = flattenModelCatalog(
-  "opencode-go",
-  values,
-);
+export const OPENCODE_GO_MODELS: ModelCatalog<typeof values, "opencode-go"> =
+	flattenModelCatalog("opencode-go", values);

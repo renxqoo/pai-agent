@@ -4,7 +4,5 @@
 import values from "./data/baseten.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const BASETEN_MODELS: ModelCatalog<typeof values, "baseten"> = flattenModelCatalog(
-  "baseten",
-  values,
-);
+export const BASETEN_MODELS: ModelCatalog<typeof values, "baseten"> =
+	flattenModelCatalog("baseten", values);

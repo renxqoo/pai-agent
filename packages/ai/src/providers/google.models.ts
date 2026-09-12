@@ -4,7 +4,5 @@
 import values from "./data/google.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const GOOGLE_MODELS: ModelCatalog<typeof values, "google"> = flattenModelCatalog(
-  "google",
-  values,
-);
+export const GOOGLE_MODELS: ModelCatalog<typeof values, "google"> =
+	flattenModelCatalog("google", values);

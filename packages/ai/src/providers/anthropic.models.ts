@@ -4,7 +4,5 @@
 import values from "./data/anthropic.json" with { type: "json" };
 import { flattenModelCatalog, type ModelCatalog } from "../model-catalog.ts";
 
-export const ANTHROPIC_MODELS: ModelCatalog<typeof values, "anthropic"> = flattenModelCatalog(
-  "anthropic",
-  values,
-);
+export const ANTHROPIC_MODELS: ModelCatalog<typeof values, "anthropic"> =
+	flattenModelCatalog("anthropic", values);
